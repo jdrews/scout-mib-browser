@@ -14,34 +14,36 @@ Inspired by iReasoning MIB Browser, but free and open source (MIT).
 Two-tier architecture: pure Go backend + miqt/Qt6 GUI frontend.
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                      UI Layer (miqt/Qt6)            │
-│  ┌──────────┐ ┌──────────────┐ ┌────────────────┐  │
-│  │ MIB Tree │ │ Connection   │ │ Results View   │  │
-│  │ View     │ │ Panel        │ │ (Table/List)   │  │
-│  └─────┬────┘ └──────┬───────┘ └────────┬───────┘  │
-│        │              │                  │           │
-│  ┌─────▼──────────────▼──────────────────▼───────┐  │
-│  │              Application Controller            │  │
-│  └──────────────────────┬─────────────────────────┘  │
-├─────────────────────────┼────────────────────────────┤
-│                         │                            │
-│  ┌──────────────────────▼─────────────────────────┐  │
-│  │              Backend (Pure Go)                  │  │
-│  │                                                │  │
-│  │  ┌──────────┐  ┌──────────────────────┐       │  │
-│  │  │ MIB      │  │ SNMP Engine          │       │  │
-│  │  │ Resolver │  │                      │       │  │
-│  │  │          │  │ - Get / GetBulk      │       │  │
-│  │  └──────────┘  │ - GetNext            │       │  │
-│  │                │ - Walk / BulkWalk    │       │  │
-│  │  ┌──────────┐  │ - Set (Int/String)   │       │  │
-│  │  │ Export   │  │ - Table retrieval    │       │  │
-│  │  │ Writers  │  │   (detect table,     │       │  │
-│  │  │(TSV/JSON/CSV)│ fetch all rows)    │       │  │
-│  │  └──────────┘  └──────────────────────┘       │  │
-│  └────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────┘
++-----------------------------------------------------+
+|                   UI Layer (miqt/Qt6)               |
+|                                                     |
+|   +-----------+  +-------------+  +---------------+ |
+|   | MIB Tree  |  | Connection  |  | Results View  | |
+|   | View      |  | Panel       |  | (Table/List)  | |
+|   +-----+----+  +------+------+  +-------+-------+ |
+|         |               |                   |       |
+|         v               v                   v       |
+|   +-------------------------------------------------+ |
+|   |              Application Controller             | |
+|   +------------------+------------------------------+ |
+|                    |                                  |
+|                    v                                  |
+|   +-------------------------------------------------+ |
+|   |              Backend (Pure Go)                  | |
+|   |                                                 | |
+|   |  +-----------+  +----------------------------+  | |
+|   |  | MIB       |  | SNMP Engine                |  | |
+|   |  | Resolver  |  |                            |  | |
+|   |  |           |  | - Get / GetBulk            |  | |
+|   |  +-----------+  | - GetNext                  |  | |
+|   |                 | - Walk / BulkWalk          |  | |
+|   |  +-----------+  | - Set (Int/String)         |  | |
+|   |  | Export      |  | - Table retrieval         |  | |
+|   |  | Writers     |  |   (detect table, fetch    |  | |
+|   |  |(TSV/JSON/CSV)|  |    all rows)             |  | |
+|   |  +-----------+  +----------------------------+  | |
+|   +-------------------------------------------------+ |
++-----------------------------------------------------+
 ```
 
 - **UI Layer**: miqt/Qt6 widgets. All UI runs on the Qt main thread (`runtime.LockOSThread()`). Backend calls execute in goroutines; results marshal back via `mainthread.Wait()`.
@@ -145,7 +147,7 @@ scout-mib-browser/
 │       ├── json.go         # JSON writer with metadata envelope
 │       └── csv.go          # CSV writer with RFC 4180 quoting
 ├── mibs/                   # Bundled default MIBs (IF-MIB, SNMPv2-MIB, etc.)
-├── docs/superpowers/specs/ # Design specs
+├── docs/specs/             # Design specs
 └── go.mod
 ```
 
