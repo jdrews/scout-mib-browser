@@ -90,6 +90,11 @@ Results can be exported in three formats:
 ### Connection Management
 Ad-hoc connections only. User enters host, port, version, community/credentials each time they connect. No credential storage.
 
+### SNMPv3 USM User Management
+- Read and manage SNMPv3 USM users on the target device via `usmUserTable` (SNMP-USER-BASED-SM-MIB).
+- UI provides a dedicated panel or context menu action to list existing users, create new users, modify auth/priv settings, and delete users.
+- Operations use standard SNMP Set against the relevant USM table rows.
+
 ## UI Layout
 
 ```
@@ -164,6 +169,5 @@ First build per platform takes ~10 minutes (Qt compilation). Subsequent builds l
 - Trap receiver / trap sender
 - Network discovery tools
 - Performance graphing / polling
-- SNMPv3 USM user management
 - Device snapshots / comparison tools
 - Ping / traceroute utilities
