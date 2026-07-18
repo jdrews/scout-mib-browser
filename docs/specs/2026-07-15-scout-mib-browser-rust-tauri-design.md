@@ -1,7 +1,7 @@
 # Scout MIB Browser - Design Specification (Rust/Tauri)
 
 **Date:** 2026-07-15
-**Status:** Initial draft — Rust/Tauri approach
+**Status:** Accepted — Rust/Tauri approach
 
 ## Overview
 
@@ -81,7 +81,7 @@ The tool must never crash or abort on non-compliant device behavior:
 - **Primary path**: Scan all files in user-selected directories + bundled defaults, pre-filtering out binary and non-text files. Attempt to load each into `mib-rs`. The resolver handles IMPORT/EXPORT, macro expansion, and builds a complete OID-to-name/type index with diagnostics collection instead of fail-fast.
 - **Fallback path**: If mib-rs fails to parse a specific MIB file (syntax error, unsupported construct), run a regex-based extractor that pulls OBJECT-TYPE blocks, name/SYNTAX mappings, and explicit numeric OID assignments.
 - **Resolution API**: `resolve(oid) -> (name, mibName, syntaxType)` and `reverse_lookup(name) -> oid`. Both paths merge into a single index; mib-rs results take precedence, fallback fills gaps.
-- **Fallback indicator**: OIDs resolved via regex fallback display a ⚠ icon in the MIB tree and results view to distinguish them from mib-rs-resolved entries.
+- **Fallback indicator**: A warning banner appears at the bottom of the MIB tree when any files were loaded via regex fallback. Clicking "System Log" shows per-file details about what was extracted and what was skipped.
 - Parser errors are logged to the UI log window but never block loading other MIBs. Partially parsed MIBs still contribute whatever was extracted.
 
 ### Export Formats
@@ -110,10 +110,6 @@ Ad-hoc connections only. User enters host, port, version, community/credentials 
 - Covers: error tolerance paths, partial result collection, table detection/assembly, fallback MIB parsing, export formatting
 - No real-device integration tests in CI (manual QA covers device quirks)
 
-### SNMPv3 USM User Management
-- Read and manage SNMPv3 USM users on the target device via `usmUserTable` (SNMP-USER-BASED-SM-MIB).
-- UI provides a dedicated panel or context menu action to list existing users, create new users, modify auth/priv settings, and delete users.
-- Operations use standard SNMP Set against the relevant USM table rows.
 
 ## UI Layout
 

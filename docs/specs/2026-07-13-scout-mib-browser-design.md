@@ -1,7 +1,7 @@
 # Scout MIB Browser - Design Specification
 
 **Date:** 2026-07-13
-**Status:** Revised after brainstorming session (2026-07-15)
+**Status:** REJECTED for rust based
 
 ## Overview
 
