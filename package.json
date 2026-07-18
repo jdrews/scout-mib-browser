@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "sandcastle:build-image": "podman build -t sandcastle/scout-mib-browser:local .sandcastle/",
+    "sandcastle:build-image": "podman build --build-arg UID=$(id -u) --build-arg GID=$(id -g) -t sandcastle/scout-mib-browser:local .sandcastle/",
     "sandcastle:run": "tsx .sandcastle/main.mts",
     "sandcastle:ticket": "tsx .sandcastle/main.mts"
   },

@@ -46,7 +46,6 @@ await run({
   hooks: {
     sandbox: {
       onSandboxReady: [
-        { command: "rustup default stable" },
         { command: "cargo --version && node --version && opencode --version" },
       ],
     },

@@ -13,27 +13,38 @@ RUN apt-get update && apt-get install -y \
     gnupg \
     && rm -rf /var/lib/apt/lists/*
 
-# Create app user with matching UID/GID (before installing tools so we can chown)
-RUN groupadd -g ${GID} agent || true \
-    && useradd -u ${UID} -g ${GID} -m -s /bin/bash agent || true
+# Create app user (handle UID/GID conflicts gracefully)
+RUN groupadd -f -g ${GID} agent; \
+    if ! id agent &>/dev/null; then \
+        useradd -u ${UID} -g ${GID} -m -s /bin/bash agent || \
+        usermod -g ${GID} -d /home/agent -s /bin/bash $(getent passwd ${UID}); \
+    fi; \
+    mkdir -p /home/agent/.cargo /home/agent/.local/bin /home/agent/.npm
 
-# Install Rust as root, then make accessible to agent
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+# Install Rust and set default toolchain
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+    && /root/.cargo/bin/rustup default stable
 
 # Install Node.js 20 (for sandcastle runtime)
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Install opencode CLI
-RUN curl -fsSL https://opencode.ai/install | bash
+# Install opencode CLI from GitHub releases
+RUN curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path
 
 # Make tool directories accessible to agent user
-RUN chown -R ${UID}:${GID} /root/.cargo /root/.rustup \
+RUN chown -R ${UID}:${GID} /root/.cargo /root/.rustup /root/.opencode \
     && if [ -d /root/.local ]; then chown -R ${UID}:${GID} /root/.local; fi \
     && chmod 755 /root
 
-ENV PATH="/root/.cargo/bin:/root/.local/bin:${PATH}"
+# Ensure agent's home dir is fully owned (clean up any root-owned files from build)
+RUN chown -R ${UID}:${GID} /home/agent
+
+# Point rustup/cargo to root's installation (shared via chown)
+ENV RUSTUP_HOME=/root/.rustup \
+    CARGO_HOME=/root/.cargo \
+    PATH="/root/.cargo/bin:/root/.opencode/bin:/root/.local/bin:${PATH}"
 
 USER agent
 WORKDIR /home/agent/project
