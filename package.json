@@ -1,0 +1,14 @@
+{
+  "name": "scout-mib-browser",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sandcastle:build-image": "podman build -t sandcastle/scout-mib-browser:local .sandcastle/",
+    "sandcastle:run": "tsx .sandcastle/main.mts",
+    "sandcastle:ticket": "tsx .sandcastle/main.mts"
+  },
+  "devDependencies": {
+    "@ai-hero/sandcastle": "^0.13.0",
+    "tsx": "^4.7.0"
+  }
+}
