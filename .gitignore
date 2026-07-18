@@ -1,10 +1,23 @@
-# env file
+# Rust build artifacts
+target/
+**/*.rs.bk
+
+# Tauri build output
+src-tauri/target/
+
+# IDE and editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
 .env
 
-# Editor/IDE
-# .idea/
-# .vscode/
+# Node.js
+node_modules/
 
+# Sandcastle references
 **/references/*
 
 # Sandcastle / Node.js

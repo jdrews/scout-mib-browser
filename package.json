@@ -8,7 +8,7 @@
     "sandcastle:ticket": "tsx .sandcastle/main.mts"
   },
   "devDependencies": {
-    "@ai-hero/sandcastle": "^0.12.0",
+"@ai-hero/sandcastle": "^0.13.0",
     "tsx": "^4.7.0"
   }
 }

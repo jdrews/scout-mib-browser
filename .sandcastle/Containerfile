@@ -2,6 +2,7 @@ FROM docker.io/library/ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# UID/GID alignment - will be overridden at build time by sandcastle
 ARG UID=1000
 ARG GID=1000
 
@@ -12,6 +13,13 @@ RUN apt-get update && apt-get install -y \
     jq \
     pkg-config \
     ca-certificates \
+    xdg-utils \
+    libssl3 \
+    libayatana-appindicator3-1 \
+    libnotify4 \
+    libnss3 \
+    libsoup3.0 \
+    libwebkit2gtk-4.1-0 \
     gnupg \
     && rm -rf /var/lib/apt/lists/*
 
