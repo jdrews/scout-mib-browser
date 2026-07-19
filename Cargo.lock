@@ -3192,6 +3192,7 @@ dependencies = [
  "config",
  "dirs 5.0.1",
  "mib-rs",
+ "regex",
  "serde",
  "serde_json",
  "snmp2",
@@ -3201,6 +3202,7 @@ dependencies = [
  "toml 0.8.23",
  "tracing",
  "tracing-appender",
+ "walkdir",
 ]
 
 [[package]]

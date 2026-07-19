@@ -17,6 +17,8 @@ dirs = "5"
 toml = "0.8"
 tracing = "0.1"
 tracing-appender = "0.2"
+regex = "1"
+walkdir = "2"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
