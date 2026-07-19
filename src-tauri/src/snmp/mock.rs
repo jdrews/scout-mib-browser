@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
 
 /// Mock SNMP server that listens on a UDP port and responds to requests.
 pub struct MockSnmpServer {
@@ -297,7 +296,7 @@ impl MockSnmpServer {
         if pos >= request.len() {
             return None;
         }
-        let pdu_len = request[pos] as usize;
+        let _pdu_len = request[pos] as usize;
         pos += 1;
 
         // Skip req_id (5 bytes: tag + len + 4 bytes).
@@ -382,7 +381,7 @@ impl MockSnmpServer {
             if let Some(value) = data.get(oid) {
                 // Build varbind: SEQUENCE + OID + value.
                 let oid_ber = Self::ber_oid_from_string(oid);
-                let vb_data = [&oid_ber, value].concat();
+                let vb_data = [&oid_ber[..], value.as_slice()].concat();
                 varbinds.push(vec![0x30, vb_data.len() as u8]);
                 varbinds.push(vb_data);
             } else {
@@ -411,7 +410,7 @@ impl MockSnmpServer {
             if let Some(next) = Self::find_next_oid(oid, data) {
                 let (next_oid, value) = next;
                 let oid_ber = Self::ber_oid_from_string(&next_oid);
-                let vb_data = [&oid_ber, value].concat();
+                let vb_data = [&oid_ber[..], value.as_slice()].concat();
                 varbinds.push(vec![0x30, vb_data.len() as u8]);
                 varbinds.push(vb_data);
             } else {
@@ -443,7 +442,7 @@ impl MockSnmpServer {
                 .cloned()
                 .unwrap_or_else(|| Self::ber_integer(0));
             let oid_ber = Self::ber_oid_from_string(oid);
-            let vb_data = [&oid_ber, &value].concat();
+            let vb_data = [&oid_ber[..], value.as_slice()].concat();
             varbinds.push(vec![0x30, vb_data.len() as u8]);
             varbinds.push(vb_data);
         }
@@ -513,7 +512,7 @@ impl MockSnmpServer {
         candidates.sort_by_key(|(k, _)| *k);
 
         if let Some((oid, value)) = candidates.first() {
-            Some((oid.clone(), value))
+            Some(((*oid).clone(), *value))
         } else {
             None
         }

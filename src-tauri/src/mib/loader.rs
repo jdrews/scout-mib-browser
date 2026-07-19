@@ -15,6 +15,7 @@ fn module_name_re() -> &'static regex::Regex {
 ///
 /// Handles SMIv1/SMIv2 parsing with full IMPORT/EXPORT resolution and macro
 /// expansion. Builds a complete OID-to-name-to-type index from parsed modules.
+#[derive(Default)]
 pub struct MibRsLoader {
     /// Tracks which files produced at least one module.
     loaded_files: HashSet<PathBuf>,
@@ -22,9 +23,7 @@ pub struct MibRsLoader {
 
 impl MibRsLoader {
     pub fn new() -> Self {
-        Self {
-            loaded_files: HashSet::new(),
-        }
+        Self::default()
     }
 
     /// Returns `true` if mib-rs successfully produced results for the given file.

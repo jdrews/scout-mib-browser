@@ -288,6 +288,12 @@ fn is_zero(v: &u32) -> bool {
     *v == 0
 }
 
+impl Default for ResultSet {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ResultSet {
     pub fn new() -> Self {
         Self {

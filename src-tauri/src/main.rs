@@ -3,7 +3,7 @@ mod mib;
 mod snmp;
 
 use std::sync::{Arc, RwLock};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 /// Thread-safe handle to the MIB resolver stored in Tauri app state.
 #[derive(Clone)]
@@ -11,10 +11,16 @@ pub struct MibResolverState {
     inner: Arc<RwLock<mib::Resolver>>,
 }
 
+impl Default for MibResolverState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MibResolverState {
     pub fn new() -> Self {
         Self {
-            inner: Arc::new(RwLock::new(mib::Resolver::new())),
+            inner: Arc::new(RwLock::new(mib::Resolver::default())),
         }
     }
 }
@@ -41,7 +47,7 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .setup(|app| {
+        .setup(move |app| {
             config::ensure_config_file().expect("failed to create config file");
 
             let path = config::config_path();
@@ -256,7 +262,6 @@ fn build_target(host: &str, port: u16, version: &str, community: Option<String>)
                 auth_passphrase: String::new(),
                 priv_protocol: snmp::PrivProtocol::None,
                 priv_passphrase: String::new(),
-                security_level: snmp::SecurityLevelTag::NoAuthNoPriv,
             },
         ),
         _ => snmp::Target::v2c(host, port, community),
@@ -270,7 +275,7 @@ fn parse_set_value(value_type: &str, value: &serde_json::Value) -> Result<snmp::
             let v = value
                 .as_i64()
                 .ok_or_else(|| "Integer value expected".to_string())?;
-            Ok(snmp::SetValue::Integer(v as i32))
+            Ok(snmp::SetValue::Integer(v))
         }
         "octetstring" | "octet-string" | "displaystring" => {
             let s = value
@@ -282,7 +287,7 @@ fn parse_set_value(value_type: &str, value: &serde_json::Value) -> Result<snmp::
             let v = value
                 .as_u64()
                 .ok_or_else(|| "Gauge32 value expected".to_string())?;
-            Ok(snmp::SetValue::Gauge32(v as u32))
+            Ok(snmp::SetValue::Unsigned32(v as u32))
         }
         "counter32" => {
             let v = value

@@ -81,6 +81,7 @@ pub struct LoadResult {
 ///
 /// Parser errors are logged but never block loading other MIBs. Partially
 /// parsed MIBs contribute whatever data was extracted.
+#[derive(Default)]
 pub struct Resolver {
     /// OID -> MibNode (mib-rs results take precedence).
     oid_index: HashMap<String, MibNode>,
@@ -93,11 +94,7 @@ pub struct Resolver {
 impl Resolver {
     /// Creates a new empty resolver.
     pub fn new() -> Self {
-        Self {
-            oid_index: HashMap::new(),
-            name_index: HashMap::new(),
-            fallback_mibs: HashSet::new(),
-        }
+        Self::default()
     }
 
     /// Loads all MIB files from the given directories.

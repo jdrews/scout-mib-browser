@@ -13,10 +13,7 @@ mod mock;
 mod tolerant;
 pub mod types;
 
-pub use engine::SnmpEngine;
+pub use engine::{SnmpEngine, WalkBatchCallback};
 #[cfg(test)]
 pub use mock::MockSnmpServer;
-pub use tolerant::{
-    binding_from_raw_ber, binding_from_snmp, error_to_warning, try_decode_ber, value_to_snmp_value,
-};
 pub use types::*;

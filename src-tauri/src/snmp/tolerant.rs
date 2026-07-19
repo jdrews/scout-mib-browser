@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use tracing::{info, warn};
+use tracing::warn;
 
 use super::types::*;
 
@@ -107,7 +107,7 @@ where
         }
     }
 
-    let err = last_err.unwrap_or_else(|| snmp2::Error::Receive);
+    let err = last_err.unwrap_or(snmp2::Error::Receive);
     (Err(err), MAX_RETRIES)
 }
 
