@@ -6,18 +6,15 @@ use super::MibNode;
 
 static MODULE_NAME_RE: OnceLock<regex::Regex> = OnceLock::new();
 fn module_name_re() -> &'static regex::Regex {
-    MODULE_NAME_RE.get_or_init(|| {
-        regex::Regex::new(r"(?i)\b([A-Za-z0-9_-]+)\s+DEFINITIONS\s*::=").unwrap()
-    })
+    MODULE_NAME_RE
+        .get_or_init(|| regex::Regex::new(r"(?i)\b([A-Za-z0-9_-]+)\s+DEFINITIONS\s*::=").unwrap())
 }
 
 static OBJECT_TYPE_BLOCK_RE: OnceLock<regex::Regex> = OnceLock::new();
 fn object_type_block_re() -> &'static regex::Regex {
     OBJECT_TYPE_BLOCK_RE.get_or_init(|| {
-        regex::Regex::new(
-            r"(?ims)(\b[A-Za-z][A-Za-z0-9_-]*)\s+OBJECT-TYPE\s*\n((?:[^\n]*\n)*)",
-        )
-        .unwrap()
+        regex::Regex::new(r"(?ims)(\b[A-Za-z][A-Za-z0-9_-]*)\s+OBJECT-TYPE\s*\n((?:[^\n]*\n)*)")
+            .unwrap()
     })
 }
 

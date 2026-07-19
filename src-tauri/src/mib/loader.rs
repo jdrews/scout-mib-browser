@@ -7,9 +7,8 @@ use super::{LoadResult, MibNode, SyntaxType};
 
 static MODULE_NAME_RE: OnceLock<regex::Regex> = OnceLock::new();
 fn module_name_re() -> &'static regex::Regex {
-    MODULE_NAME_RE.get_or_init(|| {
-        regex::Regex::new(r"(?i)\b([A-Za-z0-9_-]+)\s+DEFINITIONS\s*::=").unwrap()
-    })
+    MODULE_NAME_RE
+        .get_or_init(|| regex::Regex::new(r"(?i)\b([A-Za-z0-9_-]+)\s+DEFINITIONS\s*::=").unwrap())
 }
 
 /// Primary MIB loader using the mib-rs crate.
@@ -45,11 +44,17 @@ impl MibRsLoader {
         // Try to detect the module name from file content, fallback to filename.
         let module_name = self.detect_module_name_or_filename(&content, path);
         if module_name.is_empty() {
-            warn!("Cannot determine module name for {}, skipping", path.display());
+            warn!(
+                "Cannot determine module name for {}, skipping",
+                path.display()
+            );
             return Ok(LoadResult {
                 nodes: Vec::new(),
                 primary_success: false,
-                messages: vec![format!("Cannot determine module name for {}", path.display())],
+                messages: vec![format!(
+                    "Cannot determine module name for {}",
+                    path.display()
+                )],
             });
         }
 
@@ -237,10 +242,7 @@ end
         std::fs::write(&mib_path, "no module definition here").unwrap();
 
         let loader = MibRsLoader::new();
-        let name = loader.detect_module_name_or_filename(
-            "no module definition here",
-            &mib_path,
-        );
+        let name = loader.detect_module_name_or_filename("no module definition here", &mib_path);
         assert_eq!(name, "MY-CUSTOM-MIB");
 
         let _ = std::fs::remove_dir_all(&tmp_dir);
