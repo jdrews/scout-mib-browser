@@ -1,19 +1,19 @@
 mod config;
 mod mib;
 
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 use tauri::Manager;
 
 /// Thread-safe handle to the MIB resolver stored in Tauri app state.
 #[derive(Clone)]
 pub struct MibResolverState {
-    inner: RwLock<mib::Resolver>,
+    inner: Arc<RwLock<mib::Resolver>>,
 }
 
 impl MibResolverState {
     pub fn new() -> Self {
         Self {
-            inner: RwLock::new(mib::Resolver::new()),
+            inner: Arc::new(RwLock::new(mib::Resolver::new())),
         }
     }
 }
