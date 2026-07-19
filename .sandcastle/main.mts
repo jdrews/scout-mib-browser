@@ -70,13 +70,25 @@ console.log(styleText("bold", `[${runName}] Done`));
 console.log(styleText(statusColor, statusMsg));
 console.log(`  Commits: ${styleText("bold", String(committed))}`);
 
-// Show the agent's summary — text between the last tool call and <promise>COMPLETE</promise>
+// Show the agent's summary — text after <promise>COMPLETE</promise>, stopping at system noise
 if (result.completionSignal && result.stdout.includes(result.completionSignal)) {
-  const beforeCompletion = result.stdout.split(result.completionSignal)[0];
-  const lines = beforeCompletion.trimEnd().split("\n").slice(-12).filter((l) => l.trim());
-  if (lines.length > 0) {
+  const afterCompletion = result.stdout.split(result.completionSignal)[1];
+  const lines = afterCompletion.trimStart().split("\n");
+
+  // Stop at known system messages
+  const stopMarkers = ["Agent stopped", "Collecting commits", "Run complete"];
+  let endIdx = lines.length;
+  for (let i = 0; i < lines.length; i++) {
+    if (stopMarkers.some((m) => lines[i].includes(m))) {
+      endIdx = i;
+      break;
+    }
+  }
+
+  const summaryLines = lines.slice(0, endIdx).filter((l) => l.trim());
+  if (summaryLines.length > 0) {
     console.log(styleText("dim", "\n--- Agent output ---"));
-    for (const line of lines) {
+    for (const line of summaryLines) {
       console.log(line);
     }
   }
