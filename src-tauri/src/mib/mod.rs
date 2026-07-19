@@ -1,3 +1,6 @@
+mod fallback;
+mod loader;
+
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use tracing::{error, info, warn};
@@ -50,7 +53,7 @@ impl SyntaxType {
 ///
 /// Represents what *could* be queried, not live data. Has an OID, name,
 /// SYNTAX type, and the MIB module it was defined in.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct MibNode {
     /// Dotted-decimal OID (e.g., `"1.3.6.1.2.1.1.1"`).
     pub oid: String,
@@ -235,7 +238,7 @@ impl Resolver {
         // Longest-prefix match for sub-OIDs (e.g., instance OIDs).
         let mut best: Option<(&str, &MibNode)> = None;
         for (indexed_oid, node) in &self.oid_index {
-            if oid.starts_with(&format!("{}.{}", indexed_oid, "")) || oid == indexed_oid {
+            if oid.starts_with(&format!("{}.", indexed_oid)) || oid == indexed_oid {
                 match best {
                     None => {
                         best = Some((indexed_oid, node));
@@ -379,6 +382,23 @@ mod tests {
         // Instance OID should resolve to the deepest matching ancestor.
         let node = resolver.resolve("1.3.6.1.2.1.1.1.0").unwrap();
         assert_eq!(node.name, "system");
+    }
+
+    #[test]
+    fn resolve_no_false_positive_on_similar_prefix() {
+        let mut resolver = Resolver::new();
+        resolver.oid_index.insert(
+            "1.3.6".to_string(),
+            MibNode {
+                oid: "1.3.6".to_string(),
+                name: "org".to_string(),
+                syntax_type: SyntaxType::ObjectIdentifier,
+                mib_name: "ROOT".to_string(),
+            },
+        );
+
+        // "1.3.61..." should NOT match "1.3.6" — different sub-identifier.
+        assert_eq!(resolver.resolve("1.3.61.2.1"), None);
     }
 
     #[test]

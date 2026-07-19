@@ -1,7 +1,49 @@
 use std::path::Path;
+use std::sync::OnceLock;
 use tracing::{info, warn};
 
 use super::MibNode;
+
+static MODULE_NAME_RE: OnceLock<regex::Regex> = OnceLock::new();
+fn module_name_re() -> &'static regex::Regex {
+    MODULE_NAME_RE.get_or_init(|| {
+        regex::Regex::new(r"(?i)\b([A-Za-z0-9_-]+)\s+DEFINITIONS\s*::=").unwrap()
+    })
+}
+
+static OBJECT_TYPE_BLOCK_RE: OnceLock<regex::Regex> = OnceLock::new();
+fn object_type_block_re() -> &'static regex::Regex {
+    OBJECT_TYPE_BLOCK_RE.get_or_init(|| {
+        regex::Regex::new(
+            r"(?ims)(\b[A-Za-z][A-Za-z0-9_-]*)\s+OBJECT-TYPE\s*\n((?:[^\n]*\n)*)",
+        )
+        .unwrap()
+    })
+}
+
+static OID_ASSIGNMENT_RE: OnceLock<regex::Regex> = OnceLock::new();
+fn oid_assignment_re() -> &'static regex::Regex {
+    OID_ASSIGNMENT_RE.get_or_init(|| {
+        regex::Regex::new(
+            r"(?i)(\b[A-Za-z][A-Za-z0-9_-]*)\s+(?:OBJECT\s+IDENTIFIER\s+|MODULE-IDENTITY\s+|NOTIFICATION-TYPE\s+)?::=\s*\{\s*([A-Za-z][A-Za-z0-9_.-]*)\s+(\d+)\s*\}",
+        )
+        .unwrap()
+    })
+}
+
+static SYNTAX_RE: OnceLock<regex::Regex> = OnceLock::new();
+fn syntax_re() -> &'static regex::Regex {
+    SYNTAX_RE.get_or_init(|| {
+        regex::Regex::new(r"(?i)\bSYNTAX\s+([A-Za-z][A-Za-z0-9_]*(?:\s*\([^)]*\))?)").unwrap()
+    })
+}
+
+static OID_FROM_ASSIGNMENT_RE: OnceLock<regex::Regex> = OnceLock::new();
+fn oid_from_assignment_re() -> &'static regex::Regex {
+    OID_FROM_ASSIGNMENT_RE.get_or_init(|| {
+        regex::Regex::new(r"::=\s*\{\s*([A-Za-z][A-Za-z0-9_.-]*)\s+(\d+)\s*\}").unwrap()
+    })
+}
 
 /// Regex-based fallback extractor for MIB files that mib-rs cannot parse.
 ///
@@ -63,8 +105,7 @@ impl FallbackExtractor {
 
     /// Detects the MIB module name from file content.
     fn detect_module_name(content: &str) -> String {
-        let re = regex::Regex::new(r"(?i)\b([A-Za-z0-9_-]+)\s+DEFINITIONS\s*::=").unwrap();
-        if let Some(captures) = re.captures(content) {
+        if let Some(captures) = module_name_re().captures(content) {
             if let Some(name_match) = captures.get(1) {
                 return name_match.as_str().to_uppercase();
             }
@@ -86,13 +127,7 @@ impl FallbackExtractor {
     fn extract_object_types(content: &str, mib_name: &str) -> Vec<MibNode> {
         let mut nodes = Vec::new();
 
-        // Match OBJECT-TYPE blocks. The regex is permissive to handle vendor quirks.
-        let block_re = regex::Regex::new(
-            r"(?ims)(\b[A-Za-z][A-Za-z0-9_-]*)\s+OBJECT-TYPE\s*\n((?:[^\n]*\n)*)",
-        )
-        .unwrap();
-
-        for captures in block_re.captures_iter(content) {
+        for captures in object_type_block_re().captures_iter(content) {
             let name = captures.get(1).map(|m| m.as_str().to_string());
             let body = captures.get(2).map(|m| m.as_str()).unwrap_or("");
 
@@ -133,13 +168,7 @@ impl FallbackExtractor {
     fn extract_oid_assignments(content: &str, mib_name: &str) -> Vec<MibNode> {
         let mut nodes = Vec::new();
 
-        // Match patterns like:  name ::= { enterprises 12345 }
-        // Also handles: name OBJECT IDENTIFIER ::= { parent num }
-        let re = regex::Regex::new(
-            r"(?i)(\b[A-Za-z][A-Za-z0-9_-]*)\s+(?:OBJECT\s+IDENTIFIER\s+|MODULE-IDENTITY\s+|NOTIFICATION-TYPE\s+)?::=\s*\{\s*([A-Za-z][A-Za-z0-9_.-]*)\s+(\d+)\s*\}"
-        ).unwrap();
-
-        for captures in re.captures_iter(content) {
+        for captures in oid_assignment_re().captures_iter(content) {
             let name = captures.get(1).map(|m| m.as_str().to_string()).unwrap();
             let parent = captures.get(2).map(|m| m.as_str().to_string()).unwrap();
             let suffix = captures.get(3).map(|m| m.as_str().to_string()).unwrap();
@@ -168,9 +197,7 @@ impl FallbackExtractor {
 
     /// Extracts the SYNTAX type from an OBJECT-TYPE body.
     fn extract_syntax(body: &str) -> super::SyntaxType {
-        let re =
-            regex::Regex::new(r"(?i)\bSYNTAX\s+([A-Za-z][A-Za-z0-9_]*(?:\s*\([^)]*\))?)").unwrap();
-        if let Some(captures) = re.captures(body) {
+        if let Some(captures) = syntax_re().captures(body) {
             if let Some(syntax_match) = captures.get(1) {
                 let syntax_str = syntax_match
                     .as_str()
@@ -206,8 +233,7 @@ impl FallbackExtractor {
 
     /// Extracts the OID from a `::= { parent num }` assignment clause.
     fn extract_oid_from_assignment(body: &str) -> String {
-        let re = regex::Regex::new(r"::=\s*\{\s*([A-Za-z][A-Za-z0-9_.-]*)\s+(\d+)\s*\}").unwrap();
-        if let Some(captures) = re.captures(body) {
+        if let Some(captures) = oid_from_assignment_re().captures(body) {
             let parent = captures.get(1).map(|m| m.as_str().to_string()).unwrap();
             let suffix = captures.get(2).map(|m| m.as_str().to_string()).unwrap();
             return Self::resolve_oid_assignment(&parent, &suffix);

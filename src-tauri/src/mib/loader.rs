@@ -1,8 +1,16 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use tracing::{info, warn};
 
 use super::{LoadResult, MibNode, SyntaxType};
+
+static MODULE_NAME_RE: OnceLock<regex::Regex> = OnceLock::new();
+fn module_name_re() -> &'static regex::Regex {
+    MODULE_NAME_RE.get_or_init(|| {
+        regex::Regex::new(r"(?i)\b([A-Za-z0-9_-]+)\s+DEFINITIONS\s*::=").unwrap()
+    })
+}
 
 /// Primary MIB loader using the mib-rs crate.
 ///
@@ -34,14 +42,14 @@ impl MibRsLoader {
         let content = std::fs::read_to_string(path)
             .map_err(|e| format!("Cannot read {}: {}", path.display(), e))?;
 
-        // Try to detect the module name from file content.
-        let module_name = Self::detect_module_name(&content);
+        // Try to detect the module name from file content, fallback to filename.
+        let module_name = self.detect_module_name_or_filename(&content, path);
         if module_name.is_empty() {
-            warn!("No module definition found in {}, skipping", path.display());
+            warn!("Cannot determine module name for {}, skipping", path.display());
             return Ok(LoadResult {
                 nodes: Vec::new(),
                 primary_success: false,
-                messages: vec![format!("No module definition found in {}", path.display())],
+                messages: vec![format!("Cannot determine module name for {}", path.display())],
             });
         }
 
@@ -171,16 +179,25 @@ impl MibRsLoader {
     /// Detects the MIB module name from file content by finding the
     /// `MODULE-NAME DEFINITIONS ::= BEGIN` pattern.
     fn detect_module_name(content: &str) -> String {
-        // Look for "NAME DEFINITIONS" pattern (case-insensitive).
-        let re = regex::Regex::new(r"(?i)\b([A-Za-z0-9_-]+)\s+DEFINITIONS\s*::=").unwrap();
-        if let Some(captures) = re.captures(content) {
+        if let Some(captures) = module_name_re().captures(content) {
             if let Some(name_match) = captures.get(1) {
                 return name_match.as_str().to_uppercase();
             }
         }
 
-        // Fallback: use filename without extension.
         String::new()
+    }
+
+    /// Detects the MIB module name, falling back to filename without extension.
+    fn detect_module_name_or_filename(&self, content: &str, path: &Path) -> String {
+        let name = Self::detect_module_name(content);
+        if !name.is_empty() {
+            return name;
+        }
+        path.file_stem()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_uppercase())
+            .unwrap_or_default()
     }
 }
 
@@ -208,6 +225,25 @@ end
     fn detect_module_name_no_match() {
         let content = "this is not a valid MIB file";
         assert_eq!(MibRsLoader::detect_module_name(content), "");
+    }
+
+    #[test]
+    fn detect_module_name_falls_back_to_filename() {
+        let tmp_dir = std::env::temp_dir().join("scout_loader_filename_test");
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        std::fs::create_dir_all(&tmp_dir).unwrap();
+
+        let mib_path = tmp_dir.join("MY-CUSTOM-MIB.txt");
+        std::fs::write(&mib_path, "no module definition here").unwrap();
+
+        let loader = MibRsLoader::new();
+        let name = loader.detect_module_name_or_filename(
+            "no module definition here",
+            &mib_path,
+        );
+        assert_eq!(name, "MY-CUSTOM-MIB");
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
     }
 
     #[test]
