@@ -18,7 +18,7 @@ const ENV_PREFIX: &str = "SCOUT";
 // ── Config Schema ────────────────────────────────────────────────────────────
 
 /// Top-level application configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AppConfig {
     /// MIB-related settings.
     #[serde(default, skip_serializing_if = "MibConfig::is_default")]
@@ -31,16 +31,6 @@ pub struct AppConfig {
     /// UI state persistence.
     #[serde(default, skip_serializing_if = "UiConfig::is_default")]
     pub ui: UiConfig,
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            mib: MibConfig::default(),
-            target: TargetConfig::default(),
-            ui: UiConfig::default(),
-        }
-    }
 }
 
 /// Configuration for MIB file discovery.
@@ -225,7 +215,7 @@ fn is_default_splitter_v(v: &f64) -> bool {
 /// Resolves the full path to `~/.config/scout/config.toml`.
 pub fn config_path() -> PathBuf {
     let config_dir = dirs::config_local_dir()
-        .or_else(|| dirs::config_dir())
+        .or_else(dirs::config_dir)
         .unwrap_or_else(|| PathBuf::from("."))
         .join(CONFIG_DIR);
     config_dir.join(CONFIG_FILE)
