@@ -18,7 +18,7 @@ RUN apt-get update && apt-get install -y \
     libayatana-appindicator3-1 \
     libnotify4 \
     libnss3 \
-    libsoup3.0 \
+    libsoup-3.0 \
     libwebkit2gtk-4.1-0 \
     libdbus-1-dev \
     gnupg \
