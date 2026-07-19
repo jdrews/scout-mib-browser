@@ -90,6 +90,40 @@ pub struct TargetConfig {
         skip_serializing_if = "is_default_community"
     )]
     pub community: String,
+
+    // ── SNMPv3 USM/VACM settings ────────────────────────────────────────
+    /// v3 USM username.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub v3_username: String,
+
+    /// v3 authentication protocol (`"none"`, `"md5"`, `"sha1"`, etc.).
+    #[serde(
+        default = "default_v3_auth_protocol",
+        skip_serializing_if = "is_default_v3_auth"
+    )]
+    pub v3_auth_protocol: String,
+
+    /// v3 authentication passphrase.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub v3_auth_passphrase: String,
+
+    /// v3 privacy protocol (`"none"`, `"des"`, `"aes128"`, etc.).
+    #[serde(
+        default = "default_v3_priv_protocol",
+        skip_serializing_if = "is_default_v3_priv"
+    )]
+    pub v3_priv_protocol: String,
+
+    /// v3 privacy passphrase.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub v3_priv_passphrase: String,
+
+    /// v3 security level (`"noAuthNoPriv"`, `"authNoPriv"`, `"authPriv"`).
+    #[serde(
+        default = "default_v3_security_level",
+        skip_serializing_if = "is_default_v3_sec_level"
+    )]
+    pub v3_security_level: String,
 }
 
 impl Default for TargetConfig {
@@ -99,6 +133,12 @@ impl Default for TargetConfig {
             port: default_snmp_port(),
             version: default_snmp_version(),
             community: default_community_string(),
+            v3_username: String::new(),
+            v3_auth_protocol: default_v3_auth_protocol(),
+            v3_auth_passphrase: String::new(),
+            v3_priv_protocol: default_v3_priv_protocol(),
+            v3_priv_passphrase: String::new(),
+            v3_security_level: default_v3_security_level(),
         }
     }
 }
@@ -110,6 +150,12 @@ impl TargetConfig {
             && self.port == DEFAULT_SNMP_PORT
             && self.version == default_snmp_version()
             && self.community == default_community_string()
+            && self.v3_username.is_empty()
+            && self.v3_auth_protocol == default_v3_auth_protocol()
+            && self.v3_auth_passphrase.is_empty()
+            && self.v3_priv_protocol == default_v3_priv_protocol()
+            && self.v3_priv_passphrase.is_empty()
+            && self.v3_security_level == default_v3_security_level()
     }
 }
 
@@ -218,6 +264,32 @@ fn is_default_splitter_h(v: &f64) -> bool {
 /// Returns `true` when the vertical splitter is at its default position.
 fn is_default_splitter_v(v: &f64) -> bool {
     (v - 0.5).abs() < f64::EPSILON
+}
+
+// ── SNMPv3 defaults ────────────────────────────────────────────────────────
+
+fn default_v3_auth_protocol() -> String {
+    String::from("none")
+}
+
+fn default_v3_priv_protocol() -> String {
+    String::from("none")
+}
+
+fn default_v3_security_level() -> String {
+    String::from("noAuthNoPriv")
+}
+
+fn is_default_v3_auth(v: &str) -> bool {
+    v == "none"
+}
+
+fn is_default_v3_priv(v: &str) -> bool {
+    v == "none"
+}
+
+fn is_default_v3_sec_level(v: &str) -> bool {
+    v == "noAuthNoPriv"
 }
 
 // ── Config path resolution ───────────────────────────────────────────────────
@@ -382,6 +454,36 @@ pub fn config_write(
                 "community" => {
                     if let Some(s) = value.as_str() {
                         cfg.target.community = s.to_string();
+                    }
+                }
+                "v3_username" => {
+                    if let Some(s) = value.as_str() {
+                        cfg.target.v3_username = s.to_string();
+                    }
+                }
+                "v3_auth_protocol" => {
+                    if let Some(s) = value.as_str() {
+                        cfg.target.v3_auth_protocol = s.to_string();
+                    }
+                }
+                "v3_auth_passphrase" => {
+                    if let Some(s) = value.as_str() {
+                        cfg.target.v3_auth_passphrase = s.to_string();
+                    }
+                }
+                "v3_priv_protocol" => {
+                    if let Some(s) = value.as_str() {
+                        cfg.target.v3_priv_protocol = s.to_string();
+                    }
+                }
+                "v3_priv_passphrase" => {
+                    if let Some(s) = value.as_str() {
+                        cfg.target.v3_priv_passphrase = s.to_string();
+                    }
+                }
+                "v3_security_level" => {
+                    if let Some(s) = value.as_str() {
+                        cfg.target.v3_security_level = s.to_string();
                     }
                 }
                 _ => return Err(format!("unknown target key: {}", key)),
