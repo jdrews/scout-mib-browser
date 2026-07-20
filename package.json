@@ -3,12 +3,24 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
     "sandcastle:build-image": "podman build --build-arg UID=$(id -u) --build-arg GID=$(id -g) -t sandcastle/scout-mib-browser:local .sandcastle/",
     "sandcastle:run": "tsx .sandcastle/main.mts",
     "sandcastle:ticket": "tsx .sandcastle/main.mts"
   },
   "devDependencies": {
-"@ai-hero/sandcastle": "^0.13.0",
-    "tsx": "^4.7.0"
+    "@sveltejs/vite-plugin-svelte": "^3.1.2",
+    "@tailwindcss/vite": "^4.3.3",
+    "svelte": "^4.2.20",
+    "svelte-check": "^3.8.6",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.21"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-dialog": "^2.7.2"
   }
 }
