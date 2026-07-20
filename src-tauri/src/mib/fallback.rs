@@ -4,12 +4,6 @@ use tracing::{info, warn};
 
 use super::MibNode;
 
-static MODULE_NAME_RE: OnceLock<regex::Regex> = OnceLock::new();
-fn module_name_re() -> &'static regex::Regex {
-    MODULE_NAME_RE
-        .get_or_init(|| regex::Regex::new(r"(?i)\b([A-Za-z0-9_-]+)\s+DEFINITIONS\s*::=").unwrap())
-}
-
 static OBJECT_TYPE_BLOCK_RE: OnceLock<regex::Regex> = OnceLock::new();
 fn object_type_block_re() -> &'static regex::Regex {
     OBJECT_TYPE_BLOCK_RE.get_or_init(|| {
@@ -47,6 +41,7 @@ fn oid_from_assignment_re() -> &'static regex::Regex {
 /// Pulls OBJECT-TYPE blocks, name/SYNTAX mappings, and explicit numeric OID
 /// assignments from malformed vendor MIBs. This is a best-effort parser that
 /// tolerates syntax errors, missing imports, and non-standard constructs.
+#[derive(Default)]
 pub struct FallbackExtractor {
     /// Name of the last successfully parsed MIB module.
     last_mib_name: String,
@@ -54,9 +49,7 @@ pub struct FallbackExtractor {
 
 impl FallbackExtractor {
     pub fn new() -> Self {
-        Self {
-            last_mib_name: String::new(),
-        }
+        Self::default()
     }
 
     /// Returns the name of the last MIB module that was extracted.
@@ -102,12 +95,7 @@ impl FallbackExtractor {
 
     /// Detects the MIB module name from file content.
     fn detect_module_name(content: &str) -> String {
-        if let Some(captures) = module_name_re().captures(content) {
-            if let Some(name_match) = captures.get(1) {
-                return name_match.as_str().to_uppercase();
-            }
-        }
-        String::new()
+        super::detect_module_name(content)
     }
 
     /// Extracts OBJECT-TYPE definitions using regex.
@@ -258,7 +246,7 @@ impl FallbackExtractor {
         .into_iter()
         .collect();
 
-        let parent_lower = parent.to_lowercase().replace('-', "-");
+        let parent_lower = parent.to_lowercase();
 
         if let Some(root_oid) = known_roots.get(parent_lower.as_str()) {
             format!("{}.{}", root_oid, suffix)
@@ -271,7 +259,7 @@ impl FallbackExtractor {
     /// Gets the text preceding a given token (for context analysis).
     fn text_before(content: &str, token: &str) -> String {
         if let Some(pos) = content.find(token) {
-            let start = if pos > 200 { pos - 200 } else { 0 };
+            let start = pos.saturating_sub(200);
             content[start..pos].to_lowercase()
         } else {
             String::new()

@@ -1,20 +1,14 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 use tracing::{info, warn};
 
 use super::{LoadResult, MibNode, SyntaxType};
-
-static MODULE_NAME_RE: OnceLock<regex::Regex> = OnceLock::new();
-fn module_name_re() -> &'static regex::Regex {
-    MODULE_NAME_RE
-        .get_or_init(|| regex::Regex::new(r"(?i)\b([A-Za-z0-9_-]+)\s+DEFINITIONS\s*::=").unwrap())
-}
 
 /// Primary MIB loader using the mib-rs crate.
 ///
 /// Handles SMIv1/SMIv2 parsing with full IMPORT/EXPORT resolution and macro
 /// expansion. Builds a complete OID-to-name-to-type index from parsed modules.
+#[derive(Default)]
 pub struct MibRsLoader {
     /// Tracks which files produced at least one module.
     loaded_files: HashSet<PathBuf>,
@@ -22,9 +16,7 @@ pub struct MibRsLoader {
 
 impl MibRsLoader {
     pub fn new() -> Self {
-        Self {
-            loaded_files: HashSet::new(),
-        }
+        Self::default()
     }
 
     /// Returns `true` if mib-rs successfully produced results for the given file.
@@ -184,13 +176,7 @@ impl MibRsLoader {
     /// Detects the MIB module name from file content by finding the
     /// `MODULE-NAME DEFINITIONS ::= BEGIN` pattern.
     fn detect_module_name(content: &str) -> String {
-        if let Some(captures) = module_name_re().captures(content) {
-            if let Some(name_match) = captures.get(1) {
-                return name_match.as_str().to_uppercase();
-            }
-        }
-
-        String::new()
+        super::detect_module_name(content)
     }
 
     /// Detects the MIB module name, falling back to filename without extension.
