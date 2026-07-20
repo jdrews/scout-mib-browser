@@ -2,30 +2,24 @@ import { createSandbox, opencode } from "@ai-hero/sandcastle";
 import { podman } from "@ai-hero/sandcastle/sandboxes/podman";
 import { styleText } from "node:util";
 
-// Usage: npx tsx .sandcastle/main.mts [ticket-index]
-//   ticket-index defaults to "01", pass "02".."10" for other tickets
-const ticketIndex = process.argv[2] || "01";
-
-// Map of ticket index -> filename (for promptArgs substitution)
-const TICKETS: Record<string, string> = {
-  "01": "01-project-scaffolding.md",
-  "02": "02-config-management.md",
-  "03": "03-mib-resolver.md",
-  "04": "04-snmp-engine.md",
-  "05": "05-mib-tree-view.md",
-  "06": "06-connection-panel.md",
-  "07": "07-snmp-execution-results.md",
-  "08": "08-export.md",
-  "09": "09-table-retrieval.md",
-  "10": "10-system-log.md",
-};
-
-const ticketName = TICKETS[ticketIndex];
-if (!ticketName) {
-  throw new Error(`Unknown ticket index "${ticketIndex}". Available: ${Object.keys(TICKETS).join(", ")}`);
+// Usage: npx tsx .sandcastle/main.mts [ticket-file-path]
+//   ticket-file-path is the path to a ticket markdown file, e.g. "~/git/scout-tickets/scout-mib-browser-mvp/05-mib-tree-view.md"
+const ticketPath = process.argv[2];
+if (!ticketPath) {
+  throw new Error("Usage: npx tsx .sandcastle/main.mts <ticket-file-path>");
 }
 
-const branch = `agent/ticket-${ticketIndex}`;
+// Expand ~ to home directory for convenience
+const expandedPath = ticketPath.replace(/^~/, process.env.HOME || "");
+
+// Derive branch slug from the filename (e.g. "05-mib-tree-view.md" -> "mib-tree-view")
+const fileName = expandedPath.split("/").pop() || "";
+const slug = fileName.replace(/^\d+-/, "").replace(/\.md$/, "");
+if (!slug) {
+  throw new Error(`Could not derive a branch slug from "${ticketPath}"`);
+}
+
+const branch = `${slug}`;
 
 const agent = opencode("lmstudio/qwen3.6-27b-mtp@q4_k_xl");
 
@@ -51,12 +45,19 @@ await using sandbox = await createSandbox({
 });
 
 // --- Step 1: Implement ---
-console.log(styleText("bold", `[ticket-${ticketIndex}] Step 1/3: Implementing...`));
+console.log(styleText("bold", `[${slug}] Step 1/3: Implementing...`));
 const implResult = await sandbox.run({
   agent,
   promptFile: ".sandcastle/prompt.md",
   promptArgs: {
-    TICKET_FILE: `/tickets/scout-mib-browser-mvp/${ticketName}`,
+    // Translate host path to sandbox mount path (~/git/scout-tickets -> /tickets)
+    TICKET_FILE: (() => {
+      const homeDir = process.env.HOME || "";
+      const ticketMountBase = `${homeDir}/git/scout-tickets`;
+      return expandedPath.startsWith(ticketMountBase)
+        ? `/tickets${expandedPath.slice(ticketMountBase.length)}`
+        : expandedPath;
+    })(),
   },
   maxIterations: 10,
   idleTimeoutSeconds: 600,
@@ -64,7 +65,7 @@ const implResult = await sandbox.run({
 });
 
 // --- Step 2: Code review ---
-console.log(styleText("bold", `[ticket-${ticketIndex}] Step 2/3: Code review...`));
+console.log(styleText("bold", `[${slug}] Step 2/3: Code review...`));
 const reviewResult = await sandbox.run({
   agent,
   prompt: `Review the changes on this branch and fix any issues you find. Focus on correctness, code quality, and adherence to Rust best practices. Make the fixes directly.\n\nWhen done, signal completion with <promise>COMPLETE</promise>`,
@@ -115,7 +116,7 @@ const statusMsg = implResult.completionSignal
   ? `Implementation completed.`
   : `Implementation reached max iterations without completion signal.`;
 
-const runName = `ticket-${ticketIndex}`;
+const runName = slug;
 console.log("");
 console.log(styleText("bold", `[${runName}] Done`));
 console.log(styleText(statusColor, statusMsg));
