@@ -6,8 +6,11 @@
 
   let mibs: LoadedMib[] = [];
   let loading = false;
+  let dataLoaded = false;
 
-  async function openDialog() {
+  async function loadMibs() {
+    if (dataLoaded) return;
+    dataLoaded = true;
     loading = true;
     try {
       mibs = await mibLoadedList();
@@ -36,11 +39,13 @@
   }
 
   function close() {
+    dataLoaded = false;
+    mibs = [];
     $manageMibsOpen = false;
   }
 
-  $: if ($manageMibsOpen && mibs.length === 0) {
-    openDialog();
+  $: if ($manageMibsOpen && !dataLoaded) {
+    loadMibs();
   }
 </script>
 

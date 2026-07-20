@@ -107,8 +107,6 @@
       hideAutocomplete();
     }
   }
-
-  document.addEventListener("click", hideOnOutsideClick);
 </script>
 
 <div data-address-bar class="px-3 py-2 bg-base-00 border-b border-base-01 relative" on:click|self={hideOnOutsideClick}>
@@ -132,7 +130,7 @@
       {#each results as item, i (item.oid)}
         <div
           class="px-3 py-1.5 text-[13px] cursor-pointer flex justify-between items-center hover:bg-base-01"
-          class:highlighted={i === $hiStore}
+          class:bg-base-01={i === $hiStore}
           on:click={() => selectItem(item)}
         >
           <span class="text-text">{item.name}</span>
@@ -143,8 +141,4 @@
   {/if}
 </div>
 
-<style>
-  :global(.highlighted) {
-    background-color: #313244;
-  }
-</style>
+

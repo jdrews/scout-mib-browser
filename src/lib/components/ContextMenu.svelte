@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount, onDestroy } from "svelte";
   import { contextMenuTarget, statusText } from "$lib/stores";
 
   $: target = $contextMenuTarget;
@@ -32,11 +33,21 @@
     }
   }
 
-  document.addEventListener("click", hide);
-  document.addEventListener("contextmenu", (e) => {
+  const handleClick = () => hide();
+  const handleContextMenu = (e: MouseEvent) => {
     if (!(e.target as HTMLElement).closest(".tree-node")) {
       hide();
     }
+  };
+
+  onMount(() => {
+    document.addEventListener("click", handleClick);
+    document.addEventListener("contextmenu", handleContextMenu);
+  });
+
+  onDestroy(() => {
+    document.removeEventListener("click", handleClick);
+    document.removeEventListener("contextmenu", handleContextMenu);
   });
 </script>
 
