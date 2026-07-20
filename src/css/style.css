@@ -1,3 +1,5 @@
+/* ── Reset & Base ─────────────────────────────────────────────── */
+
 * {
     margin: 0;
     padding: 0;
@@ -8,19 +10,555 @@ body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     background: #1e1e2e;
     color: #cdd6f4;
-    padding: 2rem;
+    height: 100vh;
+    overflow: hidden;
 }
+
+/* ── App Shell ────────────────────────────────────────────────── */
 
 #app {
-    max-width: 800px;
-    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
 }
 
-h1 {
-    font-size: 1.5rem;
-    margin-bottom: 0.5rem;
+/* ── Menu Bar ─────────────────────────────────────────────────── */
+
+#menubar {
+    display: flex;
+    align-items: center;
+    background: #181825;
+    border-bottom: 1px solid #313244;
+    padding: 0 0.5rem;
+    height: 28px;
+    flex-shrink: 0;
+    user-select: none;
 }
 
-p {
+.menu-item {
+    padding: 0.25rem 0.75rem;
+    font-size: 0.8125rem;
+    color: #bac2de;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+.menu-item:hover,
+.menu-item.active {
+    background: #313244;
+    color: #cdd6f4;
+}
+
+.menu-dropdown {
+    display: none;
+    position: absolute;
+    top: 28px;
+    left: 0;
+    background: #1e1e2e;
+    border: 1px solid #313244;
+    border-radius: 6px;
+    padding: 0.25rem 0;
+    min-width: 200px;
+    z-index: 1000;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.menu-dropdown.visible {
+    display: block;
+}
+
+.menu-action {
+    padding: 0.375rem 1rem;
+    font-size: 0.8125rem;
+    color: #bac2de;
+    cursor: pointer;
+}
+
+.menu-action:hover {
+    background: #313244;
+    color: #cdd6f4;
+}
+
+.menu-separator {
+    height: 1px;
+    background: #313244;
+    margin: 0.25rem 0;
+}
+
+/* ── Main Content Layout ─────────────────────────────────────── */
+
+#main-content {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+/* ── MIB Panel (Left) ─────────────────────────────────────────── */
+
+#mib-panel {
+    width: 320px;
+    min-width: 200px;
+    max-width: 600px;
+    display: flex;
+    flex-direction: column;
+    background: #181825;
+    border-right: 1px solid #313244;
+    flex-shrink: 0;
+}
+
+.panel-header {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
     color: #a6adc8;
+    background: #1e1e2e;
+    border-bottom: 1px solid #313244;
+}
+
+#tree-container {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0.25rem 0;
+}
+
+/* ── Tree Nodes ───────────────────────────────────────────────── */
+
+.tree-node {
+    user-select: none;
+}
+
+.tree-row {
+    display: flex;
+    align-items: center;
+    padding: 2px 4px;
+    cursor: default;
+    border-radius: 3px;
+    font-size: 0.8125rem;
+    white-space: nowrap;
+}
+
+.tree-row:hover {
+    background: #313244;
+}
+
+.tree-row.selected {
+    background: #45475a;
+}
+
+.tree-toggle {
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.625rem;
+    color: #6c7086;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.tree-toggle:hover {
+    color: #bac2de;
+}
+
+.tree-icon {
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 4px;
+    font-size: 0.75rem;
+    flex-shrink: 0;
+}
+
+.tree-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: #cdd6f4;
+}
+
+.tree-oid {
+    margin-left: auto;
+    padding-left: 8px;
+    font-size: 0.6875rem;
+    color: #6c7086;
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
+}
+
+.tree-children {
+    display: none;
+    padding-left: 12px;
+}
+
+.tree-children.expanded {
+    display: block;
+}
+
+/* ── Fallback Banner ─────────────────────────────────────────── */
+
+.fallback-banner {
+    background: #313244;
+    border-top: 1px solid #45475a;
+    padding: 0.375rem 0.5rem;
+    font-size: 0.6875rem;
+    color: #f9e2af;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.fallback-banner .banner-btn {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid #45475a;
+    color: #f9e2af;
+    padding: 2px 8px;
+    font-size: 0.6875rem;
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+.fallback-banner .banner-btn:hover {
+    background: #45475a;
+}
+
+/* ── Right Panel ─────────────────────────────────────────────── */
+
+#right-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* ── Address Bar ──────────────────────────────────────────────── */
+
+#address-bar-container {
+    padding: 0.5rem 0.75rem;
+    background: #1e1e2e;
+    border-bottom: 1px solid #313244;
+    position: relative;
+}
+
+#address-bar-wrapper {
+    display: flex;
+    gap: 0.5rem;
+}
+
+#oid-address-bar {
+    flex: 1;
+    background: #181825;
+    border: 1px solid #313244;
+    color: #cdd6f4;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.8125rem;
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
+    border-radius: 4px;
+    outline: none;
+}
+
+#oid-address-bar:focus {
+    border-color: #89b4fa;
+}
+
+#go-button {
+    background: #89b4fa;
+    color: #1e1e2e;
+    border: none;
+    padding: 0.375rem 1rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+#go-button:hover {
+    background: #74c7ec;
+}
+
+/* ── Autocomplete Dropdown ───────────────────────────────────── */
+
+.autocomplete-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0.75rem;
+    right: 0.75rem;
+    background: #1e1e2e;
+    border: 1px solid #313244;
+    border-radius: 6px;
+    max-height: 240px;
+    overflow-y: auto;
+    z-index: 500;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.autocomplete-item {
+    padding: 0.375rem 0.75rem;
+    font-size: 0.8125rem;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.autocomplete-item:hover,
+.autocomplete-item.highlighted {
+    background: #313244;
+}
+
+.autocomplete-name {
+    color: #cdd6f4;
+}
+
+.autocomplete-oid {
+    font-size: 0.6875rem;
+    color: #6c7086;
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
+}
+
+/* ── Selection Info ───────────────────────────────────────────── */
+
+#selection-info {
+    padding: 0.375rem 0.75rem;
+    background: #181825;
+    border-bottom: 1px solid #313244;
+    font-size: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+#selection-name {
+    color: #cdd6f4;
+    font-weight: 500;
+}
+
+.syntax-badge,
+.mib-badge {
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 0.6875rem;
+}
+
+.syntax-badge {
+    background: #313244;
+    color: #a6e3a1;
+}
+
+.mib-badge {
+    background: #313244;
+    color: #89b4fa;
+}
+
+/* ── Results Container ───────────────────────────────────────── */
+
+#results-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+#results-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.75rem;
+}
+
+.placeholder-text {
+    color: #6c7086;
+    font-size: 0.8125rem;
+    text-align: center;
+    margin-top: 2rem;
+}
+
+/* ── Context Menu ─────────────────────────────────────────────── */
+
+.context-menu {
+    position: fixed;
+    background: #1e1e2e;
+    border: 1px solid #313244;
+    border-radius: 6px;
+    padding: 0.25rem 0;
+    min-width: 140px;
+    z-index: 2000;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+/* ── Modal / Dialog ───────────────────────────────────────────── */
+
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 3000;
+}
+
+.modal-dialog {
+    background: #1e1e2e;
+    border: 1px solid #313244;
+    border-radius: 8px;
+    width: 560px;
+    max-height: 70vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #313244;
+}
+
+.modal-header h2 {
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.modal-close {
+    background: transparent;
+    border: none;
+    color: #6c7086;
+    font-size: 1.25rem;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.modal-close:hover {
+    color: #f38ba8;
+}
+
+.manage-mibs-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.5rem;
+}
+
+.mib-entry {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    border-radius: 4px;
+    gap: 0.75rem;
+}
+
+.mib-entry:hover {
+    background: #313244;
+}
+
+.mib-entry-name {
+    flex: 1;
+    font-size: 0.8125rem;
+    color: #cdd6f4;
+}
+
+.mib-entry-path {
+    font-size: 0.6875rem;
+    color: #6c7086;
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mib-entry-meta {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    font-size: 0.6875rem;
+}
+
+.fallback-tag {
+    background: #45475a;
+    color: #f9e2af;
+    padding: 1px 6px;
+    border-radius: 3px;
+}
+
+.unload-btn {
+    background: transparent;
+    border: 1px solid #45475a;
+    color: #f38ba8;
+    padding: 2px 8px;
+    font-size: 0.6875rem;
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+.unload-btn:hover {
+    background: #f38ba8;
+    color: #1e1e2e;
+}
+
+.modal-footer {
+    padding: 0.5rem 1rem;
+    border-top: 1px solid #313244;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.btn-primary {
+    background: #89b4fa;
+    color: #1e1e2e;
+    border: none;
+    padding: 0.375rem 1rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.btn-primary:hover {
+    background: #74c7ec;
+}
+
+/* ── Status Bar ───────────────────────────────────────────────── */
+
+#statusbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.25rem 0.75rem;
+    background: #181825;
+    border-top: 1px solid #313244;
+    font-size: 0.6875rem;
+    color: #6c7086;
+    flex-shrink: 0;
+}
+
+/* ── Utility ─────────────────────────────────────────────────── */
+
+.hidden {
+    display: none !important;
+}
+
+/* ── Scrollbar Styling ────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #45475a;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #585b70;
 }
