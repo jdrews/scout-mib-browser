@@ -477,7 +477,7 @@ impl Resolver {
     /// Sorts nodes by a stable order: OBJECT IDENTIFIER subtrees first (alphabetical),
     /// then leaf objects (alphabetical).
     fn sort_nodes<'a>(&self, nodes: &'a [&'a MibNode]) -> Vec<&'a MibNode> {
-        let mut sorted: Vec<_> = nodes.iter().copied().collect();
+        let mut sorted: Vec<_> = nodes.to_vec();
         sorted.sort_by(|a, b| {
             let a_is_subtree = matches!(a.syntax_type, SyntaxType::ObjectIdentifier);
             let b_is_subtree = matches!(b.syntax_type, SyntaxType::ObjectIdentifier);
