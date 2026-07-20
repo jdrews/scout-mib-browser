@@ -68,6 +68,10 @@ fn main() {
             mib_resolve_oid,
             mib_reverse_lookup,
             mib_status,
+            mib_tree,
+            mib_search,
+            mib_unload,
+            mib_loaded_list,
             snmp_connect,
             snmp_get,
             snmp_get_next,
@@ -124,6 +128,46 @@ fn mib_status(resolver: tauri::State<MibResolverState>) -> Result<MibLoadStatus,
         node_count: res.node_count(),
         fallback_mibs: res.fallback_mib_names().cloned().collect(),
     })
+}
+
+/// Returns the hierarchical MIB tree for rendering in the UI.
+#[tauri::command]
+fn mib_tree(resolver: tauri::State<MibResolverState>) -> Result<Vec<mib::TreeNode>, String> {
+    let res = resolver.inner.read().map_err(|e| e.to_string())?;
+    Ok(res.build_tree())
+}
+
+/// Searches for MIB nodes matching the given query (autocomplete).
+#[tauri::command]
+fn mib_search(
+    resolver: tauri::State<MibResolverState>,
+    query: String,
+) -> Result<Vec<mib::MibNode>, String> {
+    let res = resolver.inner.read().map_err(|e| e.to_string())?;
+    Ok(res.search(&query))
+}
+
+/// Unloads all nodes from the given MIB module.
+#[tauri::command]
+fn mib_unload(
+    resolver: tauri::State<MibResolverState>,
+    mib_name: String,
+) -> Result<MibLoadStatus, String> {
+    let mut res = resolver.inner.write().map_err(|e| e.to_string())?;
+    res.unload_mib(&mib_name);
+    Ok(MibLoadStatus {
+        node_count: res.node_count(),
+        fallback_mibs: res.fallback_mib_names().cloned().collect(),
+    })
+}
+
+/// Returns metadata about all currently loaded MIB modules.
+#[tauri::command]
+fn mib_loaded_list(
+    resolver: tauri::State<MibResolverState>,
+) -> Result<Vec<mib::LoadedMibInfo>, String> {
+    let res = resolver.inner.read().map_err(|e| e.to_string())?;
+    Ok(res.loaded_mibs())
 }
 
 // ── SNMP Commands ────────────────────────────────────────────────────────────

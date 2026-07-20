@@ -8,9 +8,88 @@
 </head>
 <body>
     <div id="app">
-        <h1>Scout MIB Browser</h1>
-        <p>SNMP MIB browser — under construction.</p>
+        <!-- Menu Bar -->
+        <nav id="menubar">
+            <div class="menu-item" id="file-menu-trigger">File</div>
+            <div class="menu-dropdown" id="file-menu">
+                <div class="menu-action" data-action="add-mib-directory">Add MIB Directory...</div>
+                <div class="menu-separator"></div>
+                <div class="menu-action" data-action="manage-mibs">Manage MIBs...</div>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <div id="main-content">
+            <!-- Left Panel: MIB Tree -->
+            <aside id="mib-panel">
+                <div class="panel-header">MIB Browser</div>
+                <div id="tree-container"></div>
+                <div id="fallback-banner" class="fallback-banner hidden">
+                    <span id="fallback-message"></span>
+                    <button id="show-system-log" class="banner-btn">System Log</button>
+                </div>
+            </aside>
+
+            <!-- Right Panel: Address Bar + Results -->
+            <main id="right-panel">
+                <!-- OID Address Bar -->
+                <div id="address-bar-container">
+                    <div id="address-bar-wrapper">
+                        <input
+                            type="text"
+                            id="oid-address-bar"
+                            placeholder="Enter OID or MIB name (e.g., 1.3.6.1.2.1.1.1 or sysDescr)"
+                            autocomplete="off"
+                        />
+                        <button id="go-button" title="Execute SNMP operation">Go</button>
+                    </div>
+                    <div id="autocomplete-dropdown" class="autocomplete-dropdown hidden"></div>
+                </div>
+
+                <!-- Selection Info -->
+                <div id="selection-info" class="hidden">
+                    <span id="selection-name"></span>
+                    <span id="selection-syntax" class="syntax-badge"></span>
+                    <span id="selection-mib" class="mib-badge"></span>
+                </div>
+
+                <!-- Results Pane -->
+                <div id="results-container">
+                    <div class="panel-header">Results</div>
+                    <div id="results-content">
+                        <p class="placeholder-text">Select a MIB node and click Go to query the Target.</p>
+                    </div>
+                </div>
+            </main>
+        </div>
+
+        <!-- Context Menu -->
+        <div id="context-menu" class="context-menu hidden">
+            <div class="menu-action" data-action="copy-oid">Copy OID</div>
+            <div class="menu-action" data-action="copy-name">Copy Name</div>
+        </div>
+
+        <!-- Manage MIBs Dialog -->
+        <div id="manage-mibs-overlay" class="modal-overlay hidden">
+            <div class="modal-dialog">
+                <div class="modal-header">
+                    <h2>Manage MIBs</h2>
+                    <button class="modal-close" data-action="close-manage-mibs">&times;</button>
+                </div>
+                <div id="manage-mibs-list" class="manage-mibs-list"></div>
+                <div class="modal-footer">
+                    <button class="btn-primary" data-action="close-manage-mibs">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Status Bar -->
+        <footer id="statusbar">
+            <span id="status-text">Ready</span>
+            <span id="node-count"></span>
+        </footer>
     </div>
+
     <script type="module" src="js/app.js"></script>
 </body>
 </html>
