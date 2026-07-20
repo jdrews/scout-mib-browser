@@ -3,7 +3,7 @@ mod mib;
 mod snmp;
 
 use std::sync::{Arc, RwLock};
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 
 /// Thread-safe handle to the MIB resolver stored in Tauri app state.
 #[derive(Clone)]
@@ -40,7 +40,7 @@ impl SnmpEngineState {
 }
 
 /// Tauri event name for walk batch emission.
-const WALK_BATCH_EVENT: &str = "snmp-walk-batch";
+const WALK_BATCH_EVENT: &str = snmp::WALK_BATCH_EVENT;
 
 fn main() {
     let snmp_state = SnmpEngineState::new().expect("failed to create SNMP engine");
@@ -132,12 +132,9 @@ fn mib_status(resolver: tauri::State<MibResolverState>) -> Result<MibLoadStatus,
 #[tauri::command]
 fn snmp_connect(
     engine: tauri::State<SnmpEngineState>,
-    host: String,
-    port: u16,
-    version: String,
-    community: Option<String>,
+    params: SnmpCommandParams,
 ) -> Result<snmp::ResultSet, String> {
-    let target = build_target(&host, port, &version, community);
+    let target = build_target(&params);
     let engine = engine.inner.read().map_err(|e| e.to_string())?;
     engine.get(&target, &["1.3.6.1.2.1.1.9.1.5.0".to_string()])
 }
@@ -146,13 +143,10 @@ fn snmp_connect(
 #[tauri::command]
 fn snmp_get(
     engine: tauri::State<SnmpEngineState>,
-    host: String,
-    port: u16,
-    version: String,
-    community: Option<String>,
+    params: SnmpCommandParams,
     oids: Vec<String>,
 ) -> Result<snmp::ResultSet, String> {
-    let target = build_target(&host, port, &version, community);
+    let target = build_target(&params);
     let engine = engine.inner.read().map_err(|e| e.to_string())?;
     engine.get(&target, &oids)
 }
@@ -161,85 +155,54 @@ fn snmp_get(
 #[tauri::command]
 fn snmp_get_next(
     engine: tauri::State<SnmpEngineState>,
-    host: String,
-    port: u16,
-    version: String,
-    community: Option<String>,
+    params: SnmpCommandParams,
     oids: Vec<String>,
 ) -> Result<snmp::ResultSet, String> {
-    let target = build_target(&host, port, &version, community);
+    let target = build_target(&params);
     let engine = engine.inner.read().map_err(|e| e.to_string())?;
     engine.get_next(&target, &oids)
 }
 
 /// Executes a Walk operation from the given root OID.
+/// Returns immediately — results stream via Tauri events.
 #[tauri::command]
 fn snmp_walk(
-    _app: tauri::AppHandle,
+    app: tauri::AppHandle,
     engine: tauri::State<SnmpEngineState>,
-    host: String,
-    port: u16,
-    version: String,
-    community: Option<String>,
+    params: SnmpCommandParams,
     root_oid: String,
 ) -> Result<snmp::ResultSet, String> {
-    let target = build_target(&host, port, &version, community);
+    let target = build_target(&params);
     let engine = engine.inner.read().map_err(|e| e.to_string())?;
-
-    // Create callback that emits batches to the frontend.
-    let app_handle = _app.clone();
-    let callback: Arc<snmp::WalkBatchCallback> =
-        Arc::new(move |bindings: Vec<snmp::VariableBinding>| {
-            let _ = app_handle.emit_to(
-                "main",
-                WALK_BATCH_EVENT,
-                serde_json::json!({ "bindings": bindings }),
-            );
-        });
-
-    engine.walk_with_callback(&target, &root_oid, callback)
+    engine.walk_spawn(app, &target, &root_oid);
+    Ok(snmp::ResultSet::new())
 }
 
 /// Executes a BulkWalk operation from the given root OID.
+/// Returns immediately — results stream via Tauri events.
 #[tauri::command]
 fn snmp_bulk_walk(
-    _app: tauri::AppHandle,
+    app: tauri::AppHandle,
     engine: tauri::State<SnmpEngineState>,
-    host: String,
-    port: u16,
-    version: String,
-    community: Option<String>,
+    params: SnmpCommandParams,
     root_oid: String,
 ) -> Result<snmp::ResultSet, String> {
-    let target = build_target(&host, port, &version, community);
+    let target = build_target(&params);
     let engine = engine.inner.read().map_err(|e| e.to_string())?;
-
-    let app_handle = _app.clone();
-    let callback: Arc<snmp::WalkBatchCallback> =
-        Arc::new(move |bindings: Vec<snmp::VariableBinding>| {
-            let _ = app_handle.emit_to(
-                "main",
-                WALK_BATCH_EVENT,
-                serde_json::json!({ "bindings": bindings }),
-            );
-        });
-
-    engine.bulk_walk_with_callback(&target, &root_oid, callback)
+    engine.bulk_walk_spawn(app, &target, &root_oid);
+    Ok(snmp::ResultSet::new())
 }
 
 /// Executes a Set operation to write a value at the given OID.
 #[tauri::command]
 fn snmp_set(
     engine: tauri::State<SnmpEngineState>,
-    host: String,
-    port: u16,
-    version: String,
-    community: Option<String>,
+    params: SnmpCommandParams,
     oid: String,
     value_type: String,
     value: serde_json::Value,
 ) -> Result<snmp::ResultSet, String> {
-    let target = build_target(&host, port, &version, community);
+    let target = build_target(&params);
     let set_value = parse_set_value(&value_type, &value)?;
     let engine = engine.inner.read().map_err(|e| e.to_string())?;
     engine.set(&target, &oid, set_value)
@@ -247,24 +210,63 @@ fn snmp_set(
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-/// Builds a Target from command parameters.
-fn build_target(host: &str, port: u16, version: &str, community: Option<String>) -> snmp::Target {
-    let community = community.unwrap_or_else(|| "public".to_string());
+/// Shared Target connection parameters for SNMP commands.
+#[derive(Clone, serde::Deserialize)]
+struct SnmpCommandParams {
+    host: String,
+    port: u16,
+    version: String,
+    community: Option<String>,
+    #[serde(default)]
+    v3_username: Option<String>,
+    #[serde(default)]
+    v3_auth_protocol: Option<String>,
+    #[serde(default)]
+    v3_auth_passphrase: Option<String>,
+    #[serde(default)]
+    v3_priv_protocol: Option<String>,
+    #[serde(default)]
+    v3_priv_passphrase: Option<String>,
+}
 
-    match version.to_lowercase().as_str() {
-        "v1" => snmp::Target::v1(host, port, community),
-        "v3" => snmp::Target::v3(
-            host,
-            port,
-            snmp::SnmpV3SecurityConfig {
-                username: String::new(),
-                auth_protocol: snmp::AuthProtocol::None,
-                auth_passphrase: String::new(),
-                priv_protocol: snmp::PrivProtocol::None,
-                priv_passphrase: String::new(),
-            },
-        ),
-        _ => snmp::Target::v2c(host, port, community),
+/// Builds a Target from command parameters.
+fn build_target(params: &SnmpCommandParams) -> snmp::Target {
+    let community = params
+        .community
+        .clone()
+        .unwrap_or_else(|| "public".to_string());
+
+    match params.version.to_lowercase().as_str() {
+        "v1" => snmp::Target::v1(&params.host, params.port, community),
+        "v3" => {
+            let auth_protocol = match params.v3_auth_protocol.as_deref() {
+                Some("md5") => snmp::AuthProtocol::Md5,
+                Some("sha1") => snmp::AuthProtocol::Sha1,
+                Some("sha224") => snmp::AuthProtocol::Sha224,
+                Some("sha256") => snmp::AuthProtocol::Sha256,
+                Some("sha384") => snmp::AuthProtocol::Sha384,
+                Some("sha512") => snmp::AuthProtocol::Sha512,
+                _ => snmp::AuthProtocol::None,
+            };
+
+            let priv_protocol = match params.v3_priv_protocol.as_deref() {
+                Some("des") => snmp::PrivProtocol::Des,
+                Some("aes128") => snmp::PrivProtocol::Aes128,
+                Some("aes192") => snmp::PrivProtocol::Aes192,
+                Some("aes256") => snmp::PrivProtocol::Aes256,
+                _ => snmp::PrivProtocol::None,
+            };
+
+            let security = snmp::SnmpV3SecurityConfig {
+                username: params.v3_username.clone().unwrap_or_default(),
+                auth_protocol,
+                auth_passphrase: params.v3_auth_passphrase.clone().unwrap_or_default(),
+                priv_protocol,
+                priv_passphrase: params.v3_priv_passphrase.clone().unwrap_or_default(),
+            };
+            snmp::Target::v3(&params.host, params.port, security)
+        }
+        _ => snmp::Target::v2c(&params.host, params.port, community),
     }
 }
 

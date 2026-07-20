@@ -13,7 +13,7 @@ mod mock;
 mod tolerant;
 pub mod types;
 
-pub use engine::{SnmpEngine, WalkBatchCallback};
+pub use engine::{SnmpEngine, WALK_BATCH_EVENT, WALK_COMPLETE_EVENT};
 #[cfg(test)]
 pub use mock::MockSnmpServer;
 pub use types::*;

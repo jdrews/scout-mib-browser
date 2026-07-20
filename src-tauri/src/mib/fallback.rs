@@ -4,12 +4,6 @@ use tracing::{info, warn};
 
 use super::MibNode;
 
-static MODULE_NAME_RE: OnceLock<regex::Regex> = OnceLock::new();
-fn module_name_re() -> &'static regex::Regex {
-    MODULE_NAME_RE
-        .get_or_init(|| regex::Regex::new(r"(?i)\b([A-Za-z0-9_-]+)\s+DEFINITIONS\s*::=").unwrap())
-}
-
 static OBJECT_TYPE_BLOCK_RE: OnceLock<regex::Regex> = OnceLock::new();
 fn object_type_block_re() -> &'static regex::Regex {
     OBJECT_TYPE_BLOCK_RE.get_or_init(|| {
@@ -101,12 +95,7 @@ impl FallbackExtractor {
 
     /// Detects the MIB module name from file content.
     fn detect_module_name(content: &str) -> String {
-        if let Some(captures) = module_name_re().captures(content) {
-            if let Some(name_match) = captures.get(1) {
-                return name_match.as_str().to_uppercase();
-            }
-        }
-        String::new()
+        super::detect_module_name(content)
     }
 
     /// Extracts OBJECT-TYPE definitions using regex.

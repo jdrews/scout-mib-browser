@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use tauri::Emitter;
 use tracing::{info, warn};
 
 use super::tolerant::*;
@@ -10,8 +11,26 @@ use super::types::*;
 /// Batch size for walk streaming.
 const WALK_BATCH_SIZE: usize = 100;
 
-/// Callback type for receiving walk/bulk_walk batch progress.
-pub type WalkBatchCallback = dyn Fn(Vec<VariableBinding>) + Send + Sync;
+/// Tauri event name for walk batch emission.
+pub const WALK_BATCH_EVENT: &str = "snmp-walk-batch";
+
+/// Tauri event name for walk completion.
+pub const WALK_COMPLETE_EVENT: &str = "snmp-walk-complete";
+
+/// Walk mode — determines which SNMP fetch operation is used.
+enum WalkMode {
+    GetNext,
+    GetBulk,
+}
+
+impl WalkMode {
+    fn label(&self) -> &'static str {
+        match self {
+            WalkMode::GetNext => "Walk",
+            WalkMode::GetBulk => "BulkWalk",
+        }
+    }
+}
 
 /// Core SNMP engine that executes operations against a Target with error tolerance.
 pub struct SnmpEngine {
@@ -43,35 +62,58 @@ impl SnmpEngine {
 
     /// Executes a Walk operation and returns all results.
     pub fn walk(&self, target: &Target, root_oid: &str) -> Result<ResultSet, String> {
-        self.runtime.block_on(self.do_walk(target, root_oid, None))
+        self.runtime.block_on(Self::do_walk_loop(
+            WalkMode::GetNext,
+            target,
+            root_oid,
+            None,
+        ))
     }
 
-    /// Executes a Walk operation with batch callback for progress reporting.
-    pub fn walk_with_callback(
-        &self,
-        target: &Target,
-        root_oid: &str,
-        callback: Arc<WalkBatchCallback>,
-    ) -> Result<ResultSet, String> {
-        self.runtime
-            .block_on(self.do_walk(target, root_oid, Some(callback)))
+    /// Executes a Walk operation as a background task with batch event emission.
+    /// Returns immediately — results stream via Tauri events (`WALK_BATCH_EVENT`, `WALK_COMPLETE_EVENT`).
+    pub fn walk_spawn(&self, app: tauri::AppHandle, target: &Target, root_oid: &str) {
+        let target = target.clone();
+        let root_oid = root_oid.to_string();
+        let runtime = Arc::clone(&self.runtime);
+        std::thread::spawn(move || {
+            runtime.block_on(async {
+                let rs =
+                    Self::do_walk_loop(WalkMode::GetNext, &target, &root_oid, Some(&app)).await;
+                let _ = app.emit(WALK_COMPLETE_EVENT, rs);
+            });
+        });
     }
 
     /// Executes a BulkWalk operation and returns all results.
     pub fn bulk_walk(&self, target: &Target, root_oid: &str) -> Result<ResultSet, String> {
-        self.runtime
-            .block_on(self.do_bulk_walk(target, root_oid, None))
+        if matches!(target.version, Version::V1) {
+            return Err("BulkWalk is not supported in SNMPv1 — use Walk instead".to_string());
+        }
+        self.runtime.block_on(Self::do_walk_loop(
+            WalkMode::GetBulk,
+            target,
+            root_oid,
+            None,
+        ))
     }
 
-    /// Executes a BulkWalk with batch callback for progress reporting.
-    pub fn bulk_walk_with_callback(
-        &self,
-        target: &Target,
-        root_oid: &str,
-        callback: Arc<WalkBatchCallback>,
-    ) -> Result<ResultSet, String> {
-        self.runtime
-            .block_on(self.do_bulk_walk(target, root_oid, Some(callback)))
+    /// Executes a BulkWalk operation as a background task with batch event emission.
+    /// Returns immediately — results stream via Tauri events (`WALK_BATCH_EVENT`, `WALK_COMPLETE_EVENT`).
+    pub fn bulk_walk_spawn(&self, app: tauri::AppHandle, target: &Target, root_oid: &str) {
+        if matches!(target.version, Version::V1) {
+            return;
+        }
+        let target = target.clone();
+        let root_oid = root_oid.to_string();
+        let runtime = Arc::clone(&self.runtime);
+        std::thread::spawn(move || {
+            runtime.block_on(async {
+                let rs =
+                    Self::do_walk_loop(WalkMode::GetBulk, &target, &root_oid, Some(&app)).await;
+                let _ = app.emit(WALK_COMPLETE_EVENT, rs);
+            });
+        });
     }
 
     /// Executes a Set operation to write a value at the given OID.
@@ -177,12 +219,14 @@ impl SnmpEngine {
         Ok(rs)
     }
 
-    async fn do_walk(
-        &self,
+    /// Shared walk loop used by both Walk and BulkWalk.
+    async fn do_walk_loop(
+        mode: WalkMode,
         target: &Target,
         root_oid: &str,
-        callback: Option<Arc<WalkBatchCallback>>,
+        app_handle: Option<&tauri::AppHandle>,
     ) -> Result<ResultSet, String> {
+        let op_name = mode.label();
         let mut session = Self::connect(target).await?;
         let mut rs = ResultSet::new();
         let mut batch = Vec::new();
@@ -191,37 +235,42 @@ impl SnmpEngine {
             .parse()
             .map_err(|e| format!("Invalid root OID: {:?}", e))?;
         let mut current_oid = root;
+        let mut retry_count: u32 = 0;
 
         loop {
-            match session.getnext(&current_oid).await {
+            let pdu_result = match mode {
+                WalkMode::GetNext => session.getnext(&current_oid).await,
+                WalkMode::GetBulk => session.getbulk(&[&current_oid], 0, 50).await,
+            };
+
+            match pdu_result {
                 Ok(pdu) => {
-                    let mut got_data = false;
+                    let mut received_varbinds = false;
                     for (o, v) in pdu.varbinds {
                         if is_walk_termination_value(&v) {
-                            info!("Walk terminated: {:?}", v);
-                            Self::drain_batch(&mut batch, callback.as_deref(), &mut rs);
+                            info!("{} terminated: {:?}", op_name, v);
+                            Self::drain_batch(&mut batch, app_handle, &mut rs);
                             return Ok(rs);
                         }
 
                         let oid_str = o.to_string();
                         if !Self::is_subtree_of(&oid_str, root_oid) {
                             info!(
-                                "Walk passed root {} (got {}), terminating",
-                                root_oid, oid_str
+                                "{} passed root {} (got {}), terminating",
+                                op_name, root_oid, oid_str
                             );
-                            Self::drain_batch(&mut batch, callback.as_deref(), &mut rs);
+                            Self::drain_batch(&mut batch, app_handle, &mut rs);
                             return Ok(rs);
                         }
 
                         batch.push(binding_from_snmp(oid_str, v));
-                        got_data = true;
+                        received_varbinds = true;
                     }
 
-                    if !got_data {
+                    if !received_varbinds {
                         break;
                     }
 
-                    // Update current_oid from the last binding.
                     if let Some(last) = batch.last() {
                         match snmp2::Oid::from_str(&last.oid) {
                             Ok(new_oid) => current_oid = new_oid,
@@ -231,19 +280,22 @@ impl SnmpEngine {
                         break;
                     }
 
-                    // Drain batch if full.
                     if batch.len() >= WALK_BATCH_SIZE {
-                        Self::drain_batch(&mut batch, callback.as_deref(), &mut rs);
+                        Self::drain_batch(&mut batch, app_handle, &mut rs);
                     }
                 }
                 Err(e) => {
-                    warn!("Walk getnext failed: {:?}", e);
+                    warn!("{} fetch failed: {:?}", op_name, e);
                     rs.partial = true;
                     rs.warnings
                         .push(error_to_warning(&e, Some(root_oid.to_string())));
 
-                    // Retry with reconnection for network errors.
-                    if is_retryable_error(&e) {
+                    if is_retryable_error(&e) && retry_count < MAX_RETRIES {
+                        let delay = backoff_delay(retry_count);
+                        warn!("{} network error — retrying in {:?}", op_name, delay);
+                        tokio::time::sleep(delay).await;
+                        retry_count += 1;
+
                         match Self::connect(target).await {
                             Ok(new_session) => session = new_session,
                             Err(conn_err) => {
@@ -258,99 +310,8 @@ impl SnmpEngine {
             }
         }
 
-        Self::drain_batch(&mut batch, callback.as_deref(), &mut rs);
-        Ok(rs)
-    }
-
-    async fn do_bulk_walk(
-        &self,
-        target: &Target,
-        root_oid: &str,
-        callback: Option<Arc<WalkBatchCallback>>,
-    ) -> Result<ResultSet, String> {
-        if matches!(target.version, Version::V1) {
-            return Err("BulkWalk is not supported in SNMPv1 — use Walk instead".to_string());
-        }
-
-        let mut session = Self::connect(target).await?;
-        let mut rs = ResultSet::new();
-        let mut batch = Vec::new();
-
-        let root: snmp2::Oid = root_oid
-            .parse()
-            .map_err(|e| format!("Invalid root OID: {:?}", e))?;
-        let mut current_oid = root;
-
-        const MAX_REPETITIONS: u32 = 50;
-
-        loop {
-            let ref_oids: Vec<&snmp2::Oid> = vec![&current_oid];
-
-            match session.getbulk(&ref_oids, 0, MAX_REPETITIONS).await {
-                Ok(pdu) => {
-                    let mut got_data = false;
-                    for (o, v) in pdu.varbinds {
-                        if is_walk_termination_value(&v) {
-                            info!("BulkWalk terminated: {:?}", v);
-                            Self::drain_batch(&mut batch, callback.as_deref(), &mut rs);
-                            return Ok(rs);
-                        }
-
-                        let oid_str = o.to_string();
-                        if !Self::is_subtree_of(&oid_str, root_oid) {
-                            info!(
-                                "BulkWalk passed root {} (got {}), terminating",
-                                root_oid, oid_str
-                            );
-                            Self::drain_batch(&mut batch, callback.as_deref(), &mut rs);
-                            return Ok(rs);
-                        }
-
-                        batch.push(binding_from_snmp(oid_str, v));
-                        got_data = true;
-                    }
-
-                    if !got_data {
-                        break;
-                    }
-
-                    // Update current_oid from the last binding.
-                    if let Some(last) = batch.last() {
-                        match snmp2::Oid::from_str(&last.oid) {
-                            Ok(new_oid) => current_oid = new_oid,
-                            Err(_) => break,
-                        }
-                    } else {
-                        break;
-                    }
-
-                    // Drain batch if full.
-                    if batch.len() >= WALK_BATCH_SIZE {
-                        Self::drain_batch(&mut batch, callback.as_deref(), &mut rs);
-                    }
-                }
-                Err(e) => {
-                    warn!("BulkWalk getbulk failed: {:?}", e);
-                    rs.partial = true;
-                    rs.warnings
-                        .push(error_to_warning(&e, Some(root_oid.to_string())));
-
-                    if is_retryable_error(&e) {
-                        match Self::connect(target).await {
-                            Ok(new_session) => session = new_session,
-                            Err(conn_err) => {
-                                warn!("Reconnection failed: {}", conn_err);
-                                break;
-                            }
-                        }
-                    } else {
-                        break;
-                    }
-                }
-            }
-        }
-
-        Self::drain_batch(&mut batch, callback.as_deref(), &mut rs);
+        rs.retries = retry_count;
+        Self::drain_batch(&mut batch, app_handle, &mut rs);
         Ok(rs)
     }
 
@@ -426,31 +387,19 @@ impl SnmpEngine {
                 .await
                 .map_err(|e| format!("Failed to connect (v2c) to {}: {}", target.addr(), e)),
             Version::V3 => {
-                #[cfg(feature = "snmp2/v3")]
-                {
-                    let security = target
-                        .security
-                        .as_ref()
-                        .ok_or_else(|| "SNMPv3 requires security configuration".to_string())?;
+                let security = target
+                    .security
+                    .as_ref()
+                    .ok_or_else(|| "SNMPv3 requires security configuration".to_string())?;
 
-                    let mut sec = snmp2::v3::Security::default();
-                    sec.username = security.username.clone().into_bytes();
+                let sec = snmp2::v3::Security::new(
+                    security.username.as_bytes(),
+                    security.auth_passphrase.as_bytes(),
+                );
 
-                    if !security.auth_passphrase.is_empty() {
-                        sec.authentication_password = security.auth_passphrase.clone().into_bytes();
-                    }
-                    if !security.priv_passphrase.is_empty() {
-                        sec.privacy_password = security.priv_passphrase.clone().into_bytes();
-                    }
-
-                    snmp2::AsyncSession::new_v3(addr, 0, sec)
-                        .await
-                        .map_err(|e| format!("Failed to connect (v3) to {}: {}", target.addr(), e))
-                }
-                #[cfg(not(feature = "snmp2/v3"))]
-                {
-                    Err("SNMPv3 support requires the 'v3' feature of snmp2".to_string())
-                }
+                snmp2::AsyncSession::new_v3(addr, 0, sec)
+                    .await
+                    .map_err(|e| format!("Failed to connect (v3) to {}: {}", target.addr(), e))
             }
         }
     }
@@ -460,15 +409,19 @@ impl SnmpEngine {
         oid == root || oid.starts_with(&format!("{}.", root))
     }
 
-    /// Drains a batch — either invokes callback or appends to result set.
+    /// Drains a batch — either emits via Tauri event or appends to result set.
     fn drain_batch(
         batch: &mut Vec<VariableBinding>,
-        callback: Option<&WalkBatchCallback>,
+        app_handle: Option<&tauri::AppHandle>,
         rs: &mut ResultSet,
     ) {
         let items = std::mem::take(batch);
-        if let Some(cb) = callback {
-            cb(items);
+        if let Some(app) = app_handle {
+            let _ = app.emit_to(
+                "main",
+                WALK_BATCH_EVENT,
+                serde_json::json!({ "bindings": items }),
+            );
         } else {
             rs.bindings.extend(items);
         }

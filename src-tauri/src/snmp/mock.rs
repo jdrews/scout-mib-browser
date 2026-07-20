@@ -167,7 +167,9 @@ impl MockSnmpServer {
 
         match msg_type {
             MessageType::Get => Self::build_get_response(request, &oids, &state.data),
-            MessageType::GetNext => Self::build_getnext_response(request, &oids, &state.data),
+            MessageType::GetNext | MessageType::GetBulk => {
+                Self::build_getnext_response(request, &oids, &state.data)
+            }
             MessageType::Set => Self::build_set_response(request, &oids, &mut state.data),
             _ => Self::build_error_response(request),
         }
@@ -363,6 +365,7 @@ impl MockSnmpServer {
             0xA0 => MessageType::Get,
             0xA1 => MessageType::GetNext,
             0xA3 => MessageType::Set,
+            0xA4 => MessageType::GetBulk,
             _ => MessageType::Unknown,
         }
     }
@@ -524,6 +527,7 @@ impl MockSnmpServer {
 enum MessageType {
     Get,
     GetNext,
+    GetBulk,
     Set,
     Unknown,
 }

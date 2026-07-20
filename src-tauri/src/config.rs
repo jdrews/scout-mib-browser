@@ -15,6 +15,116 @@ const CONFIG_FILE: &str = "config.toml";
 /// Environment variable prefix for config overrides.
 const ENV_PREFIX: &str = "SCOUT";
 
+// ── Typed enums for SNMP configuration ───────────────────────────────────────
+
+/// SNMP version for Target connections.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SnmpVersion {
+    V1,
+    #[default]
+    V2c,
+    V3,
+}
+
+impl SnmpVersion {
+    pub fn as_str(&self) -> &str {
+        match self {
+            SnmpVersion::V1 => "v1",
+            SnmpVersion::V2c => "v2c",
+            SnmpVersion::V3 => "v3",
+        }
+    }
+
+    pub fn is_default(&self) -> bool {
+        *self == SnmpVersion::default()
+    }
+}
+
+/// Authentication protocol for SNMPv3 USM.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum V3AuthProtocol {
+    #[default]
+    None,
+    Md5,
+    Sha1,
+    Sha224,
+    Sha256,
+    Sha384,
+    Sha512,
+}
+
+impl V3AuthProtocol {
+    pub fn as_str(&self) -> &str {
+        match self {
+            V3AuthProtocol::None => "none",
+            V3AuthProtocol::Md5 => "md5",
+            V3AuthProtocol::Sha1 => "sha1",
+            V3AuthProtocol::Sha224 => "sha224",
+            V3AuthProtocol::Sha256 => "sha256",
+            V3AuthProtocol::Sha384 => "sha384",
+            V3AuthProtocol::Sha512 => "sha512",
+        }
+    }
+
+    pub fn is_default(&self) -> bool {
+        *self == V3AuthProtocol::default()
+    }
+}
+
+/// Privacy (encryption) protocol for SNMPv3 USM.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum V3PrivProtocol {
+    #[default]
+    None,
+    Des,
+    Aes128,
+    Aes192,
+    Aes256,
+}
+
+impl V3PrivProtocol {
+    pub fn as_str(&self) -> &str {
+        match self {
+            V3PrivProtocol::None => "none",
+            V3PrivProtocol::Des => "des",
+            V3PrivProtocol::Aes128 => "aes128",
+            V3PrivProtocol::Aes192 => "aes192",
+            V3PrivProtocol::Aes256 => "aes256",
+        }
+    }
+
+    pub fn is_default(&self) -> bool {
+        *self == V3PrivProtocol::default()
+    }
+}
+
+/// SNMPv3 security level.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum V3SecurityLevel {
+    #[default]
+    NoAuthNoPrivacy,
+    AuthNoPrivacy,
+    AuthPrivacy,
+}
+
+impl V3SecurityLevel {
+    pub fn as_str(&self) -> &str {
+        match self {
+            V3SecurityLevel::NoAuthNoPrivacy => "noAuthNoPriv",
+            V3SecurityLevel::AuthNoPrivacy => "authNoPriv",
+            V3SecurityLevel::AuthPrivacy => "authPriv",
+        }
+    }
+
+    pub fn is_default(&self) -> bool {
+        *self == V3SecurityLevel::default()
+    }
+}
+
 // ── Config Schema ────────────────────────────────────────────────────────────
 
 /// Top-level application configuration.
@@ -67,12 +177,9 @@ pub struct TargetConfig {
     #[serde(default = "default_snmp_port", skip_serializing_if = "is_default_port")]
     pub port: u16,
 
-    /// SNMP version string, e.g. `"v2c"` or `"v3"`.
-    #[serde(
-        default = "default_snmp_version",
-        skip_serializing_if = "is_default_version"
-    )]
-    pub version: String,
+    /// SNMP version.
+    #[serde(default, skip_serializing_if = "SnmpVersion::is_default")]
+    pub version: SnmpVersion,
 
     /// Community string for SNMPv1/v2c authentication.
     #[serde(
@@ -86,34 +193,25 @@ pub struct TargetConfig {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub v3_username: String,
 
-    /// v3 authentication protocol (`"none"`, `"md5"`, `"sha1"`, etc.).
-    #[serde(
-        default = "default_v3_auth_protocol",
-        skip_serializing_if = "is_default_v3_auth"
-    )]
-    pub v3_auth_protocol: String,
+    /// v3 authentication protocol.
+    #[serde(default, skip_serializing_if = "V3AuthProtocol::is_default")]
+    pub v3_auth_protocol: V3AuthProtocol,
 
     /// v3 authentication passphrase.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub v3_auth_passphrase: String,
 
-    /// v3 privacy protocol (`"none"`, `"des"`, `"aes128"`, etc.).
-    #[serde(
-        default = "default_v3_priv_protocol",
-        skip_serializing_if = "is_default_v3_priv"
-    )]
-    pub v3_priv_protocol: String,
+    /// v3 privacy protocol.
+    #[serde(default, skip_serializing_if = "V3PrivProtocol::is_default")]
+    pub v3_priv_protocol: V3PrivProtocol,
 
     /// v3 privacy passphrase.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub v3_priv_passphrase: String,
 
-    /// v3 security level (`"noAuthNoPriv"`, `"authNoPriv"`, `"authPriv"`).
-    #[serde(
-        default = "default_v3_security_level",
-        skip_serializing_if = "is_default_v3_sec_level"
-    )]
-    pub v3_security_level: String,
+    /// v3 security level.
+    #[serde(default, skip_serializing_if = "V3SecurityLevel::is_default")]
+    pub v3_security_level: V3SecurityLevel,
 }
 
 impl Default for TargetConfig {
@@ -121,14 +219,14 @@ impl Default for TargetConfig {
         Self {
             host: String::new(),
             port: default_snmp_port(),
-            version: default_snmp_version(),
+            version: SnmpVersion::default(),
             community: default_community_string(),
             v3_username: String::new(),
-            v3_auth_protocol: default_v3_auth_protocol(),
+            v3_auth_protocol: V3AuthProtocol::default(),
             v3_auth_passphrase: String::new(),
-            v3_priv_protocol: default_v3_priv_protocol(),
+            v3_priv_protocol: V3PrivProtocol::default(),
             v3_priv_passphrase: String::new(),
-            v3_security_level: default_v3_security_level(),
+            v3_security_level: V3SecurityLevel::default(),
         }
     }
 }
@@ -138,14 +236,14 @@ impl TargetConfig {
     pub(crate) fn is_default(&self) -> bool {
         self.host.is_empty()
             && self.port == DEFAULT_SNMP_PORT
-            && self.version == default_snmp_version()
+            && self.version.is_default()
             && self.community == default_community_string()
             && self.v3_username.is_empty()
-            && self.v3_auth_protocol == default_v3_auth_protocol()
+            && self.v3_auth_protocol.is_default()
             && self.v3_auth_passphrase.is_empty()
-            && self.v3_priv_protocol == default_v3_priv_protocol()
+            && self.v3_priv_protocol.is_default()
             && self.v3_priv_passphrase.is_empty()
-            && self.v3_security_level == default_v3_security_level()
+            && self.v3_security_level.is_default()
     }
 }
 
@@ -206,10 +304,6 @@ fn default_mib_directories() -> Vec<String> {
     vec![String::from("/usr/share/snmp/mibs")]
 }
 
-fn default_snmp_version() -> String {
-    String::from("v2c")
-}
-
 fn default_community_string() -> String {
     String::from("public")
 }
@@ -231,11 +325,6 @@ fn is_default_port(v: &u16) -> bool {
     *v == DEFAULT_SNMP_PORT
 }
 
-/// Returns `true` when the version string equals `"v2c"`.
-fn is_default_version(v: &str) -> bool {
-    v == "v2c"
-}
-
 /// Returns `true` when the community string equals `"public"`.
 fn is_default_community(v: &str) -> bool {
     v == "public"
@@ -254,32 +343,6 @@ fn is_default_splitter_h(v: &f64) -> bool {
 /// Returns `true` when the vertical splitter is at its default position.
 fn is_default_splitter_v(v: &f64) -> bool {
     (v - 0.5).abs() < f64::EPSILON
-}
-
-// ── SNMPv3 defaults ────────────────────────────────────────────────────────
-
-fn default_v3_auth_protocol() -> String {
-    String::from("none")
-}
-
-fn default_v3_priv_protocol() -> String {
-    String::from("none")
-}
-
-fn default_v3_security_level() -> String {
-    String::from("noAuthNoPriv")
-}
-
-fn is_default_v3_auth(v: &str) -> bool {
-    v == "none"
-}
-
-fn is_default_v3_priv(v: &str) -> bool {
-    v == "none"
-}
-
-fn is_default_v3_sec_level(v: &str) -> bool {
-    v == "noAuthNoPriv"
 }
 
 // ── Config path resolution ───────────────────────────────────────────────────
@@ -438,7 +501,11 @@ pub fn config_write(
                 }
                 "version" => {
                     if let Some(s) = value.as_str() {
-                        cfg.target.version = s.to_string();
+                        match s.to_lowercase().as_str() {
+                            "v1" => cfg.target.version = SnmpVersion::V1,
+                            "v3" => cfg.target.version = SnmpVersion::V3,
+                            _ => cfg.target.version = SnmpVersion::V2c,
+                        }
                     }
                 }
                 "community" => {
@@ -453,7 +520,15 @@ pub fn config_write(
                 }
                 "v3_auth_protocol" => {
                     if let Some(s) = value.as_str() {
-                        cfg.target.v3_auth_protocol = s.to_string();
+                        match s.to_lowercase().as_str() {
+                            "md5" => cfg.target.v3_auth_protocol = V3AuthProtocol::Md5,
+                            "sha1" => cfg.target.v3_auth_protocol = V3AuthProtocol::Sha1,
+                            "sha224" => cfg.target.v3_auth_protocol = V3AuthProtocol::Sha224,
+                            "sha256" => cfg.target.v3_auth_protocol = V3AuthProtocol::Sha256,
+                            "sha384" => cfg.target.v3_auth_protocol = V3AuthProtocol::Sha384,
+                            "sha512" => cfg.target.v3_auth_protocol = V3AuthProtocol::Sha512,
+                            _ => cfg.target.v3_auth_protocol = V3AuthProtocol::None,
+                        }
                     }
                 }
                 "v3_auth_passphrase" => {
@@ -463,7 +538,13 @@ pub fn config_write(
                 }
                 "v3_priv_protocol" => {
                     if let Some(s) = value.as_str() {
-                        cfg.target.v3_priv_protocol = s.to_string();
+                        match s.to_lowercase().as_str() {
+                            "des" => cfg.target.v3_priv_protocol = V3PrivProtocol::Des,
+                            "aes128" => cfg.target.v3_priv_protocol = V3PrivProtocol::Aes128,
+                            "aes192" => cfg.target.v3_priv_protocol = V3PrivProtocol::Aes192,
+                            "aes256" => cfg.target.v3_priv_protocol = V3PrivProtocol::Aes256,
+                            _ => cfg.target.v3_priv_protocol = V3PrivProtocol::None,
+                        }
                     }
                 }
                 "v3_priv_passphrase" => {
@@ -473,7 +554,15 @@ pub fn config_write(
                 }
                 "v3_security_level" => {
                     if let Some(s) = value.as_str() {
-                        cfg.target.v3_security_level = s.to_string();
+                        match s.to_lowercase().as_str() {
+                            "authnopriv" => {
+                                cfg.target.v3_security_level = V3SecurityLevel::AuthNoPrivacy
+                            }
+                            "authpriv" => {
+                                cfg.target.v3_security_level = V3SecurityLevel::AuthPrivacy
+                            }
+                            _ => cfg.target.v3_security_level = V3SecurityLevel::NoAuthNoPrivacy,
+                        }
                     }
                 }
                 _ => return Err(format!("unknown target key: {}", key)),
@@ -541,7 +630,7 @@ mod tests {
         );
         assert_eq!(cfg.target.host, "");
         assert_eq!(cfg.target.port, 161);
-        assert_eq!(cfg.target.version, "v2c");
+        assert_eq!(cfg.target.version, SnmpVersion::V2c);
         assert_eq!(cfg.target.community, "public");
         assert!(cfg.ui.mib_tree_visible);
         assert!(cfg.ui.results_pane_visible);
@@ -578,7 +667,7 @@ mod tests {
         assert_eq!(loaded.target.port, 1161);
         assert!((loaded.ui.splitter_horizontal - 0.45).abs() < f64::EPSILON);
         // Defaults preserved for unchanged fields.
-        assert_eq!(loaded.target.version, "v2c");
+        assert_eq!(loaded.target.version, SnmpVersion::V2c);
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
@@ -625,7 +714,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(cfg.target.port, 161);
-        assert_eq!(cfg.target.version, "v2c");
+        assert_eq!(cfg.target.version, SnmpVersion::V2c);
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

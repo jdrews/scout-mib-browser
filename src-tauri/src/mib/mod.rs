@@ -3,10 +3,26 @@ mod loader;
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::sync::OnceLock;
 use tracing::{error, info, warn};
 
 pub use fallback::FallbackExtractor;
 pub use loader::MibRsLoader;
+
+static MODULE_NAME_RE: OnceLock<regex::Regex> = OnceLock::new();
+fn module_name_re() -> &'static regex::Regex {
+    MODULE_NAME_RE
+        .get_or_init(|| regex::Regex::new(r"(?i)\b([A-Za-z0-9_-]+)\s+DEFINITIONS\s*::=").unwrap())
+}
+
+pub fn detect_module_name(content: &str) -> String {
+    if let Some(captures) = module_name_re().captures(content) {
+        if let Some(name_match) = captures.get(1) {
+            return name_match.as_str().to_uppercase();
+        }
+    }
+    String::new()
+}
 
 /// SNMP syntax type derived from a MIB node's SYNTAX clause.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize)]

@@ -5,10 +5,10 @@ use tracing::warn;
 use super::types::*;
 
 /// Maximum number of retry attempts on timeout.
-const MAX_RETRIES: u32 = 3;
+pub const MAX_RETRIES: u32 = 3;
 
 /// Exponential backoff delays: 1s, 2s, 4s.
-fn backoff_delay(attempt: u32) -> Duration {
+pub fn backoff_delay(attempt: u32) -> Duration {
     Duration::from_secs(2_u64.pow(attempt))
 }
 
@@ -137,9 +137,7 @@ pub fn error_to_warning(err: &snmp2::Error, oid: Option<String>) -> SnmpWarning 
             "receive-error",
             "No response received from Target (timeout or network error)",
         ),
-        #[cfg(feature = "snmp2/v3")]
         snmp2::Error::AuthFailure(_) => ("auth-failure", "SNMPv3 authentication failed"),
-        #[cfg(feature = "snmp2/v3")]
         snmp2::Error::Crypto(e) => {
             return SnmpWarning {
                 kind: "crypto-error".to_string(),
@@ -147,7 +145,6 @@ pub fn error_to_warning(err: &snmp2::Error, oid: Option<String>) -> SnmpWarning 
                 oid,
             }
         }
-        #[cfg(feature = "snmp2/v3")]
         snmp2::Error::AuthUpdated => (
             "auth-updated",
             "SNMPv3 security context updated — retry may succeed",
