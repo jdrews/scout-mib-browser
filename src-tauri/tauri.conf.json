@@ -5,7 +5,9 @@
   "identifier": "com.scout.mib-browser",
   "build": {
     "frontendDist": "../src/dist",
-    "devUrl": "http://localhost:5173"
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
   },
   "app": {
     "withGlobalTauri": true,
