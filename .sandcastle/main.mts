@@ -75,7 +75,7 @@ const reviewResult = await sandbox.run({
 });
 
 // --- Step 3: Format and lint verification ---
-console.log(styleText("bold", `[ticket-${ticketIndex}] Step 3/3: Formatting and linting...`));
+console.log(styleText("bold", `[${slug}] Step 3/3: Formatting and linting...`));
 
 const fmtResult = await sandbox.exec("cargo fmt --check");
 if (fmtResult.exitCode !== 0) {
