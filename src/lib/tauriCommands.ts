@@ -53,3 +53,33 @@ export async function openDirectory(): Promise<string | null> {
   const result = await tauriOpen({ directory: true, multiple: false });
   return result;
 }
+
+/// Tests connectivity to the Target by performing a simple SNMP Get.
+export async function snmpConnect(params: {
+  host: string;
+  port: number;
+  version: string;
+  community?: string;
+  v3_username?: string;
+  v3_auth_protocol?: string;
+  v3_auth_passphrase?: string;
+  v3_priv_protocol?: string;
+  v3_priv_passphrase?: string;
+}): Promise<{ bindings: unknown[]; warnings?: unknown[] }> {
+  return invoke("snmp_connect", { params });
+}
+
+/// Persists all Target connection settings to config at once.
+export async function persistTargetConfig(config: {
+  host: string;
+  port: number;
+  version: string;
+  community: string;
+  v3_username: string;
+  v3_auth_protocol: string;
+  v3_auth_passphrase: string;
+  v3_priv_protocol: string;
+  v3_priv_passphrase: string;
+}): Promise<void> {
+  await invoke("config_write_target", { config });
+}

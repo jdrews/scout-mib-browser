@@ -608,6 +608,68 @@ pub fn config_get_path(handle: State<ConfigHandle>) -> String {
     handle.path.display().to_string()
 }
 
+/// Writes all Target connection settings at once and persists to disk.
+///
+/// Accepts a JSON object with any subset of `TargetConfig` fields. Only the
+/// provided fields are updated; missing fields retain their current values.
+#[tauri::command]
+pub fn config_write_target(
+    handle: State<ConfigHandle>,
+    config: serde_json::Value,
+) -> Result<(), String> {
+    let mut cfg = handle.read()?;
+
+    if let Some(obj) = config.as_object() {
+        if let Some(v) = obj.get("host").and_then(|v| v.as_str()) {
+            cfg.target.host = v.to_string();
+        }
+        if let Some(v) = obj.get("port").and_then(|v| v.as_u64()) {
+            cfg.target.port = v as u16;
+        }
+        if let Some(v) = obj.get("version").and_then(|v| v.as_str()) {
+            match v.to_lowercase().as_str() {
+                "v1" => cfg.target.version = SnmpVersion::V1,
+                "v3" => cfg.target.version = SnmpVersion::V3,
+                _ => cfg.target.version = SnmpVersion::V2c,
+            }
+        }
+        if let Some(v) = obj.get("community").and_then(|v| v.as_str()) {
+            cfg.target.community = v.to_string();
+        }
+        if let Some(v) = obj.get("v3_username").and_then(|v| v.as_str()) {
+            cfg.target.v3_username = v.to_string();
+        }
+        if let Some(v) = obj.get("v3_auth_protocol").and_then(|v| v.as_str()) {
+            match v.to_lowercase().as_str() {
+                "md5" => cfg.target.v3_auth_protocol = V3AuthProtocol::Md5,
+                "sha1" => cfg.target.v3_auth_protocol = V3AuthProtocol::Sha1,
+                "sha224" => cfg.target.v3_auth_protocol = V3AuthProtocol::Sha224,
+                "sha256" => cfg.target.v3_auth_protocol = V3AuthProtocol::Sha256,
+                "sha384" => cfg.target.v3_auth_protocol = V3AuthProtocol::Sha384,
+                "sha512" => cfg.target.v3_auth_protocol = V3AuthProtocol::Sha512,
+                _ => cfg.target.v3_auth_protocol = V3AuthProtocol::None,
+            }
+        }
+        if let Some(v) = obj.get("v3_auth_passphrase").and_then(|v| v.as_str()) {
+            cfg.target.v3_auth_passphrase = v.to_string();
+        }
+        if let Some(v) = obj.get("v3_priv_protocol").and_then(|v| v.as_str()) {
+            match v.to_lowercase().as_str() {
+                "des" => cfg.target.v3_priv_protocol = V3PrivProtocol::Des,
+                "aes128" => cfg.target.v3_priv_protocol = V3PrivProtocol::Aes128,
+                "aes192" => cfg.target.v3_priv_protocol = V3PrivProtocol::Aes192,
+                "aes256" => cfg.target.v3_priv_protocol = V3PrivProtocol::Aes256,
+                _ => cfg.target.v3_priv_protocol = V3PrivProtocol::None,
+            }
+        }
+        if let Some(v) = obj.get("v3_priv_passphrase").and_then(|v| v.as_str()) {
+            cfg.target.v3_priv_passphrase = v.to_string();
+        }
+    }
+
+    handle.write(cfg)
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
