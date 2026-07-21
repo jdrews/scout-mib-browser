@@ -31,3 +31,6 @@ src-tauri/*.pdb
 
 # Tauri generated files
 src-tauri/tauri.conf.json.bak
+
+# Vite build output
+src/dist/
