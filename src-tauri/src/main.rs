@@ -64,6 +64,7 @@ fn main() {
             config::config_read,
             config::config_write,
             config::config_get_path,
+            config::config_write_target,
             mib_load_directories,
             mib_resolve_oid,
             mib_reverse_lookup,
