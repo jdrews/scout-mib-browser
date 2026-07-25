@@ -11,6 +11,10 @@ A fast, flexible, and free SNMP MIB browser built with Svelte + Rust via Tauri.
 ```bash
 # Debian/Ubuntu
 sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file librsvg2-dev
+
+# Fedora
+sudo dnf install webkit2gtk4.1-devel gtk3-devel librsvg2-devel \
+  fuse fuse-libs gstreamer-plugins-base desktop-file-utils
 ```
 
 ## Development
@@ -32,6 +36,14 @@ The Tauri CLI handles orchestration: it starts the Vite dev server, then launche
 | `tauri:debug` | `npm run tauri:debug` | Unoptimized full build for fast iteration |
 | `dev:web` | `npm run dev:web` | Frontend-only (Vite dev server) |
 | `build:web` | `npm run build:web` | Frontend-only production bundle |
+
+### Fedora AppImage Workaround
+
+On Fedora, the AppImage bundler may fail with "More than one architectures were found". Set these environment variables to work around it ([tauri#13258](https://github.com/tauri-apps/tauri/issues/13258)):
+
+```bash
+ARCH=x86_64 NO_STRIP=true npm run build
+```
 
 ## Checks
 
