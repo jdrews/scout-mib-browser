@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open as tauriOpen } from "@tauri-apps/plugin-dialog";
 import type {
   TreeNode,
@@ -6,6 +7,9 @@ import type {
   LoadedMib,
   LoadDirectoriesStatus,
   AppConfig,
+  ResultSet,
+  VariableBinding,
+  TargetConfig,
 } from "./types";
 
 /** Reads the application configuration. */
@@ -29,6 +33,11 @@ export async function mibTree(): Promise<TreeNode[]> {
 /** Searches for MIB nodes matching the given query (autocomplete). */
 export async function mibSearch(query: string): Promise<MibSearchResult[]> {
   return invoke("mib_search", { query });
+}
+
+/** Resolves a dotted-decimal OID to its MIB node. */
+export async function mibResolveOid(oid: string): Promise<{ oid: string; name: string; syntax_type?: string; mib_name: string } | null> {
+  return invoke("mib_resolve_oid", { oid });
 }
 
 /** Loads all MIB files from the given directories. */
@@ -82,4 +91,100 @@ export async function persistTargetConfig(config: {
   v3_priv_passphrase: string;
 }): Promise<void> {
   await invoke("config_write_target", { config });
+}
+
+// ── SNMP Execution Commands ──────────────────────────────────────────────────
+
+/** Builds the params object from target config for SNMP commands. */
+function buildSnmpParams(config: TargetConfig) {
+  return {
+    host: config.host,
+    port: config.port,
+    version: config.version,
+    community: config.community || undefined,
+    v3_username: config.v3_username || undefined,
+    v3_auth_protocol: config.v3_auth_protocol !== "none" ? config.v3_auth_protocol : undefined,
+    v3_auth_passphrase: config.v3_auth_passphrase || undefined,
+    v3_priv_protocol: config.v3_priv_protocol !== "none" ? config.v3_priv_protocol : undefined,
+    v3_priv_passphrase: config.v3_priv_passphrase || undefined,
+  };
+}
+
+/** Executes a Get operation for the given OIDs. */
+export async function snmpGet(
+  targetConfig: TargetConfig,
+  oids: string[],
+): Promise<ResultSet> {
+  return invoke("snmp_get", { params: buildSnmpParams(targetConfig), oids });
+}
+
+/** Executes a GetNext operation for the given OIDs. */
+export async function snmpGetNext(
+  targetConfig: TargetConfig,
+  oids: string[],
+): Promise<ResultSet> {
+  return invoke("snmp_get_next", { params: buildSnmpParams(targetConfig), oids });
+}
+
+/** Executes a streaming walk (Walk or BulkWalk). Returns immediately — results stream via callbacks. */
+async function snmpStreamingWalk(
+  command: string,
+  targetConfig: TargetConfig,
+  rootOid: string,
+  onBatch: (bindings: VariableBinding[]) => void,
+  onComplete: (result: ResultSet) => void,
+): Promise<{ unlisten: () => void }> {
+  const params = buildSnmpParams(targetConfig);
+
+  const batchUnlisten = await listen<ResultSet>("snmp-walk-batch", (event) => {
+    onBatch(event.payload.bindings);
+  });
+
+  const completeUnlisten = await listen<ResultSet>("snmp-walk-complete", (event) => {
+    onComplete(event.payload);
+  });
+
+  await invoke(command, { params, root_oid: rootOid });
+
+  return {
+    unlisten: async () => {
+      await batchUnlisten();
+      await completeUnlisten();
+    },
+  };
+}
+
+/** Executes a Walk operation from the given root OID. Returns immediately — results stream via callbacks. */
+export async function snmpWalk(
+  targetConfig: TargetConfig,
+  rootOid: string,
+  onBatch: (bindings: VariableBinding[]) => void,
+  onComplete: (result: ResultSet) => void,
+): Promise<{ unlisten: () => void }> {
+  return snmpStreamingWalk("snmp_walk", targetConfig, rootOid, onBatch, onComplete);
+}
+
+/** Executes a BulkWalk operation from the given root OID. Returns immediately — results stream via callbacks. */
+export async function snmpBulkWalk(
+  targetConfig: TargetConfig,
+  rootOid: string,
+  onBatch: (bindings: VariableBinding[]) => void,
+  onComplete: (result: ResultSet) => void,
+): Promise<{ unlisten: () => void }> {
+  return snmpStreamingWalk("snmp_bulk_walk", targetConfig, rootOid, onBatch, onComplete);
+}
+
+/** Executes a Set operation to write a value at the given OID. */
+export async function snmpSet(
+  targetConfig: TargetConfig,
+  oid: string,
+  valueType: string,
+  value: unknown,
+): Promise<ResultSet> {
+  return invoke("snmp_set", {
+    params: buildSnmpParams(targetConfig),
+    oid,
+    value_type: valueType,
+    value,
+  });
 }
