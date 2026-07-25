@@ -75,8 +75,12 @@
 <div class="flex flex-col h-screen bg-base-100 text-base-content overflow-hidden" data-theme={$currentTheme}>
   <MenuBar />
   <TargetBar />
-  <MainContent />
-  <SystemLogPane />
+  <div class="flex flex-col flex-1 overflow-hidden min-h-0">
+    <MainContent />
+    {#if $systemLogOpen}
+      <SystemLogPane />
+    {/if}
+  </div>
   <ContextMenu />
   <ManageMibsDialog />
   <ConnectionModal />
@@ -86,7 +90,7 @@
     </aside>
     <aside class="flex items-center gap-3 ml-auto">
       <button
-        class="link link-hover text-xs"
+        class="btn btn-xs normal-case bg-base-300 text-base-content/60 border-base-300 hover:text-base-content hover:bg-base-200"
         on:click={toggleSystemLog}
       >
         System Log

@@ -96,3 +96,25 @@ export const logLevelFilter = writable<LogLevel>("all");
 
 /** Accumulated log entries from the backend. */
 export const logEntries = writable<LogEntry[]>([]);
+
+// ── Pane resize stores ───────────────────────────────────────────────────────
+
+/** Width of the MIB Browser panel in pixels (persisted). */
+export const mibPanelWidth = writable(
+  (typeof localStorage !== "undefined" ? parseInt(localStorage.getItem("scout-mib-width") || "320", 10) : 320)
+);
+mibPanelWidth.subscribe((v) => {
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem("scout-mib-width", String(v));
+  }
+});
+
+/** Height of the System Log panel in pixels (persisted). */
+export const systemLogHeight = writable(
+  typeof localStorage !== "undefined" ? parseInt(localStorage.getItem("scout-log-height") || "200", 10) : 200
+);
+systemLogHeight.subscribe((v) => {
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem("scout-log-height", String(v));
+  }
+});

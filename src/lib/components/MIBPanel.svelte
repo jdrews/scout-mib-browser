@@ -1,9 +1,10 @@
 <script lang="ts">
   import TreeNode from "./TreeNode.svelte";
-  import { treeData, fallbackMibs, systemLogOpen, logLevelFilter } from "$lib/stores";
+  import { treeData, fallbackMibs, systemLogOpen, logLevelFilter, mibPanelWidth } from "$lib/stores";
 
   $: hasTree = $treeData.length > 0;
   $: showFallback = $fallbackMibs.length > 0;
+  $: width = $mibPanelWidth;
 
   function toggleSystemLog() {
     $systemLogOpen = !$systemLogOpen;
@@ -15,7 +16,7 @@
   }
 </script>
 
-<aside class="w-[320px] min-w-[200px] max-w-[600px] flex flex-col bg-base-200 border-r border-base-300 flex-shrink-0">
+<aside class="flex flex-col bg-base-200 border-r border-base-300 flex-shrink-0" style="width: {width}px">
   <div class="px-4 py-3 text-sm font-semibold uppercase tracking-wide text-base-content/60 bg-base-100 border-b border-base-300">
     MIB Browser
   </div>
