@@ -56,10 +56,10 @@
     class="fixed bg-base-00 border border-base-01 rounded-lg py-1 min-w-[140px] z-[2000] shadow-lg"
     style="left: {posX}px; top: {posY}px;"
   >
-    <div class="px-4 py-1.5 text-[13px] text-subtext-1 cursor-pointer hover:bg-base-01 hover:text-text" on:click={() => handleAction("copy-oid")}>
+    <div class="px-4 py-2 text-sm text-subtext-1 cursor-pointer hover:bg-base-01 hover:text-text" on:click={() => handleAction("copy-oid")}>
       Copy OID
     </div>
-    <div class="px-4 py-1.5 text-[13px] text-subtext-1 cursor-pointer hover:bg-base-01 hover:text-text" on:click={() => handleAction("copy-name")}>
+    <div class="px-4 py-2 text-sm text-subtext-1 cursor-pointer hover:bg-base-01 hover:text-text" on:click={() => handleAction("copy-name")}>
       Copy Name
     </div>
   </div>

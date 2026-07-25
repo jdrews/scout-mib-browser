@@ -92,14 +92,14 @@
         </button>
       </div>
 
-      <div class="px-5 py-4 space-y-4">
+      <div class="px-5 py-4 space-y-5">
         <!-- Version selector -->
         <div>
-          <label class="block text-[11px] font-semibold uppercase tracking-wide text-overlay mb-1.5">SNMP Version</label>
+          <label class="block text-xs font-semibold uppercase tracking-wide text-overlay mb-1.5">SNMP Version</label>
           <div class="flex gap-2">
             {#each ["v1", "v2c", "v3"] as ver}
               <button
-                class="flex-1 px-3 py-1.5 text-[13px] rounded border cursor-pointer transition-colors"
+                class="flex-1 px-4 py-2 text-sm rounded border cursor-pointer transition-colors"
                 class:border-blue={cfg.version === ver}
                 class:bg-base-01={cfg.version === ver}
                 class:text-text={cfg.version === ver}
@@ -116,12 +116,12 @@
         <!-- v1/v2c Community string -->
         {#if !isV3}
           <div>
-            <label class="block text-[11px] font-semibold uppercase tracking-wide text-overlay mb-1.5">Community String</label>
+            <label class="block text-xs font-semibold uppercase tracking-wide text-overlay mb-1.5">Community String</label>
             <input
               type="text"
               value={cfg.community}
               on:input={onCommunityInput}
-              class="w-full bg-surface-0 border border-base-01 text-text px-3 py-1.5 text-[13px] font-mono rounded outline-none focus:border-blue"
+              class="w-full bg-surface-0 border border-base-01 text-text px-4 py-2 text-sm font-mono rounded outline-none focus:border-blue"
             />
           </div>
         {/if}
@@ -129,22 +129,22 @@
         <!-- v3 fields -->
         {#if isV3}
           <div>
-            <label class="block text-[11px] font-semibold uppercase tracking-wide text-overlay mb-1.5">Username</label>
+            <label class="block text-xs font-semibold uppercase tracking-wide text-overlay mb-1.5">Username</label>
             <input
               type="text"
               value={cfg.v3_username}
               on:input={onV3UsernameInput}
-              class="w-full bg-surface-0 border border-base-01 text-text px-3 py-1.5 text-[13px] font-mono rounded outline-none focus:border-blue"
+              class="w-full bg-surface-0 border border-base-01 text-text px-4 py-2 text-sm font-mono rounded outline-none focus:border-blue"
             />
           </div>
 
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block text-[11px] font-semibold uppercase tracking-wide text-overlay mb-1.5">Auth Protocol</label>
+              <label class="block text-xs font-semibold uppercase tracking-wide text-overlay mb-1.5">Auth Protocol</label>
               <select
                 value={cfg.v3_auth_protocol}
                 on:change={onV3AuthProtocolChange}
-                class="w-full bg-surface-0 border border-base-01 text-text px-3 py-1.5 text-[13px] rounded outline-none focus:border-blue"
+                class="w-full bg-surface-0 border border-base-01 text-text px-4 py-2 text-sm rounded outline-none focus:border-blue"
               >
                 {#each ["none", "md5", "sha1", "sha224", "sha256", "sha384", "sha512"] as proto}
                   <option value={proto}>{proto.toUpperCase()}</option>
@@ -152,23 +152,23 @@
               </select>
             </div>
             <div>
-              <label class="block text-[11px] font-semibold uppercase tracking-wide text-overlay mb-1.5">Auth Passphrase</label>
+              <label class="block text-xs font-semibold uppercase tracking-wide text-overlay mb-1.5">Auth Passphrase</label>
               <input
                 type="password"
                 value={cfg.v3_auth_passphrase}
                 on:input={onV3AuthPassphraseInput}
-                class="w-full bg-surface-0 border border-base-01 text-text px-3 py-1.5 text-[13px] font-mono rounded outline-none focus:border-blue"
+                class="w-full bg-surface-0 border border-base-01 text-text px-4 py-2 text-sm font-mono rounded outline-none focus:border-blue"
               />
             </div>
           </div>
 
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block text-[11px] font-semibold uppercase tracking-wide text-overlay mb-1.5">Priv Protocol</label>
+              <label class="block text-xs font-semibold uppercase tracking-wide text-overlay mb-1.5">Priv Protocol</label>
               <select
                 value={cfg.v3_priv_protocol}
                 on:change={onV3PrivProtocolChange}
-                class="w-full bg-surface-0 border border-base-01 text-text px-3 py-1.5 text-[13px] rounded outline-none focus:border-blue"
+                class="w-full bg-surface-0 border border-base-01 text-text px-4 py-2 text-sm rounded outline-none focus:border-blue"
               >
                 {#each ["none", "des", "aes128", "aes192", "aes256"] as proto}
                   <option value={proto}>{proto.toUpperCase()}</option>
@@ -176,12 +176,12 @@
               </select>
             </div>
             <div>
-              <label class="block text-[11px] font-semibold uppercase tracking-wide text-overlay mb-1.5">Priv Passphrase</label>
+              <label class="block text-xs font-semibold uppercase tracking-wide text-overlay mb-1.5">Priv Passphrase</label>
               <input
                 type="password"
                 value={cfg.v3_priv_passphrase}
                 on:input={onV3PrivPassphraseInput}
-                class="w-full bg-surface-0 border border-base-01 text-text px-3 py-1.5 text-[13px] font-mono rounded outline-none focus:border-blue"
+                class="w-full bg-surface-0 border border-base-01 text-text px-4 py-2 text-sm font-mono rounded outline-none focus:border-blue"
               />
             </div>
           </div>
@@ -198,7 +198,7 @@
           </button>
         </div>
 
-        <p class="text-[11px] text-overlay italic">Credentials are not persisted beyond the current session. Re-enter on each launch.</p>
+        <p class="text-xs text-overlay italic">Credentials are not persisted beyond the current session. Re-enter on each launch.</p>
       </div>
     </div>
   </div>

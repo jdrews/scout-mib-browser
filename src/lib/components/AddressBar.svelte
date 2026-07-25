@@ -303,10 +303,10 @@ import {
   }
 </script>
 
-<div data-address-bar class="px-3 py-2 bg-base-00 border-b border-base-01 relative" on:click|self={hideOnOutsideClick}>
-  <div class="flex gap-2 items-center">
+<div data-address-bar class="px-4 py-3 bg-base-00 border-b border-base-01 relative" on:click|self={hideOnOutsideClick}>
+  <div class="flex gap-3 items-center">
     <select
-      class="bg-surface-0 border border-base-01 text-text px-2 py-1.5 text-[13px] font-mono rounded outline-none focus:border-blue cursor-pointer"
+      class="bg-surface-0 border border-base-01 text-text px-4 py-2 text-sm font-mono rounded outline-none focus:border-blue cursor-pointer"
       bind:value={operation}
     >
       <option value="get">Get</option>
@@ -319,13 +319,13 @@ import {
       type="text"
       placeholder="Enter OID or MIB name (e.g., 1.3.6.1.2.1.1.1 or sysDescr)"
       autocomplete="off"
-      class="flex-1 bg-surface-0 border border-base-01 text-text px-3 py-1.5 text-[13px] font-mono rounded outline-none focus:border-blue"
+      class="flex-1 bg-surface-0 border border-base-01 text-text px-4 py-2 text-sm font-mono rounded outline-none focus:border-blue"
       bind:value={inputValue}
       on:input={onInput}
       on:keydown={onKeyDown}
     />
     <button
-      class="bg-blue text-base-00 border-none px-4 py-1.5 text-[13px] font-semibold rounded cursor-pointer hover:bg-sapphire disabled:opacity-50 disabled:cursor-not-allowed"
+      class="bg-blue text-base-00 border-none px-5 py-2 text-sm font-semibold rounded cursor-pointer hover:bg-sapphire disabled:opacity-50 disabled:cursor-not-allowed"
       on:click={handleGo}
       disabled={executing || !inputValue.trim()}
     >
@@ -334,15 +334,15 @@ import {
   </div>
 
   {#if results.length > 0}
-    <div class="absolute top-full left-2 right-2 bg-base-00 border border-base-01 rounded-lg max-h-[240px] overflow-y-auto z-[500] shadow-lg">
+    <div class="absolute top-full left-3 right-3 bg-base-00 border border-base-01 rounded-lg max-h-[240px] overflow-y-auto z-[500] shadow-lg">
       {#each results as item, i (item.oid)}
         <div
-          class="px-3 py-1.5 text-[13px] cursor-pointer flex justify-between items-center hover:bg-base-01"
+          class="px-3 py-2 text-sm cursor-pointer flex justify-between items-center hover:bg-base-01"
           class:bg-base-01={i === $hiStore}
           on:click={() => selectItem(item)}
         >
           <span class="text-text">{item.name}</span>
-          <span class="text-[11px] text-overlay font-mono">{item.oid}</span>
+          <span class="text-xs text-overlay font-mono">{item.oid}</span>
         </div>
       {/each}
     </div>

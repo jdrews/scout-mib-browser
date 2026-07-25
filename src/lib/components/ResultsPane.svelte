@@ -204,32 +204,32 @@
 
 <div class="flex flex-col flex-1 overflow-hidden">
   <!-- Header bar -->
-  <div class="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-overlay bg-base-00 border-b border-base-01 flex items-center justify-between gap-3" on:click|self={hideExportOnOutsideClick}>
+  <div class="px-4 py-3 text-sm font-semibold uppercase tracking-wide text-overlay bg-base-00 border-b border-base-01 flex items-center justify-between gap-3" on:click|self={hideExportOnOutsideClick}>
     <span>Results</span>
     <div class="flex items-center gap-3">
       {#if progress}
-        <span class="text-[11px] text-blue font-mono">{progress}</span>
+        <span class="text-xs text-blue font-mono">{progress}</span>
       {/if}
       {#if isPartial}
-        <span class="text-[11px] text-peach">⚠ partial results</span>
+        <span class="text-xs text-peach">⚠ partial results</span>
       {/if}
       {#if bindings.length > 0}
         <div data-export-menu class="relative">
           <button
-            class="bg-surface-0 border border-base-01 text-text px-2 py-0.5 text-[11px] font-mono rounded outline-none hover:border-blue cursor-pointer"
+            class="bg-surface-0 border border-base-01 text-text px-3 py-2 text-[13px] font-mono rounded outline-none hover:border-blue cursor-pointer"
             on:click={toggleExportMenu}
           >
             Save Results ▾
           </button>
           {#if exportMenuOpen}
             <div class="absolute top-full right-0 bg-base-00 border border-base-01 rounded-lg py-1 min-w-[140px] z-[1000] shadow-lg mt-1">
-              <div class="px-3 py-1.5 text-[12px] cursor-pointer hover:bg-base-01" on:click={() => handleExport("tsv")}>
+              <div class="px-3 py-2 text-sm cursor-pointer hover:bg-base-01" on:click={() => handleExport("tsv")}>
                 Save as TSV
               </div>
-              <div class="px-3 py-1.5 text-[12px] cursor-pointer hover:bg-base-01" on:click={() => handleExport("json")}>
+              <div class="px-3 py-2 text-sm cursor-pointer hover:bg-base-01" on:click={() => handleExport("json")}>
                 Save as JSON
               </div>
-              <div class="px-3 py-1.5 text-[12px] cursor-pointer hover:bg-base-01" on:click={() => handleExport("csv")}>
+              <div class="px-3 py-2 text-sm cursor-pointer hover:bg-base-01" on:click={() => handleExport("csv")}>
                 Save as CSV
               </div>
             </div>
@@ -239,7 +239,7 @@
       <input
         type="text"
         placeholder="Filter..."
-        class="bg-surface-0 border border-base-01 text-text px-2 py-0.5 text-[11px] font-mono rounded outline-none focus:border-blue w-36"
+        class="bg-surface-0 border border-base-01 text-text px-3 py-2 text-sm font-mono rounded outline-none focus:border-blue w-40"
         bind:value={filterText}
       />
     </div>
@@ -247,7 +247,7 @@
 
   <!-- Warnings section -->
   {#if hasWarnings && results?.warnings}
-    <div class="bg-peach/10 border-b border-base-01 px-3 py-2 text-[11px] max-h-24 overflow-y-auto">
+    <div class="bg-peach/10 border-b border-base-01 px-4 py-2 text-xs max-h-24 overflow-y-auto">
       {#each results.warnings as w}
         <div class="text-peach flex gap-1">
           <span>⚠</span>
@@ -264,29 +264,29 @@
     {#if isGridView}
       <!-- Grid view for table results -->
       {#if filteredGridRows.length === 0 && gridRows.length === 0}
-        <p class="text-overlay text-[13px] text-center mt-8">No table data returned.</p>
+        <p class="text-overlay text-sm text-center mt-12">No table data returned.</p>
       {:else if filteredGridRows.length === 0}
-        <p class="text-overlay text-[13px] text-center mt-4">No results match filter.</p>
+        <p class="text-overlay text-sm text-center mt-8">No results match filter.</p>
       {:else}
-        <table class="w-full text-[12px] font-mono border-collapse">
+        <table class="w-full text-[13px] font-mono border-collapse">
           <thead class="sticky top-0 z-10 bg-base-00">
-            <tr class="border-b border-base-01 text-overlay uppercase text-[10px] tracking-wide">
-              <th class="text-left px-3 py-1.5 font-semibold whitespace-nowrap">#</th>
-              <th class="text-left px-3 py-1.5 font-semibold whitespace-nowrap">Instance</th>
+            <tr class="border-b border-base-01 text-overlay uppercase text-xs tracking-wide">
+              <th class="text-left px-4 py-2.5 font-semibold whitespace-nowrap">#</th>
+              <th class="text-left px-4 py-2.5 font-semibold whitespace-nowrap">Instance</th>
               {#each gridColumns as colOid}
-                <th class="text-left px-3 py-1.5 font-semibold whitespace-nowrap">{columnName(colOid)}</th>
+                <th class="text-left px-4 py-2.5 font-semibold whitespace-nowrap">{columnName(colOid)}</th>
               {/each}
             </tr>
           </thead>
           <tbody>
             {#each filteredGridRows as row, i (row.instance_id)}
-              <tr class="border-b border-base-01/50 hover:bg-base-01 transition-colors">
-                <td class="px-3 py-1 text-overlay whitespace-nowrap">{i + 1}</td>
-                <td class="px-3 py-1 text-text whitespace-nowrap font-semibold">{row.instance_id}</td>
+              <tr class="border-b border-base-01/50 hover:bg-base-01 transition-colors min-h-[32px]" class:bg-base-01={i % 2 === 0 && i > 0}>
+                <td class="px-4 py-2.5 text-overlay whitespace-nowrap">{i + 1}</td>
+                <td class="px-4 py-2.5 text-text whitespace-nowrap font-semibold">{row.instance_id}</td>
                 {#each gridColumns as colOid (colOid)}
                   {#if row.cells[colOid]}
                     {@const cell = row.cells[colOid]}
-                    <td class="px-3 py-1 break-all" class:text-peach={cell.missing}>
+                    <td class="px-4 py-2.5 break-all max-w-[300px]" class:text-peach={cell.missing}>
                       {#if cell.missing}
                         <span class="text-overlay italic">— missing ⚠</span>
                       {:else if cell.value}
@@ -296,7 +296,7 @@
                       {/if}
                     </td>
                   {:else}
-                    <td class="px-3 py-1 text-peach italic">— missing ⚠</td>
+                    <td class="px-4 py-2.5 text-peach italic">— missing ⚠</td>
                   {/if}
                 {/each}
               </tr>
@@ -305,39 +305,39 @@
         </table>
       {/if}
     {:else if sortedRows.length === 0 && bindings.length === 0}
-      <p class="text-overlay text-[13px] text-center mt-8">Select a MIB node and click Go to query the Target.</p>
+      <p class="text-overlay text-sm text-center mt-12">Select a MIB node and click Go to query the Target.</p>
     {:else if sortedRows.length === 0}
-      <p class="text-overlay text-[13px] text-center mt-4">No results match filter.</p>
+      <p class="text-overlay text-sm text-center mt-8">No results match filter.</p>
     {:else}
       <!-- Flat view for regular bindings -->
-      <table class="w-full text-[12px] font-mono border-collapse">
+      <table class="w-full text-[13px] font-mono border-collapse">
         <thead class="sticky top-0 z-10 bg-base-00">
-          <tr class="border-b border-base-01 text-overlay uppercase text-[10px] tracking-wide">
-            <th class="text-left px-3 py-1.5 font-semibold cursor-pointer select-none w-8" on:click={() => toggleSort("oid")}>
+          <tr class="border-b border-base-01 text-overlay uppercase text-xs tracking-wide">
+            <th class="text-left px-4 py-2.5 font-semibold cursor-pointer select-none w-8" on:click={() => toggleSort("oid")}>
               #{sortIcon("oid")}
             </th>
-            <th class="text-left px-3 py-1.5 font-semibold cursor-pointer select-none" on:click={() => toggleSort("oid")}>
+            <th class="text-left px-4 py-2.5 font-semibold cursor-pointer select-none break-all max-w-[200px]" on:click={() => toggleSort("oid")}>
               OID {sortIcon("oid")}
             </th>
-            <th class="text-left px-3 py-1.5 font-semibold cursor-pointer select-none" on:click={() => toggleSort("name")}>
+            <th class="text-left px-4 py-2.5 font-semibold cursor-pointer select-none" on:click={() => toggleSort("name")}>
               Name {sortIcon("name")}
             </th>
-            <th class="text-left px-3 py-1.5 font-semibold cursor-pointer select-none w-28" on:click={() => toggleSort("type")}>
+            <th class="text-left px-4 py-2.5 font-semibold cursor-pointer select-none w-28" on:click={() => toggleSort("type")}>
               Type {sortIcon("type")}
             </th>
-            <th class="text-left px-3 py-1.5 font-semibold cursor-pointer select-none flex-1" on:click={() => toggleSort("value")}>
+            <th class="text-left px-4 py-2.5 font-semibold cursor-pointer select-none flex-1" on:click={() => toggleSort("value")}>
               Value {sortIcon("value")}
             </th>
           </tr>
         </thead>
         <tbody>
           {#each sortedRows as row, i (row.oid + i)}
-            <tr class="border-b border-base-01/50 hover:bg-base-01 transition-colors" class:text-peach={row.warning}>
-              <td class="px-3 py-1 text-overlay whitespace-nowrap">{i + 1}</td>
-              <td class="px-3 py-1 text-text whitespace-nowrap">{row.oid}</td>
-              <td class="px-3 py-1 text-sky whitespace-nowrap">{row.name || "—"}</td>
-              <td class="px-3 py-1 text-overlay whitespace-nowrap w-28">{row.type}</td>
-              <td class="px-3 py-1 text-text break-all">
+            <tr class="border-b border-base-01/50 hover:bg-base-01 transition-colors min-h-[32px]" class:text-peach={row.warning} class:bg-base-01={i % 2 === 0 && i > 0}>
+              <td class="px-4 py-2.5 text-overlay whitespace-nowrap">{i + 1}</td>
+              <td class="px-4 py-2.5 text-text break-all max-w-[250px]">{row.oid}</td>
+              <td class="px-4 py-2.5 text-sky whitespace-nowrap">{row.name || "—"}</td>
+              <td class="px-4 py-2.5 text-overlay whitespace-nowrap w-28">{row.type}</td>
+              <td class="px-4 py-2.5 text-text break-all flex-1">
                 {row.value}
                 {#if row.warning} <span class="text-peach">⚠</span>{/if}
               </td>
@@ -350,14 +350,14 @@
 
   <!-- Footer -->
   {#if isGridView && tableResult}
-    <div class="px-3 py-1 text-[10px] text-overlay border-t border-base-01 bg-base-00 flex justify-between">
+    <div class="px-4 py-2 text-xs text-overlay border-t border-base-01 bg-base-00 flex justify-between">
       <span>{filteredGridRows.length} of {tableResult.total_rows} rows</span>
       {#if gridMissingCells > 0}
         <span class="text-peach">{gridMissingCells} missing cell(s)</span>
       {/if}
     </div>
   {:else if bindings.length > 0}
-    <div class="px-3 py-1 text-[10px] text-overlay border-t border-base-01 bg-base-00 flex justify-between">
+    <div class="px-4 py-2 text-xs text-overlay border-t border-base-01 bg-base-00 flex justify-between">
       <span>{sortedRows.length} of {bindings.length} bindings</span>
       {#if results?.retries && results.retries > 0}
         <span>{results.retries} retries</span>

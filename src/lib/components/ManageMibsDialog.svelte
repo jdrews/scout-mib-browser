@@ -59,23 +59,23 @@
 
       <div class="flex-1 overflow-y-auto p-2">
         {#if loading}
-          <p class="text-overlay text-[13px] text-center mt-8">Loading...</p>
+          <p class="text-overlay text-sm text-center mt-12">Loading...</p>
         {:else if mibs.length === 0}
-          <p class="text-overlay text-[13px] text-center mt-8">No MIBs currently loaded.</p>
+          <p class="text-overlay text-sm text-center mt-12">No MIBs currently loaded.</p>
         {:else}
           {#each mibs as mib (mib.mibName)}
-            <div class="flex items-center px-3 py-2 rounded gap-3 hover:bg-base-01">
-              <span class="flex-1 text-[13px] text-text">{mib.mibName}</span>
-              <span class="text-[11px] text-overlay font-mono max-w-[240px] overflow-hidden text-ellipsis whitespace-nowrap" title="{mib.filePath}">
+            <div class="flex items-center px-4 py-2.5 rounded gap-3 hover:bg-base-01">
+              <span class="flex-1 text-sm text-text">{mib.mibName}</span>
+              <span class="text-xs text-overlay font-mono max-w-[240px] overflow-hidden text-ellipsis whitespace-nowrap" title="{mib.filePath}">
                 {mib.filePath}
               </span>
-              <div class="flex gap-2 items-center text-[11px]">
+              <div class="flex gap-2 items-center text-xs">
                 {#if mib.isFallback}
                   <span class="bg-base-02 text-yellow px-1.5 py-0.5 rounded-[3px]">FALLBACK</span>
                 {/if}
                 <span>{mib.nodeCount} nodes</span>
               </div>
-              <button class="bg-transparent border border-base-02 text-red px-2 py-0.5 text-[11px] rounded cursor-pointer hover:bg-red hover:text-base-00" on:click={() => unloadMib(mib.mibName)}>
+              <button class="bg-transparent border border-base-02 text-red px-2 py-1 text-[13px] rounded cursor-pointer hover:bg-red hover:text-base-00" on:click={() => unloadMib(mib.mibName)}>
                 Unload
               </button>
             </div>
@@ -84,7 +84,7 @@
       </div>
 
       <div class="px-4 py-2 border-t border-base-01 flex justify-end">
-        <button class="bg-blue text-base-00 border-none px-4 py-1.5 text-[13px] font-semibold rounded cursor-pointer hover:bg-sapphire" on:click={close}>
+        <button class="bg-blue text-base-00 border-none px-5 py-2 text-sm font-semibold rounded cursor-pointer hover:bg-sapphire" on:click={close}>
           Close
         </button>
       </div>

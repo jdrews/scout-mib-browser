@@ -25,31 +25,31 @@
   }
 </script>
 
-<div class="flex items-center gap-2 px-3 py-1.5 bg-surface-0 border-b border-base-01 flex-shrink-0">
-  <label class="text-[11px] font-semibold uppercase tracking-wide text-overlay whitespace-nowrap">Target</label>
+<div class="flex items-center gap-3 px-4 py-2 bg-surface-0 border-b border-base-01 flex-shrink-0">
+  <label class="text-xs font-semibold uppercase tracking-wide text-overlay whitespace-nowrap">Target</label>
 
   <input
     type="text"
     placeholder="Host or IP"
     value={cfg.host}
     on:input={onHostInput}
-    class="w-[200px] bg-base-00 border border-base-01 text-text px-2 py-1 text-[13px] font-mono rounded outline-none focus:border-blue"
+    class="w-[200px] bg-base-00 border border-base-01 text-text px-3 py-2 text-sm font-mono rounded outline-none focus:border-blue"
   />
 
-  <span class="text-overlay text-[13px]">:</span>
+  <span class="text-overlay text-sm">:</span>
 
   <input
     type="text"
     placeholder="Port"
     value={cfg.port}
     on:input={onPortInput}
-    class="w-[70px] bg-base-00 border border-base-01 text-text px-2 py-1 text-[13px] font-mono rounded outline-none focus:border-blue text-center"
+    class="w-[70px] bg-base-00 border border-base-01 text-text px-3 py-2 text-sm font-mono rounded outline-none focus:border-blue text-center"
   />
 
   <button
     title="Connection settings"
     on:click={openConnectionPanel}
-    class="ml-auto text-overlay hover:text-text cursor-pointer p-1 rounded transition-colors"
+    class="ml-auto text-overlay hover:text-text cursor-pointer p-2 rounded transition-colors"
   >
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <circle cx="12" cy="12" r="3"/>
