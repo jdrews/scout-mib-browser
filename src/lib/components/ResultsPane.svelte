@@ -11,12 +11,12 @@
   $: tableResult = $tableResultStore;
 
   let exportMenuOpen = false;
+  let gridView = false;
 
   let filterText = "";
   let sortColumn: "oid" | "name" | "type" | "value" = "oid";
   let sortAsc = true;
 
-  /** Build OID -> name map from tree data. */
   function buildNameMap(nodes: TreeNode[]): Map<string, string> {
     const map = new Map<string, string>();
     function walk(n: TreeNode) {
@@ -33,7 +33,6 @@
 
   $: nameMap = buildNameMap($treeData);
 
-  /** Display string for a SnmpValue. */
   function valueDisplay(v: SnmpValue): string {
     if ("Integer" in v) return String(v.Integer);
     if ("Unsigned" in v) return String(v.Unsigned);
@@ -59,7 +58,6 @@
     return String(v);
   }
 
-  /** Type label for a SnmpValue. */
   function typeLabel(v: SnmpValue): string {
     if ("Integer" in v) return "INTEGER";
     if ("Unsigned" in v) return "UNSIGNED32";
@@ -75,7 +73,6 @@
     return "UNKNOWN";
   }
 
-  /** Enriched row data for flat view. */
   $: rows = bindings.map(b => ({
     oid: b.oid,
     name: nameMap.get(b.oid) || "",
@@ -110,27 +107,24 @@
   }
 
   function sortIcon(col: string): string {
-    if (sortColumn !== col) return "↕";
-    return sortAsc ? "↑" : "↓";
+    if (sortColumn !== col) return "\u2195";
+    return sortAsc ? "\u2191" : "\u2193";
   }
 
   $: hasWarnings = results?.warnings && results.warnings.length > 0;
   $: isPartial = results?.partial || false;
 
-  // Table grid helpers
   $: isGridView = !!tableResult;
   $: gridColumns = tableResult?.columns || [];
   $: gridRows = tableResult?.rows || [];
   $: gridMissingCells = tableResult?.missing_cells || 0;
   $: gridWarnings = tableResult?.warnings && tableResult.warnings.length > 0;
 
-  /** Get column name from OID using nameMap. */
   function columnName(oid: string): string {
     const baseName = nameMap.get(oid) || oid.split(".").pop() || oid;
     return baseName;
   }
 
-  /** Filter grid rows by text. */
   $: filteredGridRows = filterText
     ? gridRows.filter((r: TableRowData) => {
         const instMatch = r.instance_id.toLowerCase().includes(filterText);
@@ -147,7 +141,6 @@
   async function handleExport(format: ExportFormat) {
     exportMenuOpen = false;
     if (isGridView && tableResult) {
-      // Export table as TSV with column headers.
       const header = ["Instance", ...gridColumns.map(c => columnName(c))];
       const lines = [header.join("\t")];
       for (const row of gridRows) {
@@ -203,54 +196,46 @@
 </script>
 
 <div class="flex flex-col flex-1 overflow-hidden">
-  <!-- Header bar -->
-  <div class="px-4 py-3 text-sm font-semibold uppercase tracking-wide text-overlay bg-base-00 border-b border-base-01 flex items-center justify-between gap-3" on:click|self={hideExportOnOutsideClick}>
+  <div class="px-4 py-3 text-sm font-semibold uppercase tracking-wide text-base-content/60 bg-base-100 border-b border-base-300 flex items-center justify-between gap-3" on:click|self={hideExportOnOutsideClick}>
     <span>Results</span>
     <div class="flex items-center gap-3">
       {#if progress}
-        <span class="text-xs text-blue font-mono">{progress}</span>
+        <span class="text-xs text-primary font-mono">{progress}</span>
       {/if}
       {#if isPartial}
-        <span class="text-xs text-peach">⚠ partial results</span>
+        <span class="text-xs text-accent">\u26a0 partial results</span>
       {/if}
-      {#if bindings.length > 0}
-        <div data-export-menu class="relative">
+      {#if bindings.length > 0 || isGridView}
+        <div data-export-menu class="dropdown dropdown-end relative">
           <button
-            class="bg-surface-0 border border-base-01 text-text px-3 py-2 text-[13px] font-mono rounded outline-none hover:border-blue cursor-pointer"
+            class="btn btn-sm"
             on:click={toggleExportMenu}
           >
-            Save Results ▾
+            Save Results
           </button>
           {#if exportMenuOpen}
-            <div class="absolute top-full right-0 bg-base-00 border border-base-01 rounded-lg py-1 min-w-[140px] z-[1000] shadow-lg mt-1">
-              <div class="px-3 py-2 text-sm cursor-pointer hover:bg-base-01" on:click={() => handleExport("tsv")}>
-                Save as TSV
-              </div>
-              <div class="px-3 py-2 text-sm cursor-pointer hover:bg-base-01" on:click={() => handleExport("json")}>
-                Save as JSON
-              </div>
-              <div class="px-3 py-2 text-sm cursor-pointer hover:bg-base-01" on:click={() => handleExport("csv")}>
-                Save as CSV
-              </div>
-            </div>
+            <ul class="absolute top-full right-0 menu menu-sm bg-base-100 rounded-box w-40 p-2 shadow-lg z-[1000] mt-1">
+              <li><a on:click={() => handleExport("tsv")}>Save as TSV</a></li>
+              <li><a on:click={() => handleExport("json")}>Save as JSON</a></li>
+              <li><a on:click={() => handleExport("csv")}>Save as CSV</a></li>
+            </ul>
           {/if}
         </div>
       {/if}
       <input
         type="text"
         placeholder="Filter..."
-        class="bg-surface-0 border border-base-01 text-text px-3 py-2 text-sm font-mono rounded outline-none focus:border-blue w-40"
+        class="input input-bordered input-sm w-40 font-mono"
         bind:value={filterText}
       />
     </div>
   </div>
 
-  <!-- Warnings section -->
   {#if hasWarnings && results?.warnings}
-    <div class="bg-peach/10 border-b border-base-01 px-4 py-2 text-xs max-h-24 overflow-y-auto">
+    <div role="alert" class="alert alert-warning px-4 py-2 text-xs max-h-24 overflow-y-auto">
       {#each results.warnings as w}
-        <div class="text-peach flex gap-1">
-          <span>⚠</span>
+        <div class="flex gap-1">
+          <span>\u26a0</span>
           <span class="font-semibold">{w.kind}</span>
           <span>: {w.message}</span>
           {#if w.oid}<span class="font-mono opacity-70">({w.oid})</span>{/if}
@@ -259,105 +244,105 @@
     </div>
   {/if}
 
-  <!-- Results table -->
+  <!-- View toggle for table data -->
+  {#if isGridView && bindings.length > 0}
+    <div class="px-4 py-1 flex items-center gap-2 border-b border-base-300">
+      <label class="cursor-pointer flex items-center gap-2 text-xs">
+        <input type="checkbox" class="toggle toggle-sm toggle-primary" bind:value={gridView} />
+        Grid view
+      </label>
+    </div>
+  {/if}
+
   <div class="flex-1 overflow-auto">
-    {#if isGridView}
-      <!-- Grid view for table results -->
+    {#if isGridView && gridView}
       {#if filteredGridRows.length === 0 && gridRows.length === 0}
-        <p class="text-overlay text-sm text-center mt-12">No table data returned.</p>
+        <p class="text-base-content/60 text-sm text-center mt-12">No table data returned.</p>
       {:else if filteredGridRows.length === 0}
-        <p class="text-overlay text-sm text-center mt-8">No results match filter.</p>
+        <p class="text-base-content/60 text-sm text-center mt-8">No results match filter.</p>
       {:else}
-        <table class="w-full text-[13px] font-mono border-collapse">
-          <thead class="sticky top-0 z-10 bg-base-00">
-            <tr class="border-b border-base-01 text-overlay uppercase text-xs tracking-wide">
-              <th class="text-left px-4 py-2.5 font-semibold whitespace-nowrap">#</th>
-              <th class="text-left px-4 py-2.5 font-semibold whitespace-nowrap">Instance</th>
-              {#each gridColumns as colOid}
-                <th class="text-left px-4 py-2.5 font-semibold whitespace-nowrap">{columnName(colOid)}</th>
+        <div class="overflow-x-auto">
+          <table class="table table-zebra table-sm">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Instance</th>
+                {#each gridColumns as colOid}
+                  <th>{columnName(colOid)}</th>
+                {/each}
+              </tr>
+            </thead>
+            <tbody>
+              {#each filteredGridRows as row, i (row.instance_id)}
+                <tr>
+                  <td class="text-base-content/60">{i + 1}</td>
+                  <td class="font-semibold">{row.instance_id}</td>
+                  {#each gridColumns as colOid (colOid)}
+                    {#if row.cells[colOid]}
+                      {@const cell = row.cells[colOid]}
+                      <td class="{cell.missing ? 'text-accent' : ''}">
+                        {#if cell.missing}
+                          <span class="text-base-content/60 italic">\u2014 missing \u26a0</span>
+                        {:else if cell.value}
+                          <span>{valueDisplay(cell.value.value)}</span>
+                        {:else}
+                          <span class="text-base-content/60">\u2014</span>
+                        {/if}
+                      </td>
+                    {:else}
+                      <td class="text-accent italic">\u2014 missing \u26a0</td>
+                    {/if}
+                  {/each}
+                </tr>
               {/each}
+            </tbody>
+          </table>
+        </div>
+      {/if}
+    {:else if sortedRows.length === 0 && bindings.length === 0}
+      <p class="text-base-content/60 text-sm text-center mt-12">Select a MIB node and click Go to query the Target.</p>
+    {:else if sortedRows.length === 0}
+      <p class="text-base-content/60 text-sm text-center mt-8">No results match filter.</p>
+    {:else}
+      <div class="overflow-x-auto">
+        <table class="table table-sm">
+          <thead>
+            <tr>
+              <th class="cursor-pointer" on:click={() => toggleSort("oid")}>\u2116 {sortIcon("oid")}</th>
+              <th class="cursor-pointer max-w-[200px]" on:click={() => toggleSort("oid")}>OID {sortIcon("oid")}</th>
+              <th class="cursor-pointer" on:click={() => toggleSort("name")}>Name {sortIcon("name")}</th>
+              <th class="cursor-pointer w-28" on:click={() => toggleSort("type")}>Type {sortIcon("type")}</th>
+              <th class="cursor-pointer flex-1" on:click={() => toggleSort("value")}>Value {sortIcon("value")}</th>
             </tr>
           </thead>
           <tbody>
-            {#each filteredGridRows as row, i (row.instance_id)}
-              <tr class="border-b border-base-01/50 hover:bg-base-01 transition-colors min-h-[32px]" class:bg-base-01={i % 2 === 0 && i > 0}>
-                <td class="px-4 py-2.5 text-overlay whitespace-nowrap">{i + 1}</td>
-                <td class="px-4 py-2.5 text-text whitespace-nowrap font-semibold">{row.instance_id}</td>
-                {#each gridColumns as colOid (colOid)}
-                  {#if row.cells[colOid]}
-                    {@const cell = row.cells[colOid]}
-                    <td class="px-4 py-2.5 break-all max-w-[300px]" class:text-peach={cell.missing}>
-                      {#if cell.missing}
-                        <span class="text-overlay italic">— missing ⚠</span>
-                      {:else if cell.value}
-                        <span class="text-text">{valueDisplay(cell.value.value)}</span>
-                      {:else}
-                        <span class="text-overlay">—</span>
-                      {/if}
-                    </td>
-                  {:else}
-                    <td class="px-4 py-2.5 text-peach italic">— missing ⚠</td>
-                  {/if}
-                {/each}
+            {#each sortedRows as row, i (row.oid + i)}
+              <tr class="{row.warning ? 'text-accent' : ''}">
+                <td class="text-base-content/60">{i + 1}</td>
+                <td class="break-all max-w-[250px]">{row.oid}</td>
+                <td class="text-primary whitespace-nowrap">{row.name || "\u2014"}</td>
+                <td class="text-base-content/60 w-28">{row.type}</td>
+                <td class="break-all flex-1">
+                  {row.value}
+                  {#if row.warning} <span class="text-accent">\u26a0</span>{/if}
+                </td>
               </tr>
             {/each}
           </tbody>
         </table>
-      {/if}
-    {:else if sortedRows.length === 0 && bindings.length === 0}
-      <p class="text-overlay text-sm text-center mt-12">Select a MIB node and click Go to query the Target.</p>
-    {:else if sortedRows.length === 0}
-      <p class="text-overlay text-sm text-center mt-8">No results match filter.</p>
-    {:else}
-      <!-- Flat view for regular bindings -->
-      <table class="w-full text-[13px] font-mono border-collapse">
-        <thead class="sticky top-0 z-10 bg-base-00">
-          <tr class="border-b border-base-01 text-overlay uppercase text-xs tracking-wide">
-            <th class="text-left px-4 py-2.5 font-semibold cursor-pointer select-none w-8" on:click={() => toggleSort("oid")}>
-              #{sortIcon("oid")}
-            </th>
-            <th class="text-left px-4 py-2.5 font-semibold cursor-pointer select-none break-all max-w-[200px]" on:click={() => toggleSort("oid")}>
-              OID {sortIcon("oid")}
-            </th>
-            <th class="text-left px-4 py-2.5 font-semibold cursor-pointer select-none" on:click={() => toggleSort("name")}>
-              Name {sortIcon("name")}
-            </th>
-            <th class="text-left px-4 py-2.5 font-semibold cursor-pointer select-none w-28" on:click={() => toggleSort("type")}>
-              Type {sortIcon("type")}
-            </th>
-            <th class="text-left px-4 py-2.5 font-semibold cursor-pointer select-none flex-1" on:click={() => toggleSort("value")}>
-              Value {sortIcon("value")}
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each sortedRows as row, i (row.oid + i)}
-            <tr class="border-b border-base-01/50 hover:bg-base-01 transition-colors min-h-[32px]" class:text-peach={row.warning} class:bg-base-01={i % 2 === 0 && i > 0}>
-              <td class="px-4 py-2.5 text-overlay whitespace-nowrap">{i + 1}</td>
-              <td class="px-4 py-2.5 text-text break-all max-w-[250px]">{row.oid}</td>
-              <td class="px-4 py-2.5 text-sky whitespace-nowrap">{row.name || "—"}</td>
-              <td class="px-4 py-2.5 text-overlay whitespace-nowrap w-28">{row.type}</td>
-              <td class="px-4 py-2.5 text-text break-all flex-1">
-                {row.value}
-                {#if row.warning} <span class="text-peach">⚠</span>{/if}
-              </td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
+      </div>
     {/if}
   </div>
 
-  <!-- Footer -->
   {#if isGridView && tableResult}
-    <div class="px-4 py-2 text-xs text-overlay border-t border-base-01 bg-base-00 flex justify-between">
+    <div class="px-4 py-2 text-xs text-base-content/60 border-t border-base-300 bg-base-100 flex justify-between">
       <span>{filteredGridRows.length} of {tableResult.total_rows} rows</span>
       {#if gridMissingCells > 0}
-        <span class="text-peach">{gridMissingCells} missing cell(s)</span>
+        <span class="text-accent">{gridMissingCells} missing cell(s)</span>
       {/if}
     </div>
   {:else if bindings.length > 0}
-    <div class="px-4 py-2 text-xs text-overlay border-t border-base-01 bg-base-00 flex justify-between">
+    <div class="px-4 py-2 text-xs text-base-content/60 border-t border-base-300 bg-base-100 flex justify-between">
       <span>{sortedRows.length} of {bindings.length} bindings</span>
       {#if results?.retries && results.retries > 0}
         <span>{results.retries} retries</span>
@@ -365,4 +350,3 @@
     </div>
   {/if}
 </div>
-

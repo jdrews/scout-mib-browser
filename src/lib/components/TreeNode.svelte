@@ -26,14 +26,14 @@
 
 <div class="tree-node">
   <div
-    class="flex items-center px-2 py-2 min-h-[28px] cursor-default rounded text-sm whitespace-nowrap select-none hover:bg-base-01/80"
-    class:selected={isSelected}
+    class="flex items-center px-2 py-2 min-h-[28px] cursor-default rounded text-sm whitespace-nowrap select-none tree-node-row"
+    class:selected-node={isSelected}
     on:click={selectNode}
     on:contextmenu={showContextMenu}
   >
     {#if hasChildren}
       <span
-        class="w-4 h-4 flex items-center justify-center text-xs text-overlay cursor-pointer flex-shrink-0 hover:text-subtext-1"
+        class="w-4 h-4 flex items-center justify-center text-xs text-base-content/60 cursor-pointer flex-shrink-0 hover:text-base-content"
         on:click={toggleExpand}
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class:rotate-90={expanded}><polyline points="9 18 15 12 9 6"/></svg>
@@ -48,11 +48,11 @@
       {/if}
     </span>
 
-    <span class="overflow-hidden text-ellipsis text-text" title="{node.name} ({node.oid})">
+    <span class="overflow-hidden text-ellipsis text-base-content" title="{node.name} ({node.oid})">
       {node.name}
     </span>
 
-    <span class="ml-auto pl-3 text-xs text-overlay font-mono">{node.oid}</span>
+    <span class="ml-auto pl-3 text-xs text-base-content/60 font-mono">{node.oid}</span>
   </div>
 
   {#if hasChildren && expanded}
@@ -63,3 +63,12 @@
     </div>
   {/if}
 </div>
+
+<style>
+.tree-node-row:hover {
+  background-color: oklch(var(--b2) / 0.8);
+}
+.selected-node {
+  background-color: oklch(var(--p) / 0.1);
+}
+</style>
