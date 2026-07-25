@@ -143,6 +143,103 @@ pub struct AppConfig {
     pub ui: UiConfig,
 }
 
+impl AppConfig {
+    /// Converts to a [`toml::Value`] that includes **all** fields (including defaults).
+    /// This bypasses `skip_serializing_if` which would drop default values and corrupt
+    /// the config on round-trip when only a subset of fields is written.
+    pub(crate) fn to_toml_value(&self) -> toml::Value {
+        let mut table = toml::map::Map::new();
+
+        // MIB section — always include directories.
+        let mut mib_table = toml::map::Map::new();
+        mib_table.insert(
+            "directories".to_string(),
+            toml::Value::Array(
+                self.mib
+                    .directories
+                    .iter()
+                    .map(|d| toml::Value::String(d.clone()))
+                    .collect(),
+            ),
+        );
+        table.insert("mib".to_string(), toml::Value::Table(mib_table));
+
+        // Target section — always include all fields.
+        let mut target_table = toml::map::Map::new();
+        if !self.target.host.is_empty() {
+            target_table.insert("host".to_string(), toml::Value::String(self.target.host.clone()));
+        }
+        target_table.insert("port".to_string(), toml::Value::Integer(self.target.port as i64));
+        target_table.insert(
+            "version".to_string(),
+            toml::Value::String(self.target.version.as_str().to_string()),
+        );
+        target_table.insert(
+            "community".to_string(),
+            toml::Value::String(self.target.community.clone()),
+        );
+        if !self.target.v3_username.is_empty() {
+            target_table.insert(
+                "v3_username".to_string(),
+                toml::Value::String(self.target.v3_username.clone()),
+            );
+        }
+        if !self.target.v3_auth_protocol.is_default() {
+            target_table.insert(
+                "v3_auth_protocol".to_string(),
+                toml::Value::String(self.target.v3_auth_protocol.as_str().to_string()),
+            );
+        }
+        if !self.target.v3_auth_passphrase.is_empty() {
+            target_table.insert(
+                "v3_auth_passphrase".to_string(),
+                toml::Value::String(self.target.v3_auth_passphrase.clone()),
+            );
+        }
+        if !self.target.v3_priv_protocol.is_default() {
+            target_table.insert(
+                "v3_priv_protocol".to_string(),
+                toml::Value::String(self.target.v3_priv_protocol.as_str().to_string()),
+            );
+        }
+        if !self.target.v3_priv_passphrase.is_empty() {
+            target_table.insert(
+                "v3_priv_passphrase".to_string(),
+                toml::Value::String(self.target.v3_priv_passphrase.clone()),
+            );
+        }
+        if !self.target.v3_security_level.is_default() {
+            target_table.insert(
+                "v3_security_level".to_string(),
+                toml::Value::String(self.target.v3_security_level.as_str().to_string()),
+            );
+        }
+        table.insert("target".to_string(), toml::Value::Table(target_table));
+
+        // UI section — always include all fields.
+        let mut ui_table = toml::map::Map::new();
+        ui_table.insert(
+            "mib_tree_visible".to_string(),
+            toml::Value::Boolean(self.ui.mib_tree_visible),
+        );
+        ui_table.insert(
+            "results_pane_visible".to_string(),
+            toml::Value::Boolean(self.ui.results_pane_visible),
+        );
+        ui_table.insert(
+            "splitter_horizontal".to_string(),
+            toml::Value::Float(self.ui.splitter_horizontal),
+        );
+        ui_table.insert(
+            "splitter_vertical".to_string(),
+            toml::Value::Float(self.ui.splitter_vertical),
+        );
+        table.insert("ui".to_string(), toml::Value::Table(ui_table));
+
+        toml::Value::Table(table)
+    }
+}
+
 /// Configuration for MIB file discovery.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MibConfig {
@@ -421,12 +518,16 @@ pub fn ensure_config_file() -> Result<PathBuf, std::io::Error> {
 }
 
 /// Persists the current `AppConfig` back to the TOML file.
+///
+/// Uses a dedicated serializable wrapper that forces all fields to be written,
+/// bypassing `skip_serializing_if` which would drop defaults and corrupt the
+/// config on round-trip (e.g., writing only `[mib]` loses `[target]`).
 pub fn save_config(cfg: &AppConfig) -> Result<(), std::io::Error> {
     let path = config_path();
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let toml_str = toml::to_string_pretty(cfg).expect("serialize config");
+    let toml_str = toml::to_string_pretty(&cfg.to_toml_value()).expect("serialize config");
     std::fs::write(&path, toml_str)
 }
 

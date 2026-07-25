@@ -76,6 +76,7 @@ impl SyntaxType {
 /// Represents what *could* be queried, not live data. Has an OID, name,
 /// SYNTAX type, and the MIB module it was defined in.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MibNode {
     /// Dotted-decimal OID (e.g., `"1.3.6.1.2.1.1.1"`).
     pub oid: String,
@@ -103,6 +104,7 @@ pub struct LoadResult {
 
 /// Single node in the hierarchical MIB tree for UI rendering.
 #[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TreeNode {
     /// Dotted-decimal OID.
     pub oid: String,
@@ -123,6 +125,7 @@ pub struct TreeNode {
 
 /// Metadata about a loaded MIB file for the Manage MIBs dialog.
 #[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LoadedMibInfo {
     /// MIB module name (e.g., `"SNMPv2-MIB"`).
     pub mib_name: String,

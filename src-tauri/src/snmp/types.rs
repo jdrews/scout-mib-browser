@@ -247,6 +247,7 @@ impl SnmpValue {
 
 /// An OID paired with its live value returned from a Target.
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct VariableBinding {
     /// Dotted-decimal OID.
     pub oid: String,
@@ -259,6 +260,7 @@ pub struct VariableBinding {
 
 /// A non-fatal issue encountered during an SNMP operation.
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SnmpWarning {
     /// Short label for the warning type.
     pub kind: String,
@@ -271,6 +273,7 @@ pub struct SnmpWarning {
 
 /// Output of an Execution — Variable Bindings plus any warnings or errors.
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ResultSet {
     /// Successfully decoded variable bindings.
     pub bindings: Vec<VariableBinding>,

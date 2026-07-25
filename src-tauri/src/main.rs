@@ -436,6 +436,7 @@ fn parse_set_value(value_type: &str, value: &serde_json::Value) -> Result<snmp::
 
 /// Status response for MIB loading operations.
 #[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 struct MibLoadStatus {
     /// Total number of indexed MIB nodes.
     node_count: usize,
