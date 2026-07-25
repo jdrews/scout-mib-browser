@@ -1,4 +1,5 @@
 mod config;
+mod log;
 mod mib;
 mod snmp;
 
@@ -43,11 +44,14 @@ impl SnmpEngineState {
 const WALK_BATCH_EVENT: &str = snmp::WALK_BATCH_EVENT;
 
 fn main() {
+    let log_buffer = log::init_logging().expect("failed to initialize logging");
     let snmp_state = SnmpEngineState::new().expect("failed to create SNMP engine");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
+            log::set_tauri_app_handle(app.handle().clone());
+
             config::ensure_config_file().expect("failed to create config file");
 
             let path = config::config_path();
@@ -55,6 +59,7 @@ fn main() {
 
             app.manage(MibResolverState::new());
             app.manage(snmp_state.clone());
+            app.manage(log_buffer);
 
             let window = app.get_webview_window("main").unwrap();
             window.show()?;
@@ -82,6 +87,9 @@ fn main() {
             snmp_set,
             snmp_walk_table,
             fs_write_file,
+            log::log_read,
+            log::log_clear,
+            log::log_path,
         ])
         .run(tauri::generate_context!())
         .expect("error running Scout MIB Browser");

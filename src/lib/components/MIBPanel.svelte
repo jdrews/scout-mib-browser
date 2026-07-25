@@ -1,9 +1,18 @@
 <script lang="ts">
   import TreeNode from "./TreeNode.svelte";
-  import { treeData, fallbackMibs } from "$lib/stores";
+  import { treeData, fallbackMibs, systemLogOpen, logLevelFilter } from "$lib/stores";
 
   $: hasTree = $treeData.length > 0;
   $: showFallback = $fallbackMibs.length > 0;
+
+  function toggleSystemLog() {
+    $systemLogOpen = !$systemLogOpen;
+  }
+
+  function showMibLoadDetails() {
+    $logLevelFilter = "all";
+    $systemLogOpen = true;
+  }
 </script>
 
 <aside class="w-[320px] min-w-[200px] max-w-[600px] flex flex-col bg-surface-0 border-r border-base-01 flex-shrink-0">
@@ -23,8 +32,8 @@
 
   {#if showFallback}
     <div class="bg-base-01 border-t border-base-02 px-2 py-1.5 text-[11px] text-yellow flex items-center gap-2">
-      <span>{$fallbackMibs.length} MIB(s) loaded via regex fallback</span>
-      <button class="ml-auto bg-transparent border border-base-02 text-yellow px-2 py-0.5 text-[11px] rounded cursor-pointer hover:bg-base-02">
+      <span class="cursor-pointer hover:text-text underline" on:click={showMibLoadDetails}>{$fallbackMibs.length} MIB(s) loaded via regex fallback</span>
+      <button class="ml-auto bg-transparent border border-base-02 text-yellow px-2 py-0.5 text-[11px] rounded cursor-pointer hover:bg-base-02" on:click={toggleSystemLog}>
         System Log
       </button>
     </div>

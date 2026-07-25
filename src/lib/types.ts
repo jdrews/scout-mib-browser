@@ -132,3 +132,16 @@ export interface TableResult {
   warnings?: SnmpWarning[];
   partial: boolean;
 }
+
+// ── System Log Types ─────────────────────────────────────────────────────────
+
+/** A single log entry from the backend. */
+export interface LogEntry {
+  timestamp: string;
+  level: string;
+  target: string;
+  message: string;
+}
+
+/** Severity filter for the system log pane. */
+export type LogLevel = "all" | "error" | "warn" | "info";
