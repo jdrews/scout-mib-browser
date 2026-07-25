@@ -46,9 +46,9 @@
   }
 </script>
 
-<nav class="flex items-center bg-surface-0 border-b border-base-01 px-2 h-[28px] flex-shrink-0 select-none relative">
+<nav class="flex items-center bg-surface-0 border-b border-base-01 px-3 h-[36px] flex-shrink-0 select-none relative">
   <div
-    class="px-3 py-1 text-[13px] text-subtext-1 cursor-pointer rounded hover:bg-base-01 hover:text-text"
+    class="px-4 py-2 text-sm text-subtext-1 cursor-pointer rounded hover:bg-base-01 hover:text-text"
     class:active={$fileMenuOpen}
     on:click={toggleMenu}
   >
@@ -56,12 +56,12 @@
   </div>
 
   {#if $fileMenuOpen}
-    <div class="absolute top-[28px] left-0 bg-base-00 border border-base-01 rounded-lg py-1 min-w-[200px] z-[1000] shadow-lg">
-      <div class="px-4 py-1.5 text-[13px] text-subtext-1 cursor-pointer hover:bg-base-01 hover:text-text" on:click={() => handleAction("add-mib-directory")}>
+    <div class="absolute top-[36px] left-0 bg-base-00 border border-base-01 rounded-lg py-1 min-w-[200px] z-[1000] shadow-lg">
+      <div class="px-4 py-2 text-sm text-subtext-1 cursor-pointer hover:bg-base-01 hover:text-text" on:click={() => handleAction("add-mib-directory")}>
         Add MIB Directory...
       </div>
       <div class="h-px bg-base-01 my-1"></div>
-      <div class="px-4 py-1.5 text-[13px] text-subtext-1 cursor-pointer hover:bg-base-01 hover:text-text" on:click={() => handleAction("manage-mibs")}>
+      <div class="px-4 py-2 text-sm text-subtext-1 cursor-pointer hover:bg-base-01 hover:text-text" on:click={() => handleAction("manage-mibs")}>
         Manage MIBs...
       </div>
     </div>

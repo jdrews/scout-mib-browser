@@ -77,11 +77,11 @@
   <ContextMenu />
   <ManageMibsDialog />
   <ConnectionModal />
-  <footer class="flex items-center justify-between px-3 py-1 bg-surface-0 border-t border-base-01 text-overlay text-[11px] flex-shrink-0">
+  <footer class="flex items-center justify-between px-4 py-2 bg-surface-0 border-t border-base-01 text-overlay text-xs flex-shrink-0">
     <span>{$statusText}</span>
     <div class="flex items-center gap-3">
       <button
-        class="hover:text-text cursor-pointer underline"
+        class="text-xs hover:text-text cursor-pointer underline"
         on:click={toggleSystemLog}
       >
         System Log

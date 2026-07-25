@@ -26,14 +26,14 @@
 
 <div class="tree-node">
   <div
-    class="flex items-center px-1 py-[2px] cursor-default rounded text-[13px] whitespace-nowrap select-none hover:bg-base-01"
+    class="flex items-center px-2 py-2 min-h-[28px] cursor-default rounded text-sm whitespace-nowrap select-none hover:bg-base-01/80"
     class:selected={isSelected}
     on:click={selectNode}
     on:contextmenu={showContextMenu}
   >
     {#if hasChildren}
       <span
-        class="w-4 h-4 flex items-center justify-center text-[10px] text-overlay cursor-pointer flex-shrink-0 hover:text-subtext-1"
+        class="w-4 h-4 flex items-center justify-center text-xs text-overlay cursor-pointer flex-shrink-0 hover:text-subtext-1"
         on:click={toggleExpand}
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class:rotate-90={expanded}><polyline points="9 18 15 12 9 6"/></svg>
@@ -52,7 +52,7 @@
       {node.name}
     </span>
 
-    <span class="ml-auto pl-2 text-[11px] text-overlay font-mono">{node.oid}</span>
+    <span class="ml-auto pl-3 text-xs text-overlay font-mono">{node.oid}</span>
   </div>
 
   {#if hasChildren && expanded}

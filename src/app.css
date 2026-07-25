@@ -54,3 +54,11 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #585b70;
 }
+
+select, select option {
+  background-color: #313244;
+  color: #cdd6f4;
+}
+select option:hover, select option:checked {
+  background-color: #45475a;
+}
