@@ -1,14 +1,22 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import { logEntries, systemLogOpen, logLevelFilter } from "$lib/stores";
+  import { logEntries, systemLogOpen, logLevelFilter, systemLogHeight } from "$lib/stores";
   import { logRead, logClear } from "$lib/tauriCommands";
   import { listen } from "@tauri-apps/api/event";
   import type { LogEntry, LogLevel } from "$lib/types";
+
+  const MIN_HEIGHT = 100;
+  const MAX_HEIGHT = 800;
+
+  let isResizing = false;
+  let startY = 0;
+  let startHeight = 0;
 
   let intervalId: ReturnType<typeof setInterval> | null = null;
   let logContainer: HTMLDivElement;
   let unlistenEvent: (() => void) | null = null;
 
+  $: height = $systemLogHeight;
   $: filteredEntries = $logEntries.filter((entry: LogEntry) => {
     const filter = $logLevelFilter;
     if (filter === "all") return true;
@@ -17,6 +25,32 @@
     if (filter === "info") return true;
     return true;
   });
+
+  function onResizeStart(e: MouseEvent) {
+    e.preventDefault();
+    isResizing = true;
+    startY = e.clientY;
+    startHeight = $systemLogHeight;
+    document.addEventListener("mousemove", onResizeMove);
+    document.addEventListener("mouseup", onResizeEnd);
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+  }
+
+  function onResizeMove(e: MouseEvent) {
+    if (!isResizing) return;
+    const delta = startY - e.clientY;
+    const newHeight = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, startHeight + delta));
+    $systemLogHeight = newHeight;
+  }
+
+  function onResizeEnd() {
+    isResizing = false;
+    document.removeEventListener("mousemove", onResizeMove);
+    document.removeEventListener("mouseup", onResizeEnd);
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+  }
 
   async function loadEntries() {
     try {
@@ -58,65 +92,91 @@
   });
 </script>
 
-<div class="collapse collapse-arrow bg-base-100 border-t border-base-300" class:collapse-open={$systemLogOpen}>
-  <input type="checkbox" bind:checked={$systemLogOpen} />
-  <div class="collapse-title text-sm font-medium">System Log</div>
-  <div class="collapse-content flex flex-col h-full">
-    <div class="flex items-center justify-between px-2 py-2 bg-base-200 border-b border-base-300">
-      <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">System Log</span>
-      <div class="flex items-center gap-2">
-        <select
-          class="select select-bordered select-sm text-xs"
-          bind:value={$logLevelFilter}
-        >
-          <option value="all">All</option>
-          <option value="info">Info+</option>
-          <option value="warn">Warning+</option>
-          <option value="error">Error</option>
-        </select>
-        <button
-          class="btn btn-ghost btn-sm"
-          on:click={handleClear}
-        >
-          Clear
-        </button>
-      </div>
-    </div>
+<div class="flex flex-col flex-shrink-0 border-t border-base-300 bg-base-100" style="height: {height}px">
+  <div
+    class="resize-handle-v h-[6px] cursor-row-resize flex-shrink-0 bg-base-200 hover:bg-primary/30 transition-colors"
+    on:mousedown={onResizeStart}
+    role="separator"
+    aria-orientation="horizontal"
+    tabindex="0"
+  >
+    <div class="resize-grip-v mx-auto"></div>
+  </div>
 
-    <div
-      bind:this={logContainer}
-      class="flex-1 overflow-y-auto font-mono text-[13px] py-2"
-    >
-      {#each filteredEntries as entry (entry.timestamp + entry.message)}
-        <div class="flex gap-2 px-4 py-1.5 hover:bg-base-200">
-          <span class="text-base-content/60 shrink-0">{entry.timestamp}</span>
-          <span class="shrink-0 font-bold w-[46px]" class:text-error={entry.level === "ERROR"} class:text-warning={entry.level === "WARN"} class:text-info={entry.level === "INFO"} class:muted-level={entry.level === "DEBUG" || entry.level === "TRACE"}>
-            [{entry.level}]
-          </span>
-          <span class="text-base-content/60 shrink-0">({entry.target})</span>
-          <span class="break-all">{entry.message}</span>
-        </div>
-      {/each}
-
-      {#if $logEntries.length === 0}
-        <div class="px-4 py-6 text-center text-base-content/60 text-sm">No log entries yet.</div>
-      {/if}
-    </div>
-
-    <div class="flex items-center justify-between px-4 py-2 bg-base-200 border-t border-base-300 text-xs text-base-content/60">
-      <span>{filteredEntries.length} / {$logEntries.length} entries</span>
-      <button
-        class="text-xs hover:text-base-content cursor-pointer"
-        on:click={scrollToBottom}
+  <div class="flex items-center justify-between px-2 py-2 bg-base-200 border-b border-base-300">
+    <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">System Log</span>
+    <div class="flex items-center gap-2">
+      <select
+        class="select select-bordered select-sm text-xs"
+        bind:value={$logLevelFilter}
       >
-        Scroll to bottom
+        <option value="all">All</option>
+        <option value="info">Info+</option>
+        <option value="warn">Warning+</option>
+        <option value="error">Error</option>
+      </select>
+      <button
+        class="btn btn-ghost btn-sm"
+        on:click={handleClear}
+      >
+        Clear
       </button>
     </div>
+  </div>
+
+  <div
+    bind:this={logContainer}
+    class="flex-1 overflow-y-auto font-mono text-[13px] py-2"
+  >
+    {#each filteredEntries as entry (entry.timestamp + entry.message)}
+      <div class="flex gap-2 px-4 py-1.5 hover:bg-base-200">
+        <span class="text-base-content/60 shrink-0">{entry.timestamp}</span>
+        <span class="shrink-0 font-bold w-[46px]" class:text-error={entry.level === "ERROR"} class:text-warning={entry.level === "WARN"} class:text-info={entry.level === "INFO"} class:muted-level={entry.level === "DEBUG" || entry.level === "TRACE"}>
+          [{entry.level}]
+        </span>
+        <span class="text-base-content/60 shrink-0">({entry.target})</span>
+        <span class="break-all">{entry.message}</span>
+      </div>
+    {/each}
+
+    {#if $logEntries.length === 0}
+      <div class="px-4 py-6 text-center text-base-content/60 text-sm">No log entries yet.</div>
+    {/if}
+  </div>
+
+  <div class="flex items-center justify-between px-4 py-2 bg-base-200 border-t border-base-300 text-xs text-base-content/60">
+    <span>{filteredEntries.length} / {$logEntries.length} entries</span>
+    <button
+      class="text-xs hover:text-base-content cursor-pointer"
+      on:click={scrollToBottom}
+    >
+      Scroll to bottom
+    </button>
   </div>
 </div>
 
 <style>
 .muted-level {
   color: oklch(var(--bc) / 0.6);
+}
+.resize-handle-v {
+  position: relative;
+}
+.resize-handle-v:hover,
+.resize-handle-v:active {
+  background-color: oklch(var(--p) / 0.15);
+}
+.resize-grip-v {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  height: 2px;
+  width: 32px;
+  border-radius: 1px;
+  background-color: oklch(var(--bc) / 0.2);
+}
+.resize-handle-v:hover .resize-grip-v {
+  background-color: oklch(var(--p) / 0.6);
 }
 </style>
