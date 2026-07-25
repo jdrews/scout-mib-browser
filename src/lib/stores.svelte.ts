@@ -5,6 +5,7 @@ import type { TreeNode, MibSearchResult, TargetConfig, ConnectionState, SnmpOper
 const raw = $state({
   currentTheme: (typeof localStorage !== "undefined" ? localStorage.getItem("scout-theme") : null) || "dark" as string,
   selectedNode: null as TreeNode | null,
+  targetOidFromTree: "" as string,
   treeData: [] as TreeNode[],
   contextMenuTarget: null as { node: TreeNode; x: number; y: number } | null,
   statusText: "Ready",

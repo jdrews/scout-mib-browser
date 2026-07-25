@@ -25,9 +25,11 @@
     {#if !hasTree}
       <p class="text-base-content/60 text-sm text-center mt-12">No MIBs loaded.<br/>Use File → Add MIB Directory to get started.</p>
     {:else}
-      {#each S.treeData as node (node.oid)}
-        <TreeNode {node} />
-      {/each}
+      <ul class="menu menu-xs bg-base-200 rounded-box w-full p-0">
+        {#each S.treeData as node (node.oid)}
+          <TreeNode {node} />
+        {/each}
+      </ul>
     {/if}
   </div>
 

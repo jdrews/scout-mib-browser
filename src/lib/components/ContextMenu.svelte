@@ -35,7 +35,7 @@
 
   const handleClick = () => hide();
   const handleContextMenu = (e: MouseEvent) => {
-    if (!(e.target as HTMLElement).closest(".tree-node")) {
+    if (!(e.target as HTMLElement).closest("[data-tree-node]")) {
       hide();
     }
   };

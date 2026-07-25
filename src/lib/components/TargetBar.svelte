@@ -7,6 +7,16 @@
   let cfg = $derived(S.targetConfig);
 
   let inputValue = $state("");
+  let treeOidTrigger = $derived(S.targetOidFromTree);
+
+  $effect(() => {
+    const oid = treeOidTrigger;
+    if (oid && S.selectedNode) {
+      inputValue = `${oid}  ${S.selectedNode.name}`;
+    }
+    return;
+  });
+
   let searchTimer: ReturnType<typeof setTimeout> | null = null;
   let results = $derived(S.autocompleteResults);
   let highlighted = $derived(S.highlightedIndex);
