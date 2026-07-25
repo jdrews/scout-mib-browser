@@ -7,6 +7,7 @@ use super::types::*;
 
 /// A single cell in a table grid result.
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TableCell {
     /// The SNMP value at this position.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -17,6 +18,7 @@ pub struct TableCell {
 
 /// A single row in a table grid, keyed by its instance suffix.
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TableRow {
     /// The instance suffix that identifies this row (e.g., "1" or "192.168.1.1.1").
     pub instance_id: String,
@@ -27,6 +29,7 @@ pub struct TableRow {
 
 /// Result of a table retrieval operation — pivoted grid of rows and columns.
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TableResult {
     /// The table's root OID.
     pub table_oid: String,
