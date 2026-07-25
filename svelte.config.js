@@ -4,5 +4,6 @@ export default {
   preprocess: vitePreprocess(),
   compilerOptions: {
     css: "injected",
+    runes: true,
   },
 };

@@ -1,14 +1,14 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import { contextMenuTarget, statusText } from "$lib/stores";
+  import { S } from "$lib/stores.svelte";
 
-  $: target = $contextMenuTarget;
-  $: visible = target !== null;
-  $: posX = target ? target.x : 0;
-  $: posY = target ? target.y : 0;
+  let target = $derived(S.contextMenuTarget);
+  let visible = $derived(target !== null);
+  let posX = $derived(target ? target.x : 0);
+  let posY = $derived(target ? target.y : 0);
 
   function hide() {
-    $contextMenuTarget = null;
+    S.contextMenuTarget = null;
   }
 
   async function handleAction(action: string) {
@@ -20,16 +20,16 @@
       switch (action) {
         case "copy-oid":
           await navigator.clipboard.writeText(node.oid);
-          $statusText = `Copied OID: ${node.oid}`;
+          S.statusText = `Copied OID: ${node.oid}`;
           break;
         case "copy-name":
           await navigator.clipboard.writeText(node.name);
-          $statusText = `Copied name: ${node.name}`;
+          S.statusText = `Copied name: ${node.name}`;
           break;
       }
     } catch (err) {
       console.error("Clipboard error:", err);
-      $statusText = "Failed to copy";
+      S.statusText = "Failed to copy";
     }
   }
 
@@ -56,7 +56,7 @@
     class="fixed menu p-2 bg-base-100 rounded-box w-40 shadow-lg z-[2000]"
     style="left: {posX}px; top: {posY}px;"
   >
-    <li><a on:click={() => handleAction("copy-oid")}>Copy OID</a></li>
-    <li><a on:click={() => handleAction("copy-name")}>Copy Name</a></li>
+    <li><a onclick={() => handleAction("copy-oid")}>Copy OID</a></li>
+    <li><a onclick={() => handleAction("copy-name")}>Copy Name</a></li>
   </ul>
 {/if}

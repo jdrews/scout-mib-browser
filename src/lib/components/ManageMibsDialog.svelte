@@ -1,12 +1,11 @@
 <script lang="ts">
-  import { manageMibsOpen } from "$lib/stores";
+  import { S } from "$lib/stores.svelte";
   import { mibLoadedList, mibUnload, mibTree } from "$lib/tauriCommands";
-  import { statusText, nodeCount, fallbackMibs, treeData } from "$lib/stores";
   import type { LoadedMib } from "$lib/types";
 
-  let mibs: LoadedMib[] = [];
-  let loading = false;
-  let dataLoaded = false;
+  let mibs: LoadedMib[] = $state([]);
+  let loading = $state(false);
+  let dataLoaded = $state(false);
 
   async function loadMibs() {
     if (dataLoaded) return;
@@ -15,7 +14,7 @@
     try {
       mibs = await mibLoadedList();
     } catch (err) {
-      $statusText = `Error: ${err}`;
+      S.statusText = `Error: ${err}`;
       console.error("Failed to load MIB list:", err);
     }
     loading = false;
@@ -24,16 +23,18 @@
   async function unloadMib(mibName: string) {
     try {
       const status = await mibUnload(mibName);
-      $nodeCount = status.nodeCount;
-      $fallbackMibs = status.fallbackMibs;
+      S.nodeCount = status.nodeCount;
+      S.fallbackMibs.length = 0;
+      S.fallbackMibs.push(...status.fallbackMibs);
 
       const data = await mibTree();
-      $treeData = data;
+      S.treeData.length = 0;
+      S.treeData.push(...data);
 
       mibs = mibs.filter(m => m.mibName !== mibName);
-      $statusText = `Unloaded ${mibName}`;
+      S.statusText = `Unloaded ${mibName}`;
     } catch (err) {
-      $statusText = `Error: ${err}`;
+      S.statusText = `Error: ${err}`;
       console.error("Failed to unload MIB:", err);
     }
   }
@@ -41,17 +42,19 @@
   function close() {
     dataLoaded = false;
     mibs = [];
-    $manageMibsOpen = false;
+    S.manageMibsOpen = false;
   }
 
-  $: if ($manageMibsOpen && !dataLoaded) {
-    loadMibs();
-  }
+  $effect(() => {
+    if (S.manageMibsOpen && !dataLoaded) {
+      loadMibs();
+    }
+  });
 </script>
 
-{#if $manageMibsOpen}
-  <dialog class="modal modal-open" on:click={close}>
-    <div class="modal-box max-w-[560px] max-h-[70vh] flex flex-col" on:click|stopPropagation>
+{#if S.manageMibsOpen}
+  <dialog class="modal modal-open" onclick={close}>
+    <div class="modal-box max-w-[560px] max-h-[70vh] flex flex-col" onclick={(e) => e.stopPropagation()}>
       <form method="dialog">
         <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2 hover:text-error">✕</button>
       </form>
@@ -75,7 +78,7 @@
                 {/if}
                 <span>{mib.nodeCount} nodes</span>
               </div>
-              <button class="btn btn-error btn-xs" on:click={() => unloadMib(mib.mibName)}>
+              <button class="btn btn-error btn-xs" onclick={() => unloadMib(mib.mibName)}>
                 Unload
               </button>
             </div>
@@ -84,7 +87,7 @@
       </div>
 
       <div class="modal-action">
-        <button class="btn btn-primary" on:click={close}>
+        <button class="btn btn-primary" onclick={close}>
           Close
         </button>
       </div>

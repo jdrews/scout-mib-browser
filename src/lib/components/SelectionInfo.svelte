@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { selectedNode } from "$lib/stores";
+  import { S } from "$lib/stores.svelte";
 
-  $: node = $selectedNode;
-  $: visible = node !== null;
-  $: displayName = node ? node.name : "";
-  $: displaySyntax = node ? (node.syntax_type || "OID") : "";
-  $: displayMib = node ? node.mib_name : "";
+  let node = $derived(S.selectedNode);
+  let visible = $derived(node !== null);
+  let displayName = $derived(node ? node.name : "");
+  let displaySyntax = $derived(node ? (node.syntax_type || "OID") : "");
+  let displayMib = $derived(node ? node.mib_name : "");
 </script>
 
 {#if visible}

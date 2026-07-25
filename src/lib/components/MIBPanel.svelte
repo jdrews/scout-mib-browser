@@ -1,18 +1,18 @@
 <script lang="ts">
   import TreeNode from "./TreeNode.svelte";
-  import { treeData, fallbackMibs, systemLogOpen, logLevelFilter, mibPanelWidth } from "$lib/stores";
+  import { S } from "$lib/stores.svelte";
 
-  $: hasTree = $treeData.length > 0;
-  $: showFallback = $fallbackMibs.length > 0;
-  $: width = $mibPanelWidth;
+  let hasTree = $derived(S.treeData.length > 0);
+  let showFallback = $derived(S.fallbackMibs.length > 0);
+  let width = $derived(S.mibPanelWidth);
 
   function toggleSystemLog() {
-    $systemLogOpen = !$systemLogOpen;
+    S.systemLogOpen = !S.systemLogOpen;
   }
 
   function showMibLoadDetails() {
-    $logLevelFilter = "all";
-    $systemLogOpen = true;
+    S.logLevelFilter = "all";
+    S.systemLogOpen = true;
   }
 </script>
 
@@ -25,7 +25,7 @@
     {#if !hasTree}
       <p class="text-base-content/60 text-sm text-center mt-12">No MIBs loaded.<br/>Use File → Add MIB Directory to get started.</p>
     {:else}
-      {#each $treeData as node (node.oid)}
+      {#each S.treeData as node (node.oid)}
         <TreeNode {node} />
       {/each}
     {/if}
@@ -33,8 +33,8 @@
 
   {#if showFallback}
     <div role="alert" class="alert alert-warning px-3 py-2 text-xs">
-      <span class="cursor-pointer hover:text-base-content underline">{$fallbackMibs.length} MIB(s) loaded via regex fallback</span>
-      <button class="btn btn-sm btn-ghost ml-auto" on:click={toggleSystemLog}>
+      <span class="cursor-pointer hover:text-base-content underline">{S.fallbackMibs.length} MIB(s) loaded via regex fallback</span>
+      <button class="btn btn-sm btn-ghost ml-auto" onclick={toggleSystemLog}>
         System Log
       </button>
     </div>

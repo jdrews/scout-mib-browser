@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import { logEntries, systemLogOpen, logLevelFilter, systemLogHeight } from "$lib/stores";
+  import { S } from "$lib/stores.svelte";
   import { logRead, logClear } from "$lib/tauriCommands";
   import { listen } from "@tauri-apps/api/event";
   import type { LogEntry, LogLevel } from "$lib/types";
@@ -8,29 +8,29 @@
   const MIN_HEIGHT = 100;
   const MAX_HEIGHT = 800;
 
-  let isResizing = false;
-  let startY = 0;
-  let startHeight = 0;
+  let isResizing = $state(false);
+  let startY = $state(0);
+  let startHeight = $state(0);
 
   let intervalId: ReturnType<typeof setInterval> | null = null;
   let logContainer: HTMLDivElement;
   let unlistenEvent: (() => void) | null = null;
 
-  $: height = $systemLogHeight;
-  $: filteredEntries = $logEntries.filter((entry: LogEntry) => {
-    const filter = $logLevelFilter;
+  let height = $derived(S.systemLogHeight);
+  let filteredEntries = $derived(S.logEntries.filter((entry: LogEntry) => {
+    const filter = S.logLevelFilter;
     if (filter === "all") return true;
     if (filter === "error") return entry.level === "ERROR";
     if (filter === "warn") return entry.level === "WARN" || entry.level === "ERROR";
     if (filter === "info") return true;
     return true;
-  });
+  }));
 
   function onResizeStart(e: MouseEvent) {
     e.preventDefault();
     isResizing = true;
     startY = e.clientY;
-    startHeight = $systemLogHeight;
+    startHeight = S.systemLogHeight;
     document.addEventListener("mousemove", onResizeMove);
     document.addEventListener("mouseup", onResizeEnd);
     document.body.style.cursor = "row-resize";
@@ -41,7 +41,7 @@
     if (!isResizing) return;
     const delta = startY - e.clientY;
     const newHeight = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, startHeight + delta));
-    $systemLogHeight = newHeight;
+    S.systemLogHeight = newHeight;
   }
 
   function onResizeEnd() {
@@ -55,7 +55,8 @@
   async function loadEntries() {
     try {
       const entries = await logRead();
-      $logEntries = entries;
+      S.logEntries.length = 0;
+      S.logEntries.push(...entries);
       scrollToBottom();
     } catch (err) {
       console.error("Failed to read logs:", err);
@@ -70,13 +71,13 @@
 
   async function handleClear() {
     await logClear();
-    $logEntries = [];
+    S.logEntries.length = 0;
   }
 
   onMount(async () => {
     const unlisten = await listen<LogEntry>("system-log-entry", (event) => {
-      if ($systemLogOpen) {
-        $logEntries = [...$logEntries, event.payload];
+      if (S.systemLogOpen) {
+        S.logEntries.push(event.payload);
         scrollToBottom();
       }
     });
@@ -95,7 +96,7 @@
 <div class="flex flex-col flex-shrink-0 border-t border-base-300 bg-base-100" style="height: {height}px">
   <div
     class="resize-handle-v h-[6px] cursor-row-resize flex-shrink-0 bg-base-200 hover:bg-primary/30 transition-colors"
-    on:mousedown={onResizeStart}
+    onmousedown={onResizeStart}
     role="separator"
     aria-orientation="horizontal"
     tabindex="0"
@@ -108,7 +109,7 @@
     <div class="flex items-center gap-2">
       <select
         class="select select-bordered select-sm text-xs"
-        bind:value={$logLevelFilter}
+        bind:value={S.logLevelFilter}
       >
         <option value="all">All</option>
         <option value="info">Info+</option>
@@ -117,7 +118,7 @@
       </select>
       <button
         class="btn btn-ghost btn-sm"
-        on:click={handleClear}
+        onclick={handleClear}
       >
         Clear
       </button>
@@ -139,16 +140,16 @@
       </div>
     {/each}
 
-    {#if $logEntries.length === 0}
+    {#if S.logEntries.length === 0}
       <div class="px-4 py-6 text-center text-base-content/60 text-sm">No log entries yet.</div>
     {/if}
   </div>
 
   <div class="flex items-center justify-between px-4 py-2 bg-base-200 border-t border-base-300 text-xs text-base-content/60">
-    <span>{filteredEntries.length} / {$logEntries.length} entries</span>
+    <span>{filteredEntries.length} / {S.logEntries.length} entries</span>
     <button
       class="text-xs hover:text-base-content cursor-pointer"
-      on:click={scrollToBottom}
+      onclick={scrollToBottom}
     >
       Scroll to bottom
     </button>
