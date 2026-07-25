@@ -167,9 +167,15 @@ impl AppConfig {
         // Target section — always include all fields.
         let mut target_table = toml::map::Map::new();
         if !self.target.host.is_empty() {
-            target_table.insert("host".to_string(), toml::Value::String(self.target.host.clone()));
+            target_table.insert(
+                "host".to_string(),
+                toml::Value::String(self.target.host.clone()),
+            );
         }
-        target_table.insert("port".to_string(), toml::Value::Integer(self.target.port as i64));
+        target_table.insert(
+            "port".to_string(),
+            toml::Value::Integer(self.target.port as i64),
+        );
         target_table.insert(
             "version".to_string(),
             toml::Value::String(self.target.version.as_str().to_string()),
