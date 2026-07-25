@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { TreeNode } from "$lib/types";
+  import type { TreeNode as TreeNodeType } from "$lib/types";
   import { selectedNode, contextMenuTarget } from "$lib/stores";
 
-  export let node: TreeNode;
+  export let node: TreeNodeType;
 
   let expanded = false;
   $: hasChildren = !!(node.children && node.children.length > 0);
