@@ -134,6 +134,12 @@ impl SnmpEngine {
         table_oid: &str,
         column_oids: &[String],
     ) -> Result<TableResult, String> {
+        info!(
+            "WalkTable started on {} for {} ({} columns)",
+            target.addr(),
+            table_oid,
+            column_oids.len()
+        );
         if column_oids.is_empty() {
             return Ok(TableResult {
                 table_oid: table_oid.to_string(),
@@ -172,6 +178,12 @@ impl SnmpEngine {
         let mut grid = assemble_table_grid(table_oid.to_string(), column_results);
         grid.warnings.extend(all_warnings);
         grid.partial = any_partial;
+        info!(
+            "WalkTable completed on {}: {} rows, {} missing cells",
+            target.addr(),
+            grid.total_rows,
+            grid.missing_cells
+        );
         Ok(grid)
     }
 
@@ -185,6 +197,7 @@ impl SnmpEngine {
     }
 
     async fn do_get(&self, target: &Target, oids: &[String]) -> Result<ResultSet, String> {
+        info!("Get started on {} for {} OID(s)", target.addr(), oids.len());
         let target = target.clone();
         let oids_owned = oids.to_vec();
 
@@ -220,6 +233,11 @@ impl SnmpEngine {
 
         match result {
             Ok(bindings) => {
+                info!(
+                    "Get completed on {}: {} binding(s)",
+                    target.addr(),
+                    bindings.len()
+                );
                 let mut rs = ResultSet::new();
                 rs.retries = retries;
                 rs.bindings = bindings;
@@ -237,6 +255,11 @@ impl SnmpEngine {
     }
 
     async fn do_get_next(&self, target: &Target, oids: &[String]) -> Result<ResultSet, String> {
+        info!(
+            "GetNext started on {} for {} OID(s)",
+            target.addr(),
+            oids.len()
+        );
         let mut rs = ResultSet::new();
 
         for oid_str in oids {
@@ -270,6 +293,11 @@ impl SnmpEngine {
             }
         }
 
+        info!(
+            "GetNext completed on {}: {} binding(s)",
+            target.addr(),
+            rs.bindings.len()
+        );
         Ok(rs)
     }
 
@@ -281,6 +309,7 @@ impl SnmpEngine {
         app_handle: Option<&tauri::AppHandle>,
     ) -> Result<ResultSet, String> {
         let op_name = mode.label();
+        info!("{} started on {} from {}", op_name, target.addr(), root_oid);
         let mut session = Self::connect(target).await?;
         let mut rs = ResultSet::new();
         let mut batch = Vec::new();
@@ -366,6 +395,12 @@ impl SnmpEngine {
 
         rs.retries = retry_count;
         Self::drain_batch(&mut batch, app_handle, &mut rs);
+        info!(
+            "{} completed on {}: {} binding(s)",
+            op_name,
+            target.addr(),
+            rs.bindings.len()
+        );
         Ok(rs)
     }
 
@@ -378,6 +413,7 @@ impl SnmpEngine {
         let target = target.clone();
         let oid = oid_str.to_string();
         let value_owned = value;
+        info!("Set started on {} for {}", target.addr(), oid_str);
 
         // Parse OID once.
         let parsed_oid: Arc<snmp2::Oid<'static>> = Arc::new(
@@ -401,6 +437,11 @@ impl SnmpEngine {
 
         match result {
             Ok(bindings) => {
+                info!(
+                    "Set completed on {}: {} binding(s)",
+                    target.addr(),
+                    bindings.len()
+                );
                 let mut rs = ResultSet::new();
                 rs.retries = retries;
                 rs.bindings = bindings;

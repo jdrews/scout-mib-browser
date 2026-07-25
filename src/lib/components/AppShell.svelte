@@ -5,11 +5,16 @@
   import ContextMenu from "./ContextMenu.svelte";
   import ManageMibsDialog from "./ManageMibsDialog.svelte";
   import ConnectionModal from "./ConnectionModal.svelte";
+  import SystemLogPane from "./SystemLogPane.svelte";
   import { onMount } from "svelte";
-  import { statusText, nodeCount, fallbackMibs, treeData, targetConfig, connectionState } from "$lib/stores";
+  import { statusText, nodeCount, fallbackMibs, treeData, targetConfig, connectionState, systemLogOpen } from "$lib/stores";
   import { configRead, mibLoadDirectories, mibTree } from "$lib/tauriCommands";
 
   $: connState = $connectionState;
+
+  function toggleSystemLog() {
+    $systemLogOpen = !$systemLogOpen;
+  }
 
   onMount(async () => {
     $statusText = "Loading configuration...";
@@ -64,12 +69,23 @@
   <MenuBar />
   <TargetBar />
   <MainContent />
+  {#if $systemLogOpen}
+    <div class="h-[200px] min-h-[80px] flex-shrink-0">
+      <SystemLogPane />
+    </div>
+  {/if}
   <ContextMenu />
   <ManageMibsDialog />
   <ConnectionModal />
   <footer class="flex items-center justify-between px-3 py-1 bg-surface-0 border-t border-base-01 text-overlay text-[11px] flex-shrink-0">
     <span>{$statusText}</span>
     <div class="flex items-center gap-3">
+      <button
+        class="hover:text-text cursor-pointer underline"
+        on:click={toggleSystemLog}
+      >
+        System Log
+      </button>
       <span class="flex items-center gap-1.5">
         <span class="w-2 h-2 rounded-full inline-block" class:bg-green={connState === "connected"} class:bg-yellow={connState === "connecting"} class:bg-red={connState !== "connected" && connState !== "connecting"}></span>
         {connState === "connected" ? "Connected" : connState === "connecting" ? "Connecting..." : "Disconnected"}

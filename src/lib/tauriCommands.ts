@@ -11,6 +11,7 @@ import type {
   VariableBinding,
   TargetConfig,
   TableResult,
+  LogEntry,
 } from "./types";
 
 /** Reads the application configuration. */
@@ -229,4 +230,21 @@ export async function saveToFile(
   if (!path) return null;
   await fsWriteFile(path, content);
   return path;
+}
+
+// ── System Log Commands ──────────────────────────────────────────────────────
+
+/** Reads all log entries from the backend. */
+export async function logRead(): Promise<LogEntry[]> {
+  return invoke("log_read");
+}
+
+/** Clears the in-memory log buffer. */
+export async function logClear(): Promise<void> {
+  return invoke("log_clear");
+}
+
+/** Returns the path to the log file on disk. */
+export async function logPath(): Promise<string> {
+  return invoke("log_path");
 }

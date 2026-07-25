@@ -1,5 +1,5 @@
 import { writable } from "svelte/store";
-import type { TreeNode, MibSearchResult, TargetConfig, ConnectionState, SnmpOperation, ResultSet, VariableBinding, TableResult } from "./types";
+import type { TreeNode, MibSearchResult, TargetConfig, ConnectionState, SnmpOperation, ResultSet, VariableBinding, TableResult, LogEntry, LogLevel } from "./types";
 
 /** Currently selected MIB node (null = no selection). */
 export const selectedNode = writable<TreeNode | null>(null);
@@ -75,3 +75,14 @@ export const queryRootOid = writable<string | null>(null);
 
 /** Result from a table retrieval operation (grid view data). */
 export const tableResult = writable<TableResult | null>(null);
+
+// ── System Log stores ────────────────────────────────────────────────────────
+
+/** Whether the system log pane is visible. */
+export const systemLogOpen = writable(false);
+
+/** Current severity filter for the log pane. */
+export const logLevelFilter = writable<LogLevel>("all");
+
+/** Accumulated log entries from the backend. */
+export const logEntries = writable<LogEntry[]>([]);
