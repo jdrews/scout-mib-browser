@@ -1,12 +1,26 @@
 <script lang="ts">
   import { mibSearch } from "$lib/tauriCommands";
-  import { selectedNode, autocompleteResults as acStore, highlightedIndex as hiStore, statusText, treeData } from "$lib/stores";
-  import type { MibSearchResult, TreeNode } from "$lib/types";
+  import {
+    selectedNode,
+    autocompleteResults as acStore,
+    highlightedIndex as hiStore,
+    statusText,
+    treeData,
+    snmpOperation,
+    isExecuting,
+    executionBindings,
+    executionResults,
+    walkProgress,
+    targetConfig,
+  } from "$lib/stores";
+  import type { MibSearchResult, TreeNode, SnmpOperation, VariableBinding, ResultSet } from "$lib/types";
 
   let inputValue = "";
   let searchTimer: ReturnType<typeof setTimeout> | null = null;
   $: results = $acStore;
   $: highlighted = $hiStore;
+  $: operation = $snmpOperation;
+  $: executing = $isExecuting;
 
   function onInput(e: Event) {
     const target = e.target as HTMLInputElement;
@@ -82,23 +96,154 @@
     $hiStore = -1;
   }
 
+  function extractOid(val: string): string {
+    const parts = val.split(/\s{2,}/);
+    return parts[0].trim();
+  }
+
   async function handleGo() {
     const val = inputValue.trim();
-    if (!val) return;
+    if (!val || executing) return;
 
-    let oid = val.split(/\s{2,}/)[0].trim();
+    let oid = extractOid(val);
     if (!oid) oid = val.trim();
 
-    $statusText = `Executing operation for ${oid}...`;
+    // If we have a selected node, use its OID
+    const targetNode = $selectedNode;
+    const effectiveOid = targetNode?.oid || oid;
 
-    const found = findNode($treeData, oid);
-    if (found) {
-      $selectedNode = found;
-      $statusText = "Navigated to selected node";
+    if (operation === "set") {
+      handleSet(effectiveOid);
       return;
     }
 
-    $statusText = "Ready";
+    await executeOperation(operation, effectiveOid);
+  }
+
+  async function executeOperation(op: SnmpOperation, oid: string) {
+    const cfg = $targetConfig;
+    if (!cfg.host) {
+      $statusText = "No target configured";
+      return;
+    }
+
+    $isExecuting = true;
+    $executionBindings = [];
+    $executionResults = null;
+    $walkProgress = "";
+    $statusText = `Starting ${op} on ${oid}...`;
+
+    let unlisten: (() => void) | undefined;
+    try {
+      if (op === "get") {
+        const cmds = await import("$lib/tauriCommands");
+        const result = await cmds.snmpGet(cfg, [oid]);
+        $executionBindings = result.bindings;
+        $executionResults = result;
+        $statusText = `Get complete: ${result.bindings.length} binding(s)`;
+      } else if (op === "getNext") {
+        const cmds = await import("$lib/tauriCommands");
+        const result = await cmds.snmpGetNext(cfg, [oid]);
+        $executionBindings = result.bindings;
+        $executionResults = result;
+        $statusText = `GetNext complete: ${result.bindings.length} binding(s)`;
+      } else if (op === "walk" || op === "bulkWalk") {
+        const cmds = await import("$lib/tauriCommands");
+        let count = 0;
+        const fn = op === "walk" ? cmds.snmpWalk : cmds.snmpBulkWalk;
+        const handle = await fn(cfg, oid,
+          (batch: VariableBinding[]) => {
+            count += batch.length;
+            $executionBindings = [...$executionBindings, ...batch];
+            $walkProgress = `${count} bindings`;
+            $statusText = `${op}: ${count} bindings...`;
+          },
+          (result: ResultSet) => {
+            $executionResults = result;
+            $walkProgress = "";
+            $statusText = `${op} complete: ${result.bindings.length} binding(s)`;
+            handle.unlisten();
+          }
+        );
+        unlisten = handle.unlisten;
+      }
+    } catch (err) {
+      console.error("SNMP operation failed:", err);
+      $statusText = `Error: ${err}`;
+      $executionResults = { bindings: [], partial: true, warnings: [{ kind: "error", message: String(err) }] };
+    } finally {
+      if (unlisten) unlisten();
+      $isExecuting = false;
+    }
+  }
+
+  async function handleSet(oid: string) {
+    const cfg = $targetConfig;
+    if (!cfg.host) {
+      $statusText = "No target configured";
+      return;
+    }
+
+    // For Set, we need a value input — show inline prompt
+    const node = $selectedNode;
+    const syntaxType = node?.syntax_type || "OctetString";
+    const proposedValue = prompt(`Set value for ${oid} (${syntaxType}):`);
+    if (proposedValue === null) return;
+
+    let valueType: string;
+    let parsedValue: unknown;
+
+    switch (syntaxType.toLowerCase()) {
+      case "integer":
+      case "integer32":
+        valueType = "Integer";
+        parsedValue = parseInt(proposedValue, 10);
+        break;
+      case "counter32":
+        valueType = "Counter32";
+        parsedValue = parseInt(proposedValue, 10) >>> 0;
+        break;
+      case "counter64":
+        valueType = "Counter64";
+        parsedValue = BigInt(proposedValue);
+        break;
+      case "gauge32":
+      case "unsigned32":
+        valueType = "Gauge32";
+        parsedValue = parseInt(proposedValue, 10) >>> 0;
+        break;
+      case "ipaddress":
+      case "ip address":
+        valueType = "IpAddress";
+        parsedValue = proposedValue;
+        break;
+      case "timeticks":
+        valueType = "TimeTicks";
+        parsedValue = parseInt(proposedValue, 10) >>> 0;
+        break;
+      case "object identifier":
+        valueType = "ObjectIdentifier";
+        parsedValue = proposedValue;
+        break;
+      default:
+        valueType = "OctetString";
+        parsedValue = proposedValue;
+    }
+
+    try {
+      $isExecuting = true;
+      $statusText = `Setting ${oid}...`;
+      const result = await import("$lib/tauriCommands").then(m => m.snmpSet(cfg, oid, valueType, parsedValue));
+      $executionBindings = result.bindings;
+      $executionResults = result;
+      $statusText = `Set complete: ${result.bindings.length} binding(s)`;
+    } catch (err) {
+      console.error("SNMP Set failed:", err);
+      $statusText = `Set error: ${err}`;
+      $executionResults = { bindings: [], partial: true, warnings: [{ kind: "error", message: String(err) }] };
+    } finally {
+      $isExecuting = false;
+    }
   }
 
   function hideOnOutsideClick(e: MouseEvent) {
@@ -110,7 +255,17 @@
 </script>
 
 <div data-address-bar class="px-3 py-2 bg-base-00 border-b border-base-01 relative" on:click|self={hideOnOutsideClick}>
-  <div class="flex gap-2">
+  <div class="flex gap-2 items-center">
+    <select
+      class="bg-surface-0 border border-base-01 text-text px-2 py-1.5 text-[13px] font-mono rounded outline-none focus:border-blue cursor-pointer"
+      bind:value={operation}
+    >
+      <option value="get">Get</option>
+      <option value="getNext">GetNext</option>
+      <option value="walk">Walk</option>
+      <option value="bulkWalk">BulkWalk</option>
+      <option value="set">Set</option>
+    </select>
     <input
       type="text"
       placeholder="Enter OID or MIB name (e.g., 1.3.6.1.2.1.1.1 or sysDescr)"
@@ -120,8 +275,12 @@
       on:input={onInput}
       on:keydown={onKeyDown}
     />
-    <button class="bg-blue text-base-00 border-none px-4 py-1.5 text-[13px] font-semibold rounded cursor-pointer hover:bg-sapphire" on:click={handleGo}>
-      Go
+    <button
+      class="bg-blue text-base-00 border-none px-4 py-1.5 text-[13px] font-semibold rounded cursor-pointer hover:bg-sapphire disabled:opacity-50 disabled:cursor-not-allowed"
+      on:click={handleGo}
+      disabled={executing || !inputValue.trim()}
+    >
+      {executing ? "..." : "Go"}
     </button>
   </div>
 
@@ -140,5 +299,4 @@
     </div>
   {/if}
 </div>
-
 

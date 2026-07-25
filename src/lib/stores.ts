@@ -1,5 +1,5 @@
 import { writable } from "svelte/store";
-import type { TreeNode, MibSearchResult, TargetConfig, ConnectionState } from "./types";
+import type { TreeNode, MibSearchResult, TargetConfig, ConnectionState, SnmpOperation, ResultSet, VariableBinding } from "./types";
 
 /** Currently selected MIB node (null = no selection). */
 export const selectedNode = writable<TreeNode | null>(null);
@@ -50,3 +50,20 @@ export const connectionPanelOpen = writable(false);
 
 /// Current connection state to the Target.
 export const connectionState = writable<ConnectionState>("disconnected");
+
+// ── SNMP Execution stores ────────────────────────────────────────────────────
+
+/** Currently selected SNMP operation mode. */
+export const snmpOperation = writable<SnmpOperation>("get");
+
+/** Whether an SNMP operation is currently executing. */
+export const isExecuting = writable(false);
+
+/** Accumulated variable bindings from the current execution (streamed for walks). */
+export const executionBindings = writable<VariableBinding[]>([]);
+
+/** Final result set from the last completed execution. */
+export const executionResults = writable<ResultSet | null>(null);
+
+/** Walk progress indicator (e.g., "100/1234 bindings"). */
+export const walkProgress = writable("");

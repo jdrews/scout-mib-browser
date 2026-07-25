@@ -65,3 +65,44 @@ export interface AppConfig {
   };
   target?: Omit<TargetConfig, "host" | "port"> & Partial<Pick<TargetConfig, "host" | "port">>;
 }
+
+// ── SNMP Execution Types ─────────────────────────────────────────────────────
+
+/** SNMP operation mode. */
+export type SnmpOperation = "get" | "getNext" | "walk" | "bulkWalk" | "set";
+
+/** A single SNMP data value from the backend (tagged union matching Rust enum). */
+export type SnmpValue =
+  | { Integer: number }
+  | { Unsigned: number }
+  | { Counter32: number }
+  | { Counter64: number }
+  | { OctetString: number[] }
+  | { ObjectIdentifier: string }
+  | { IpAddress: string }
+  | { TimeTicks: number }
+  | { TruthValue: boolean }
+  | { Null: null }
+  | { Raw: { type_code: number; data: number[] } };
+
+/** An OID paired with its live value returned from a Target. */
+export interface VariableBinding {
+  oid: string;
+  value: SnmpValue;
+  warning?: boolean;
+}
+
+/** A non-fatal issue encountered during an SNMP operation. */
+export interface SnmpWarning {
+  kind: string;
+  message: string;
+  oid?: string;
+}
+
+/** Output of an SNMP execution — bindings plus warnings. */
+export interface ResultSet {
+  bindings: VariableBinding[];
+  warnings?: SnmpWarning[];
+  partial: boolean;
+  retries?: number;
+}
