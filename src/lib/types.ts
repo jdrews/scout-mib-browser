@@ -4,6 +4,7 @@ export interface TreeNode {
   name: string;
   syntax_type?: string;
   mib_name: string;
+  is_table?: boolean;
   children?: TreeNode[];
 }
 
@@ -105,4 +106,29 @@ export interface ResultSet {
   warnings?: SnmpWarning[];
   partial: boolean;
   retries?: number;
+}
+
+// ── Table Retrieval Types ────────────────────────────────────────────────────
+
+/** A single cell in a table grid result. */
+export interface TableCell {
+  value?: VariableBinding;
+  missing: boolean;
+}
+
+/** A single row in a table grid, keyed by its instance suffix. */
+export interface TableRowData {
+  instance_id: string;
+  cells: Record<string, TableCell>;
+}
+
+/** Result of a table retrieval operation — pivoted grid of rows and columns. */
+export interface TableResult {
+  table_oid: string;
+  columns: string[];
+  rows: TableRowData[];
+  total_rows: number;
+  missing_cells: number;
+  warnings?: SnmpWarning[];
+  partial: boolean;
 }

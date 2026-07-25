@@ -94,8 +94,16 @@ impl MibRsLoader {
                         let oid_str = node_obj.oid().to_string();
                         let name = obj.name().to_string();
 
-                        // Determine syntax type from the object's type.
-                        let syntax_type = if let Some(ty) = obj.ty() {
+                        // Detect SMI table structure from mib-rs metadata.
+                        let is_table = obj.is_table();
+                        let is_row = obj.is_row();
+
+                        // Determine syntax type from the object's type and structural role.
+                        let syntax_type = if is_table {
+                            SyntaxType::Table
+                        } else if is_row {
+                            SyntaxType::TableRow
+                        } else if let Some(ty) = obj.ty() {
                             Self::base_type_to_syntax(&ty.effective_base())
                         } else {
                             SyntaxType::Unknown("none".to_string())
@@ -106,6 +114,7 @@ impl MibRsLoader {
                             name,
                             syntax_type,
                             mib_name: module.name().to_string(),
+                            is_table,
                         });
                     }
 
@@ -121,6 +130,7 @@ impl MibRsLoader {
                                 name,
                                 syntax_type: SyntaxType::ObjectIdentifier,
                                 mib_name: module.name().to_string(),
+                                is_table: false,
                             });
                         }
                     }
@@ -333,6 +343,108 @@ END
                 info!("mib-rs rejected broken MIB: {}", e);
             }
         }
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn load_mib_with_table_detects_structure() {
+        let tmp_dir = std::env::temp_dir().join("scout_loader_table_test");
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        std::fs::create_dir_all(&tmp_dir).unwrap();
+
+        // MIB with a proper TABLE definition.
+        let mib_content = r#"TABLE-TEST-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, Integer32, enterprises
+        FROM SNMPv2-SMI
+    DisplayString
+        FROM SNMPv2-TC;
+
+tableTestMib MODULE-IDENTITY
+    LAST-UPDATED "202601010000Z"
+    ORGANIZATION "Test"
+    CONTACT-INFO "test@test.com"
+    DESCRIPTION "A test module with a table."
+    ::= { enterprises 99997 }
+
+tableTestTables OBJECT IDENTIFIER ::= { tableTestMib 1 }
+
+testTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF TestEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "A test table."
+    ::= { tableTestTables 1 }
+
+testEntry OBJECT-TYPE
+    SYNTAX TestEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "A test row entry."
+    INDEX { testIndex }
+    ::= { testTable 1 }
+
+TestEntry ::= SEQUENCE {
+    testIndex Integer32,
+    testName DisplayString,
+    testValue Integer32
+}
+
+testIndex OBJECT-TYPE
+    SYNTAX Integer32 (1..2147483647)
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "Test index column."
+    ::= { testEntry 1 }
+
+testName OBJECT-TYPE
+    SYNTAX DisplayString (SIZE (0..255))
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "Test name column."
+    ::= { testEntry 2 }
+
+testValue OBJECT-TYPE
+    SYNTAX Integer32
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION "Test value column."
+    ::= { testEntry 3 }
+
+END
+"#;
+
+        let mib_path = tmp_dir.join("TABLE-TEST-MIB.txt");
+        std::fs::write(&mib_path, mib_content).unwrap();
+
+        let mut loader = MibRsLoader::new();
+        let result = loader.load_file(&mib_path).expect("should load");
+
+        assert!(result.primary_success);
+
+        // Find the table node.
+        let table_node = result.nodes.iter().find(|n| n.name == "testTable").unwrap();
+        assert_eq!(table_node.syntax_type, SyntaxType::Table);
+        assert!(table_node.is_table);
+
+        // Find the row entry node.
+        let row_node = result.nodes.iter().find(|n| n.name == "testEntry").unwrap();
+        assert_eq!(row_node.syntax_type, SyntaxType::TableRow);
+        assert!(!row_node.is_table);
+
+        // Column nodes should have their proper types and not be marked as tables.
+        let index_node = result.nodes.iter().find(|n| n.name == "testIndex").unwrap();
+        assert_eq!(index_node.syntax_type, SyntaxType::Integer32);
+        assert!(!index_node.is_table);
+
+        let name_col = result.nodes.iter().find(|n| n.name == "testName").unwrap();
+        assert_eq!(name_col.syntax_type, SyntaxType::OctetString);
+        assert!(!name_col.is_table);
+
+        let value_col = result.nodes.iter().find(|n| n.name == "testValue").unwrap();
+        assert_eq!(value_col.syntax_type, SyntaxType::Integer32);
+        assert!(!value_col.is_table);
 
         let _ = std::fs::remove_dir_all(&tmp_dir);
     }

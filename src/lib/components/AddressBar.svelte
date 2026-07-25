@@ -13,6 +13,7 @@ import {
   walkProgress,
   targetConfig,
   queryRootOid,
+  tableResult as tableResultStore,
 } from "$lib/stores";
   import type { MibSearchResult, TreeNode, SnmpOperation, VariableBinding, ResultSet } from "$lib/types";
 
@@ -128,11 +129,22 @@ import {
       return;
     }
 
+    // Check if the selected node is a TABLE — if so, use table retrieval mode.
+    const targetNode = $selectedNode;
+    const isTableNode = targetNode?.is_table === true;
+
     $isExecuting = true;
     $executionBindings = [];
     $executionResults = null;
+    $tableResultStore = null;
     $walkProgress = "";
     $queryRootOid = oid;
+
+    if (isTableNode && (op === "walk" || op === "bulkWalk")) {
+      await executeTableRetrieval(op, oid);
+      return;
+    }
+
     $statusText = `Starting ${op} on ${oid}...`;
 
     let unlisten: (() => void) | undefined;
@@ -175,6 +187,41 @@ import {
       $executionResults = { bindings: [], partial: true, warnings: [{ kind: "error", message: String(err) }] };
     } finally {
       if (unlisten) unlisten();
+      $isExecuting = false;
+    }
+  }
+
+  async function executeTableRetrieval(op: SnmpOperation, tableOid: string) {
+    const cfg = $targetConfig;
+    $statusText = `Detecting table columns for ${tableOid}...`;
+
+    try {
+      // Get column OIDs from the MIB resolver.
+      const cmds = await import("$lib/tauriCommands");
+      const columnOids = await cmds.mibTableColumns(tableOid);
+
+      if (columnOids.length === 0) {
+        $statusText = `No columns found for table ${tableOid}`;
+        $isExecuting = false;
+        return;
+      }
+
+      $statusText = `Walking ${columnOids.length} column(s) for table...`;
+
+      // Execute table walk.
+      const result = await cmds.snmpWalkTable(cfg, tableOid, columnOids);
+      $tableResultStore = result;
+      $walkProgress = "";
+      $statusText = `Table complete: ${result.total_rows} row(s), ${result.columns.length} column(s)`;
+
+      if (result.missing_cells > 0) {
+        $statusText += ` (${result.missing_cells} missing cell(s))`;
+      }
+    } catch (err) {
+      console.error("Table retrieval failed:", err);
+      $statusText = `Table error: ${err}`;
+      $tableResultStore = null;
+    } finally {
       $isExecuting = false;
     }
   }

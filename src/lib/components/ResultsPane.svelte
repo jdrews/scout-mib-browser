@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { executionBindings, executionResults, walkProgress, treeData, targetConfig, queryRootOid } from "$lib/stores";
-  import type { VariableBinding, SnmpValue, ResultSet, TreeNode } from "$lib/types";
+  import { executionBindings, executionResults, walkProgress, treeData, targetConfig, queryRootOid, tableResult as tableResultStore } from "$lib/stores";
+  import type { VariableBinding, SnmpValue, ResultSet, TreeNode, TableResult, TableRowData, TableCell } from "$lib/types";
   import type { ExportFormat } from "$lib/export";
   import * as exportMod from "$lib/export";
   import { saveToFile } from "$lib/tauriCommands";
@@ -8,6 +8,7 @@
   $: bindings = $executionBindings;
   $: results = $executionResults;
   $: progress = $walkProgress;
+  $: tableResult = $tableResultStore;
 
   let exportMenuOpen = false;
 
@@ -74,7 +75,7 @@
     return "UNKNOWN";
   }
 
-  /** Enriched row data. */
+  /** Enriched row data for flat view. */
   $: rows = bindings.map(b => ({
     oid: b.oid,
     name: nameMap.get(b.oid) || "",
@@ -116,8 +117,57 @@
   $: hasWarnings = results?.warnings && results.warnings.length > 0;
   $: isPartial = results?.partial || false;
 
+  // Table grid helpers
+  $: isGridView = !!tableResult;
+  $: gridColumns = tableResult?.columns || [];
+  $: gridRows = tableResult?.rows || [];
+  $: gridMissingCells = tableResult?.missing_cells || 0;
+  $: gridWarnings = tableResult?.warnings && tableResult.warnings.length > 0;
+
+  /** Get column name from OID using nameMap. */
+  function columnName(oid: string): string {
+    const baseName = nameMap.get(oid) || oid.split(".").pop() || oid;
+    return baseName;
+  }
+
+  /** Filter grid rows by text. */
+  $: filteredGridRows = filterText
+    ? gridRows.filter((r: TableRowData) => {
+        const instMatch = r.instance_id.toLowerCase().includes(filterText);
+        if (instMatch) return true;
+        for (const cell of Object.values(r.cells)) {
+          if (cell.value && valueDisplay(cell.value.value).toLowerCase().includes(filterText)) {
+            return true;
+          }
+        }
+        return false;
+      })
+    : gridRows;
+
   async function handleExport(format: ExportFormat) {
     exportMenuOpen = false;
+    if (isGridView && tableResult) {
+      // Export table as TSV with column headers.
+      const header = ["Instance", ...gridColumns.map(c => columnName(c))];
+      const lines = [header.join("\t")];
+      for (const row of gridRows) {
+        const cells = [row.instance_id];
+        for (const colOid of gridColumns) {
+          const cell = row.cells[colOid];
+          if (cell?.value) {
+            cells.push(valueDisplay(cell.value.value));
+          } else {
+            cells.push("");
+          }
+        }
+        lines.push(cells.join("\t"));
+      }
+      const content = lines.join("\n");
+      const filename = `${tableResult.table_oid.split(".").pop() || "table"}.tsv`;
+      await saveToFile(content, filename);
+      return;
+    }
+
     if (bindings.length === 0) return;
 
     const rows = exportMod.bindingsToRows(bindings, nameMap);
@@ -211,11 +261,55 @@
 
   <!-- Results table -->
   <div class="flex-1 overflow-auto">
-    {#if sortedRows.length === 0 && bindings.length === 0}
+    {#if isGridView}
+      <!-- Grid view for table results -->
+      {#if filteredGridRows.length === 0 && gridRows.length === 0}
+        <p class="text-overlay text-[13px] text-center mt-8">No table data returned.</p>
+      {:else if filteredGridRows.length === 0}
+        <p class="text-overlay text-[13px] text-center mt-4">No results match filter.</p>
+      {:else}
+        <table class="w-full text-[12px] font-mono border-collapse">
+          <thead class="sticky top-0 z-10 bg-base-00">
+            <tr class="border-b border-base-01 text-overlay uppercase text-[10px] tracking-wide">
+              <th class="text-left px-3 py-1.5 font-semibold whitespace-nowrap">#</th>
+              <th class="text-left px-3 py-1.5 font-semibold whitespace-nowrap">Instance</th>
+              {#each gridColumns as colOid}
+                <th class="text-left px-3 py-1.5 font-semibold whitespace-nowrap">{columnName(colOid)}</th>
+              {/each}
+            </tr>
+          </thead>
+          <tbody>
+            {#each filteredGridRows as row, i (row.instance_id)}
+              <tr class="border-b border-base-01/50 hover:bg-base-01 transition-colors">
+                <td class="px-3 py-1 text-overlay whitespace-nowrap">{i + 1}</td>
+                <td class="px-3 py-1 text-text whitespace-nowrap font-semibold">{row.instance_id}</td>
+                {#each gridColumns as colOid (colOid)}
+                  {#if row.cells[colOid]}
+                    {@const cell = row.cells[colOid]}
+                    <td class="px-3 py-1 break-all" class:text-peach={cell.missing}>
+                      {#if cell.missing}
+                        <span class="text-overlay italic">— missing ⚠</span>
+                      {:else if cell.value}
+                        <span class="text-text">{valueDisplay(cell.value.value)}</span>
+                      {:else}
+                        <span class="text-overlay">—</span>
+                      {/if}
+                    </td>
+                  {:else}
+                    <td class="px-3 py-1 text-peach italic">— missing ⚠</td>
+                  {/if}
+                {/each}
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      {/if}
+    {:else if sortedRows.length === 0 && bindings.length === 0}
       <p class="text-overlay text-[13px] text-center mt-8">Select a MIB node and click Go to query the Target.</p>
     {:else if sortedRows.length === 0}
       <p class="text-overlay text-[13px] text-center mt-4">No results match filter.</p>
     {:else}
+      <!-- Flat view for regular bindings -->
       <table class="w-full text-[12px] font-mono border-collapse">
         <thead class="sticky top-0 z-10 bg-base-00">
           <tr class="border-b border-base-01 text-overlay uppercase text-[10px] tracking-wide">
@@ -255,7 +349,14 @@
   </div>
 
   <!-- Footer -->
-  {#if bindings.length > 0}
+  {#if isGridView && tableResult}
+    <div class="px-3 py-1 text-[10px] text-overlay border-t border-base-01 bg-base-00 flex justify-between">
+      <span>{filteredGridRows.length} of {tableResult.total_rows} rows</span>
+      {#if gridMissingCells > 0}
+        <span class="text-peach">{gridMissingCells} missing cell(s)</span>
+      {/if}
+    </div>
+  {:else if bindings.length > 0}
     <div class="px-3 py-1 text-[10px] text-overlay border-t border-base-01 bg-base-00 flex justify-between">
       <span>{sortedRows.length} of {bindings.length} bindings</span>
       {#if results?.retries && results.retries > 0}

@@ -10,10 +10,12 @@
 mod engine;
 #[cfg(test)]
 mod mock;
+pub mod table;
 mod tolerant;
 pub mod types;
 
 pub use engine::{SnmpEngine, WALK_BATCH_EVENT};
 #[cfg(test)]
 pub use mock::MockSnmpServer;
+pub use table::*;
 pub use types::*;
