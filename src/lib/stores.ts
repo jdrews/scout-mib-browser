@@ -67,3 +67,6 @@ export const executionResults = writable<ResultSet | null>(null);
 
 /** Walk progress indicator (e.g., "100/1234 bindings"). */
 export const walkProgress = writable("");
+
+/** Root OID of the last query (for export default filename). */
+export const queryRootOid = writable<string | null>(null);

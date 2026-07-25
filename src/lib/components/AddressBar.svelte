@@ -1,18 +1,19 @@
 <script lang="ts">
   import { mibSearch } from "$lib/tauriCommands";
-  import {
-    selectedNode,
-    autocompleteResults as acStore,
-    highlightedIndex as hiStore,
-    statusText,
-    treeData,
-    snmpOperation,
-    isExecuting,
-    executionBindings,
-    executionResults,
-    walkProgress,
-    targetConfig,
-  } from "$lib/stores";
+import {
+  selectedNode,
+  autocompleteResults as acStore,
+  highlightedIndex as hiStore,
+  statusText,
+  treeData,
+  snmpOperation,
+  isExecuting,
+  executionBindings,
+  executionResults,
+  walkProgress,
+  targetConfig,
+  queryRootOid,
+} from "$lib/stores";
   import type { MibSearchResult, TreeNode, SnmpOperation, VariableBinding, ResultSet } from "$lib/types";
 
   let inputValue = "";
@@ -131,6 +132,7 @@
     $executionBindings = [];
     $executionResults = null;
     $walkProgress = "";
+    $queryRootOid = oid;
     $statusText = `Starting ${op} on ${oid}...`;
 
     let unlisten: (() => void) | undefined;
