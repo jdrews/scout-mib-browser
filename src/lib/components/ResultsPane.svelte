@@ -1,21 +1,21 @@
 <script lang="ts">
-  import { executionBindings, executionResults, walkProgress, treeData, targetConfig, queryRootOid, tableResult as tableResultStore } from "$lib/stores";
+  import { S } from "$lib/stores.svelte";
   import type { VariableBinding, SnmpValue, ResultSet, TreeNode, TableResult, TableRowData, TableCell } from "$lib/types";
   import type { ExportFormat } from "$lib/export";
   import * as exportMod from "$lib/export";
   import { saveToFile } from "$lib/tauriCommands";
 
-  $: bindings = $executionBindings;
-  $: results = $executionResults;
-  $: progress = $walkProgress;
-  $: tableResult = $tableResultStore;
+  let bindings = $derived(S.executionBindings);
+  let results = $derived(S.executionResults);
+  let progress = $derived(S.walkProgress);
+  let tableResult = $derived(S.tableResult);
 
-  let exportMenuOpen = false;
-  let gridView = false;
+  let exportMenuOpen = $state(false);
+  let gridView = $state(false);
 
-  let filterText = "";
-  let sortColumn: "oid" | "name" | "type" | "value" = "oid";
-  let sortAsc = true;
+  let filterText = $state("");
+  let sortColumn: "oid" | "name" | "type" | "value" = $state("oid");
+  let sortAsc = $state(true);
 
   function buildNameMap(nodes: TreeNode[]): Map<string, string> {
     const map = new Map<string, string>();
@@ -31,7 +31,7 @@
     return map;
   }
 
-  $: nameMap = buildNameMap($treeData);
+  let nameMap = $derived(buildNameMap(S.treeData));
 
   function valueDisplay(v: SnmpValue): string {
     if ("Integer" in v) return String(v.Integer);
@@ -73,29 +73,29 @@
     return "UNKNOWN";
   }
 
-  $: rows = bindings.map(b => ({
+  let rows = $derived(bindings.map(b => ({
     oid: b.oid,
     name: nameMap.get(b.oid) || "",
     type: typeLabel(b.value),
     value: valueDisplay(b.value),
     warning: !!b.warning,
-  }));
+  })));
 
-  $: filteredRows = filterText
+  let filteredRows = $derived(filterText
     ? rows.filter((r: typeof rows[number]) =>
         r.oid.toLowerCase().includes(filterText) ||
         r.name.toLowerCase().includes(filterText) ||
         r.type.toLowerCase().includes(filterText) ||
         r.value.toLowerCase().includes(filterText),
       )
-    : rows;
+    : rows);
 
-  $: sortedRows = [...filteredRows].sort((a, b) => {
+  let sortedRows = $derived([...filteredRows].sort((a, b) => {
     const aVal = a[sortColumn];
     const bVal = b[sortColumn];
     const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
     return sortAsc ? cmp : -cmp;
-  });
+  }));
 
   function toggleSort(col: "oid" | "name" | "type" | "value") {
     if (sortColumn === col) {
@@ -111,21 +111,21 @@
     return sortAsc ? "\u2191" : "\u2193";
   }
 
-  $: hasWarnings = results?.warnings && results.warnings.length > 0;
-  $: isPartial = results?.partial || false;
+  let hasWarnings = $derived(results?.warnings && results.warnings.length > 0);
+  let isPartial = $derived(results?.partial || false);
 
-  $: isGridView = !!tableResult;
-  $: gridColumns = tableResult?.columns || [];
-  $: gridRows = tableResult?.rows || [];
-  $: gridMissingCells = tableResult?.missing_cells || 0;
-  $: gridWarnings = tableResult?.warnings && tableResult.warnings.length > 0;
+  let isGridView = $derived(!!tableResult);
+  let gridColumns = $derived(tableResult?.columns || []);
+  let gridRows = $derived(tableResult?.rows || []);
+  let gridMissingCells = $derived(tableResult?.missing_cells || 0);
+  let gridWarnings = $derived(tableResult?.warnings && tableResult.warnings.length > 0);
 
   function columnName(oid: string): string {
     const baseName = nameMap.get(oid) || oid.split(".").pop() || oid;
     return baseName;
   }
 
-  $: filteredGridRows = filterText
+  let filteredGridRows = $derived(filterText
     ? gridRows.filter((r: TableRowData) => {
         const instMatch = r.instance_id.toLowerCase().includes(filterText);
         if (instMatch) return true;
@@ -136,7 +136,7 @@
         }
         return false;
       })
-    : gridRows;
+    : gridRows);
 
   async function handleExport(format: ExportFormat) {
     exportMenuOpen = false;
@@ -163,22 +163,22 @@
 
     if (bindings.length === 0) return;
 
-    const rows = exportMod.bindingsToRows(bindings, nameMap);
+    const rowsExport = exportMod.bindingsToRows(bindings, nameMap);
     let content: string;
 
     switch (format) {
       case "tsv":
-        content = exportMod.formatTSV(rows);
+        content = exportMod.formatTSV(rowsExport);
         break;
       case "json":
-        content = exportMod.formatJSON($targetConfig, $queryRootOid, rows, results?.warnings);
+        content = exportMod.formatJSON(S.targetConfig, S.queryRootOid, rowsExport, results?.warnings);
         break;
       case "csv":
-        content = exportMod.formatCSV(rows);
+        content = exportMod.formatCSV(rowsExport);
         break;
     }
 
-    const filename = exportMod.defaultFilename($targetConfig, $queryRootOid, format);
+    const filename = exportMod.defaultFilename(S.targetConfig, S.queryRootOid, format);
     await saveToFile(content, filename);
   }
 
@@ -196,7 +196,7 @@
 </script>
 
 <div class="flex flex-col flex-1 overflow-hidden">
-  <div class="px-4 py-3 text-sm font-semibold uppercase tracking-wide text-base-content/60 bg-base-100 border-b border-base-300 flex items-center justify-between gap-3" on:click|self={hideExportOnOutsideClick}>
+  <div class="px-4 py-3 text-sm font-semibold uppercase tracking-wide text-base-content/60 bg-base-100 border-b border-base-300 flex items-center justify-between gap-3" onclick={(e) => { if (e.target === e.currentTarget) hideExportOnOutsideClick(e); }}>
     <span>Results</span>
     <div class="flex items-center gap-3">
       {#if progress}
@@ -209,15 +209,15 @@
         <div data-export-menu class="dropdown dropdown-end relative">
           <button
             class="btn btn-sm"
-            on:click={toggleExportMenu}
+            onclick={toggleExportMenu}
           >
             Save Results
           </button>
           {#if exportMenuOpen}
             <ul class="absolute top-full right-0 menu menu-sm bg-base-100 rounded-box w-40 p-2 shadow-lg z-[1000] mt-1">
-              <li><a on:click={() => handleExport("tsv")}>Save as TSV</a></li>
-              <li><a on:click={() => handleExport("json")}>Save as JSON</a></li>
-              <li><a on:click={() => handleExport("csv")}>Save as CSV</a></li>
+              <li><a onclick={() => handleExport("tsv")}>Save as TSV</a></li>
+              <li><a onclick={() => handleExport("json")}>Save as JSON</a></li>
+              <li><a onclick={() => handleExport("csv")}>Save as CSV</a></li>
             </ul>
           {/if}
         </div>
@@ -244,7 +244,6 @@
     </div>
   {/if}
 
-  <!-- View toggle for table data -->
   {#if isGridView && bindings.length > 0}
     <div class="px-4 py-1 flex items-center gap-2 border-b border-base-300">
       <label class="cursor-pointer flex items-center gap-2 text-xs">
@@ -308,11 +307,11 @@
         <table class="table table-sm">
           <thead>
             <tr>
-              <th class="cursor-pointer" on:click={() => toggleSort("oid")}>\u2116 {sortIcon("oid")}</th>
-              <th class="cursor-pointer max-w-[200px]" on:click={() => toggleSort("oid")}>OID {sortIcon("oid")}</th>
-              <th class="cursor-pointer" on:click={() => toggleSort("name")}>Name {sortIcon("name")}</th>
-              <th class="cursor-pointer w-28" on:click={() => toggleSort("type")}>Type {sortIcon("type")}</th>
-              <th class="cursor-pointer flex-1" on:click={() => toggleSort("value")}>Value {sortIcon("value")}</th>
+              <th class="cursor-pointer" onclick={() => toggleSort("oid")}>\u2116 {sortIcon("oid")}</th>
+              <th class="cursor-pointer max-w-[200px]" onclick={() => toggleSort("oid")}>OID {sortIcon("oid")}</th>
+              <th class="cursor-pointer" onclick={() => toggleSort("name")}>Name {sortIcon("name")}</th>
+              <th class="cursor-pointer w-28" onclick={() => toggleSort("type")}>Type {sortIcon("type")}</th>
+              <th class="cursor-pointer flex-1" onclick={() => toggleSort("value")}>Value {sortIcon("value")}</th>
             </tr>
           </thead>
           <tbody>

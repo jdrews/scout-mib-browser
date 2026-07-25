@@ -1,13 +1,13 @@
 <script lang="ts">
   import type { TreeNode as TreeNodeType } from "$lib/types";
-  import { selectedNode, contextMenuTarget } from "$lib/stores";
+  import { S } from "$lib/stores.svelte";
 
-  export let node: TreeNodeType;
+  let { node }: { node: TreeNodeType } = $props();
 
-  let expanded = false;
-  $: hasChildren = !!(node.children && node.children.length > 0);
-  $: isSelected = $selectedNode?.oid === node.oid;
-  $: childrenList = node.children ?? [];
+  let expanded = $state(false);
+  let hasChildren = $derived(!!(node.children && node.children.length > 0));
+  let isSelected = $derived(S.selectedNode?.oid === node.oid);
+  let childrenList = $derived(node.children ?? []);
 
   function toggleExpand(e: MouseEvent) {
     e.stopPropagation();
@@ -15,12 +15,12 @@
   }
 
   function selectNode() {
-    $selectedNode = node;
+    S.selectedNode = node;
   }
 
   function showContextMenu(e: MouseEvent) {
     e.preventDefault();
-    $contextMenuTarget = { node, x: e.clientX, y: e.clientY };
+    S.contextMenuTarget = { node, x: e.clientX, y: e.clientY };
   }
 </script>
 
@@ -28,13 +28,13 @@
   <div
     class="flex items-center px-2 py-2 min-h-[28px] cursor-default rounded text-sm whitespace-nowrap select-none tree-node-row"
     class:selected-node={isSelected}
-    on:click={selectNode}
-    on:contextmenu={showContextMenu}
+    onclick={selectNode}
+    oncontextmenu={showContextMenu}
   >
     {#if hasChildren}
       <span
         class="w-4 h-4 flex items-center justify-center text-xs text-base-content/60 cursor-pointer flex-shrink-0 hover:text-base-content"
-        on:click={toggleExpand}
+        onclick={toggleExpand}
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class:rotate-90={expanded}><polyline points="9 18 15 12 9 6"/></svg>
       </span>
@@ -58,7 +58,7 @@
   {#if hasChildren && expanded}
     <div class="pl-3">
       {#each childrenList as child (child.oid)}
-        <svelte:self {child} />
+        <svelte:self node={child} />
       {/each}
     </div>
   {/if}

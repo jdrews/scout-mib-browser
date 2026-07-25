@@ -2,21 +2,21 @@
   import MIBPanel from "./MIBPanel.svelte";
   import SelectionInfo from "./SelectionInfo.svelte";
   import ResultsPane from "./ResultsPane.svelte";
-  import { mibPanelWidth } from "$lib/stores";
+  import { S } from "$lib/stores.svelte";
 
   const MIN_WIDTH = 200;
   const MAX_WIDTH = 600;
 
-  let isResizing = false;
-  let startX = 0;
-  let startWidth = 0;
+  let isResizing = $state(false);
+  let startX = $state(0);
+  let startWidth = $state(0);
   let mainContentEl: HTMLDivElement;
 
   function onResizeStart(e: MouseEvent) {
     e.preventDefault();
     isResizing = true;
     startX = e.clientX;
-    startWidth = $mibPanelWidth;
+    startWidth = S.mibPanelWidth;
     document.addEventListener("mousemove", onResizeMove);
     document.addEventListener("mouseup", onResizeEnd);
     document.body.style.cursor = "col-resize";
@@ -27,7 +27,7 @@
     if (!isResizing) return;
     const delta = e.clientX - startX;
     const newWidth = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, startWidth + delta));
-    $mibPanelWidth = newWidth;
+    S.mibPanelWidth = newWidth;
   }
 
   function onResizeEnd() {
@@ -43,7 +43,7 @@
   <MIBPanel />
   <div
     class="resize-handle-h w-[6px] cursor-col-resize flex-shrink-0 bg-base-200 hover:bg-primary/30 transition-colors"
-    on:mousedown={onResizeStart}
+    onmousedown={onResizeStart}
     role="separator"
     aria-orientation="vertical"
     tabindex="0"
