@@ -3,9 +3,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "dev:web": "vite",
+    "build:web": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
+    "check:rust": "bash scripts/check.sh",
+    "tauri:debug": "tauri build --debug",
     "sandcastle:build-image": "podman build --build-arg UID=$(id -u) --build-arg GID=$(id -g) -t sandcastle/scout-mib-browser:local .sandcastle/",
     "sandcastle:run": "tsx .sandcastle/main.mts",
     "sandcastle:ticket": "tsx .sandcastle/main.mts"
