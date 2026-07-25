@@ -1,6 +1,16 @@
 import { writable } from "svelte/store";
 import type { TreeNode, MibSearchResult, TargetConfig, ConnectionState, SnmpOperation, ResultSet, VariableBinding, TableResult, LogEntry, LogLevel } from "./types";
 
+/** Current daisyUI theme ("dark" or "light"). Persisted in localStorage. */
+export const currentTheme = writable(
+  (typeof localStorage !== "undefined" ? localStorage.getItem("scout-theme") : null) || "dark"
+);
+currentTheme.subscribe((v) => {
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem("scout-theme", v);
+  }
+});
+
 /** Currently selected MIB node (null = no selection). */
 export const selectedNode = writable<TreeNode | null>(null);
 

@@ -9,13 +9,9 @@
 </script>
 
 {#if visible}
-  <div class="px-4 py-2 bg-surface-0 border-b border-base-01 flex items-center gap-2">
-    <span class="text-text font-medium text-sm">{displayName}</span>
-    <span class="px-2 py-1 rounded-[3px] text-xs bg-base-01 text-green">
-      {displaySyntax}
-    </span>
-    <span class="px-2 py-1 rounded-[3px] text-xs bg-base-01 text-blue">
-      {displayMib}
-    </span>
+  <div class="px-4 py-2 bg-base-200 border-b border-base-300 flex items-center gap-2">
+    <span class="text-base-content font-medium text-sm">{displayName}</span>
+    <span class="badge badge-success gap-2">{displaySyntax}</span>
+    <span class="badge badge-primary gap-2">{displayMib}</span>
   </div>
 {/if}

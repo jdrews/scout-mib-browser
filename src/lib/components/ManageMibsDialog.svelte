@@ -50,32 +50,32 @@
 </script>
 
 {#if $manageMibsOpen}
-  <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-[3000]" on:click={close}>
-    <div class="bg-base-00 border border-base-01 rounded-lg w-[560px] max-h-[70vh] flex flex-col shadow-xl" on:click|stopPropagation>
-      <div class="flex items-center justify-between px-4 py-3 border-b border-base-01">
-        <h2 class="text-sm font-semibold">Manage MIBs</h2>
-        <button class="bg-transparent border-none text-overlay text-lg cursor-pointer leading-none hover:text-red" on:click={close}>&times;</button>
-      </div>
+  <dialog class="modal modal-open" on:click={close}>
+    <div class="modal-box max-w-[560px] max-h-[70vh] flex flex-col" on:click|stopPropagation>
+      <form method="dialog">
+        <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2 hover:text-error">✕</button>
+      </form>
+      <h3 class="text-lg font-bold">Manage MIBs</h3>
 
-      <div class="flex-1 overflow-y-auto p-2">
+      <div class="flex-1 overflow-y-auto mt-4">
         {#if loading}
-          <p class="text-overlay text-sm text-center mt-12">Loading...</p>
+          <p class="text-base-content/60 text-sm text-center mt-12">Loading...</p>
         {:else if mibs.length === 0}
-          <p class="text-overlay text-sm text-center mt-12">No MIBs currently loaded.</p>
+          <p class="text-base-content/60 text-sm text-center mt-12">No MIBs currently loaded.</p>
         {:else}
           {#each mibs as mib (mib.mibName)}
-            <div class="flex items-center px-4 py-2.5 rounded gap-3 hover:bg-base-01">
-              <span class="flex-1 text-sm text-text">{mib.mibName}</span>
-              <span class="text-xs text-overlay font-mono max-w-[240px] overflow-hidden text-ellipsis whitespace-nowrap" title="{mib.filePath}">
+            <div class="flex items-center px-4 py-2.5 rounded gap-3 hover:bg-base-200">
+              <span class="flex-1 text-sm">{mib.mibName}</span>
+              <span class="text-xs text-base-content/60 font-mono max-w-[240px] overflow-hidden text-ellipsis whitespace-nowrap" title="{mib.filePath}">
                 {mib.filePath}
               </span>
               <div class="flex gap-2 items-center text-xs">
                 {#if mib.isFallback}
-                  <span class="bg-base-02 text-yellow px-1.5 py-0.5 rounded-[3px]">FALLBACK</span>
+                  <span class="badge badge-warning badge-sm">FALLBACK</span>
                 {/if}
                 <span>{mib.nodeCount} nodes</span>
               </div>
-              <button class="bg-transparent border border-base-02 text-red px-2 py-1 text-[13px] rounded cursor-pointer hover:bg-red hover:text-base-00" on:click={() => unloadMib(mib.mibName)}>
+              <button class="btn btn-error btn-xs" on:click={() => unloadMib(mib.mibName)}>
                 Unload
               </button>
             </div>
@@ -83,11 +83,11 @@
         {/if}
       </div>
 
-      <div class="px-4 py-2 border-t border-base-01 flex justify-end">
-        <button class="bg-blue text-base-00 border-none px-5 py-2 text-sm font-semibold rounded cursor-pointer hover:bg-sapphire" on:click={close}>
+      <div class="modal-action">
+        <button class="btn btn-primary" on:click={close}>
           Close
         </button>
       </div>
     </div>
-  </div>
+  </dialog>
 {/if}

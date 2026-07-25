@@ -52,15 +52,11 @@
 </script>
 
 {#if visible}
-  <div
-    class="fixed bg-base-00 border border-base-01 rounded-lg py-1 min-w-[140px] z-[2000] shadow-lg"
+  <ul
+    class="fixed menu p-2 bg-base-100 rounded-box w-40 shadow-lg z-[2000]"
     style="left: {posX}px; top: {posY}px;"
   >
-    <div class="px-4 py-2 text-sm text-subtext-1 cursor-pointer hover:bg-base-01 hover:text-text" on:click={() => handleAction("copy-oid")}>
-      Copy OID
-    </div>
-    <div class="px-4 py-2 text-sm text-subtext-1 cursor-pointer hover:bg-base-01 hover:text-text" on:click={() => handleAction("copy-name")}>
-      Copy Name
-    </div>
-  </div>
+    <li><a on:click={() => handleAction("copy-oid")}>Copy OID</a></li>
+    <li><a on:click={() => handleAction("copy-name")}>Copy Name</a></li>
+  </ul>
 {/if}

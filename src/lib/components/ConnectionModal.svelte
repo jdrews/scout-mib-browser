@@ -81,30 +81,21 @@
 </script>
 
 {#if open}
-  <div class="fixed inset-0 z-[2000] flex items-center justify-center bg-black/50" on:click={handleBackdropClick}>
-    <div data-connection-panel class="bg-base-00 border border-base-01 rounded-xl shadow-2xl w-[480px] max-h-[90vh] overflow-y-auto">
-      <div class="flex items-center justify-between px-5 py-3 border-b border-base-01">
-        <h2 class="text-sm font-semibold text-text">Target Connection</h2>
-        <button class="text-overlay hover:text-text cursor-pointer" on:click={close}>
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M3.5 3.5l9 9m0-9l-9 9" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-          </svg>
-        </button>
-      </div>
+  <dialog class="modal modal-open" on:click={handleBackdropClick}>
+    <div data-connection-panel class="modal-box max-w-[480px]">
+      <form method="dialog">
+        <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
+      </form>
+      <h3 class="text-lg font-bold">Target Connection</h3>
 
-      <div class="px-5 py-4 space-y-5">
+      <div class="space-y-4 mt-4">
         <!-- Version selector -->
         <div>
-          <label class="block text-xs font-semibold uppercase tracking-wide text-overlay mb-1.5">SNMP Version</label>
-          <div class="flex gap-2">
+          <label class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60 mb-1.5 block">SNMP Version</label>
+          <div class="flex gap-1">
             {#each ["v1", "v2c", "v3"] as ver}
               <button
-                class="flex-1 px-4 py-2 text-sm rounded border cursor-pointer transition-colors"
-                class:border-blue={cfg.version === ver}
-                class:bg-base-01={cfg.version === ver}
-                class:text-text={cfg.version === ver}
-                class:border-base-01={cfg.version !== ver}
-                class:text-overlay={cfg.version !== ver}
+                class="btn btn-sm {cfg.version === ver ? 'btn-primary' : ''}"
                 on:click={() => updateField("version", ver)}
               >
                 SNMP {ver.toUpperCase()}
@@ -115,91 +106,89 @@
 
         <!-- v1/v2c Community string -->
         {#if !isV3}
-          <div>
-            <label class="block text-xs font-semibold uppercase tracking-wide text-overlay mb-1.5">Community String</label>
+          <div class="form-control">
+            <label class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Community String</span></label>
             <input
               type="text"
               value={cfg.community}
               on:input={onCommunityInput}
-              class="w-full bg-surface-0 border border-base-01 text-text px-4 py-2 text-sm font-mono rounded outline-none focus:border-blue"
+              class="input input-bordered font-mono w-full"
             />
           </div>
         {/if}
 
         <!-- v3 fields -->
         {#if isV3}
-          <div>
-            <label class="block text-xs font-semibold uppercase tracking-wide text-overlay mb-1.5">Username</label>
+          <div class="form-control">
+            <label class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Username</span></label>
             <input
               type="text"
               value={cfg.v3_username}
               on:input={onV3UsernameInput}
-              class="w-full bg-surface-0 border border-base-01 text-text px-4 py-2 text-sm font-mono rounded outline-none focus:border-blue"
+              class="input input-bordered font-mono w-full"
             />
           </div>
 
           <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block text-xs font-semibold uppercase tracking-wide text-overlay mb-1.5">Auth Protocol</label>
+            <div class="form-control">
+              <label class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Auth Protocol</span></label>
               <select
                 value={cfg.v3_auth_protocol}
                 on:change={onV3AuthProtocolChange}
-                class="w-full bg-surface-0 border border-base-01 text-text px-4 py-2 text-sm rounded outline-none focus:border-blue"
+                class="select select-bordered w-full"
               >
                 {#each ["none", "md5", "sha1", "sha224", "sha256", "sha384", "sha512"] as proto}
                   <option value={proto}>{proto.toUpperCase()}</option>
                 {/each}
               </select>
             </div>
-            <div>
-              <label class="block text-xs font-semibold uppercase tracking-wide text-overlay mb-1.5">Auth Passphrase</label>
+            <div class="form-control">
+              <label class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Auth Passphrase</span></label>
               <input
                 type="password"
                 value={cfg.v3_auth_passphrase}
                 on:input={onV3AuthPassphraseInput}
-                class="w-full bg-surface-0 border border-base-01 text-text px-4 py-2 text-sm font-mono rounded outline-none focus:border-blue"
+                class="input input-bordered font-mono w-full"
               />
             </div>
           </div>
 
           <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block text-xs font-semibold uppercase tracking-wide text-overlay mb-1.5">Priv Protocol</label>
+            <div class="form-control">
+              <label class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Priv Protocol</span></label>
               <select
                 value={cfg.v3_priv_protocol}
                 on:change={onV3PrivProtocolChange}
-                class="w-full bg-surface-0 border border-base-01 text-text px-4 py-2 text-sm rounded outline-none focus:border-blue"
+                class="select select-bordered w-full"
               >
                 {#each ["none", "des", "aes128", "aes192", "aes256"] as proto}
                   <option value={proto}>{proto.toUpperCase()}</option>
                 {/each}
               </select>
             </div>
-            <div>
-              <label class="block text-xs font-semibold uppercase tracking-wide text-overlay mb-1.5">Priv Passphrase</label>
+            <div class="form-control">
+              <label class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Priv Passphrase</span></label>
               <input
                 type="password"
                 value={cfg.v3_priv_passphrase}
                 on:input={onV3PrivPassphraseInput}
-                class="w-full bg-surface-0 border border-base-01 text-text px-4 py-2 text-sm font-mono rounded outline-none focus:border-blue"
+                class="input input-bordered font-mono w-full"
               />
             </div>
           </div>
         {/if}
 
         <!-- Test connection button -->
-        <div class="pt-2 flex gap-2">
-          <button
-            class="flex-1 bg-blue text-base-00 border-none px-4 py-2 text-[13px] font-semibold rounded cursor-pointer hover:bg-sapphire transition-colors disabled:opacity-50"
-            on:click={testConnection}
-            disabled={connecting || !cfg.host.trim()}
-          >
-            {connecting ? "Testing..." : "Test Connection"}
-          </button>
-        </div>
+        <button
+          class="btn btn-primary btn-block mt-2"
+          on:click={testConnection}
+          disabled={connecting || !cfg.host.trim()}
+        >
+          {connecting ? "Testing..." : "Test Connection"}
+        </button>
 
-        <p class="text-xs text-overlay italic">Credentials are not persisted beyond the current session. Re-enter on each launch.</p>
+        <p class="text-xs text-base-content/60 italic">Credentials are not persisted beyond the current session. Re-enter on each launch.</p>
       </div>
     </div>
-  </div>
+  </dialog>
 {/if}
