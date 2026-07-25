@@ -1,9 +1,8 @@
 {
-  "$schema": "https://raw.githubusercontent.com/nicegram/tauri/v2.0.0-beta.15/core/tauri-config-schema/schema.json",
-  "identifier": "com.scout.mib-browser.default",
+  "identifier": "default",
   "description": "Default permissions for Scout MIB Browser",
+  "windows": ["main"],
   "permissions": [
-    "core:default",
-    "dialog:default"
+    "core:default"
   ]
 }

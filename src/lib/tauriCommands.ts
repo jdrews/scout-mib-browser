@@ -1,6 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { open as tauriOpen, save as tauriSave } from "@tauri-apps/plugin-dialog";
 import type {
   TreeNode,
   MibSearchResult,
@@ -61,7 +60,7 @@ export async function mibLoadedList(): Promise<LoadedMib[]> {
 
 /** Opens a native directory picker dialog. */
 export async function openDirectory(): Promise<string | null> {
-  const result = await tauriOpen({ directory: true, multiple: false });
+  const result = (await invoke("dialog_open_directory")) as string | null;
   return result;
 }
 
@@ -220,13 +219,8 @@ export async function fsWriteFile(path: string, content: string): Promise<void> 
 export async function saveToFile(
   content: string,
   defaultFilename: string,
-  filters?: Array<{ name: string; extensions: string[] }>,
 ): Promise<string | null> {
-  const path = await tauriSave({
-    title: "Save Results",
-    defaultPath: defaultFilename,
-    filters: filters ? [{ name: defaultFilename.split(".").pop() || "File", extensions: [defaultFilename.split(".").pop() || "*"] }] : undefined,
-  });
+  const path = (await invoke("dialog_save_file", { defaultPath: defaultFilename })) as string | null;
   if (!path) return null;
   await fsWriteFile(path, content);
   return path;

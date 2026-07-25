@@ -48,7 +48,6 @@ fn main() {
     let snmp_state = SnmpEngineState::new().expect("failed to create SNMP engine");
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
             log::set_tauri_app_handle(app.handle().clone());
 
@@ -87,6 +86,8 @@ fn main() {
             snmp_set,
             snmp_walk_table,
             fs_write_file,
+            dialog_open_directory,
+            dialog_save_file,
             log::log_read,
             log::log_clear,
             log::log_path,
@@ -294,6 +295,26 @@ fn snmp_walk_table(
 fn fs_write_file(path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| format!("Failed to write {}: {}", path, e))?;
     Ok(())
+}
+
+/// Opens a native directory picker dialog.
+#[tauri::command]
+fn dialog_open_directory(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let window = app
+        .get_webview_window("main")
+        .expect("main window not found");
+    let path = rfd::FileDialog::new().set_parent(&window).pick_folder();
+    Ok(path.map(|p| p.to_string_lossy().to_string()))
+}
+
+/// Opens a native save file dialog.
+#[tauri::command]
+fn dialog_save_file(app: tauri::AppHandle, default_path: String) -> Result<Option<String>, String> {
+    let window = app
+        .get_webview_window("main")
+        .expect("main window not found");
+    let path = rfd::FileDialog::new().set_parent(&window).save_file();
+    Ok(path.map(|p| p.to_string_lossy().to_string()))
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

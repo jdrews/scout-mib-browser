@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/nicegram/tauri/v2.0.0-beta.15/core/tauri-config-schema/schema.json",
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-config/schema/schema.json",
   "productName": "Scout MIB Browser",
   "version": "0.1.0",
   "identifier": "com.scout.mib-browser",
