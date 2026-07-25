@@ -40,6 +40,10 @@ pub enum SyntaxType {
     Bits,
     Sequence,
     SequenceOf,
+    /// SMI TABLE container (SYNTAX SEQUENCE OF Entry). Not directly queryable.
+    Table,
+    /// SMI ROW entry. Not directly queryable — contains column definitions.
+    TableRow,
     Unknown(String),
 }
 
@@ -60,6 +64,8 @@ impl SyntaxType {
             SyntaxType::Bits => "BITS",
             SyntaxType::Sequence => "SEQUENCE",
             SyntaxType::SequenceOf => "SEQUENCE OF",
+            SyntaxType::Table => "TABLE",
+            SyntaxType::TableRow => "ROW",
             SyntaxType::Unknown(s) => s.as_str(),
         }
     }
@@ -79,6 +85,9 @@ pub struct MibNode {
     pub syntax_type: SyntaxType,
     /// Name of the MIB module that defines this node.
     pub mib_name: String,
+    /// Whether this node is an SMI TABLE container.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub is_table: bool,
 }
 
 /// Result of loading a single MIB file.
@@ -104,6 +113,9 @@ pub struct TreeNode {
     pub syntax_type: Option<String>,
     /// MIB module name.
     pub mib_name: String,
+    /// Whether this node is an SMI TABLE container.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub is_table: bool,
     /// Child nodes (empty for leaf nodes).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<TreeNode>,
@@ -470,17 +482,24 @@ impl Resolver {
             name: node.name.clone(),
             syntax_type: syntax_label,
             mib_name: node.mib_name.clone(),
+            is_table: node.is_table,
             children,
         }
     }
 
     /// Sorts nodes by a stable order: OBJECT IDENTIFIER subtrees first (alphabetical),
-    /// then leaf objects (alphabetical).
+    /// then leaf objects (alphabetical). TABLE and ROW are treated as subtrees.
     fn sort_nodes<'a>(&self, nodes: &'a [&'a MibNode]) -> Vec<&'a MibNode> {
         let mut sorted: Vec<_> = nodes.to_vec();
         sorted.sort_by(|a, b| {
-            let a_is_subtree = matches!(a.syntax_type, SyntaxType::ObjectIdentifier);
-            let b_is_subtree = matches!(b.syntax_type, SyntaxType::ObjectIdentifier);
+            let a_is_subtree = matches!(
+                a.syntax_type,
+                SyntaxType::ObjectIdentifier | SyntaxType::Table | SyntaxType::TableRow
+            );
+            let b_is_subtree = matches!(
+                b.syntax_type,
+                SyntaxType::ObjectIdentifier | SyntaxType::Table | SyntaxType::TableRow
+            );
             match (a_is_subtree, b_is_subtree) {
                 (true, false) => std::cmp::Ordering::Less,
                 (false, true) => std::cmp::Ordering::Greater,
@@ -524,6 +543,30 @@ impl Resolver {
     /// Looks up a MIB node name and returns its OID.
     pub fn reverse_lookup(&self, name: &str) -> Option<&str> {
         self.name_index.get(name).map(|s| s.as_str())
+    }
+
+    /// Returns column OIDs for a TABLE node by finding all leaf objects under its subtree.
+    ///
+    /// Excludes the table itself, row entry, and any intermediate OBJECT IDENTIFIER subtrees.
+    pub fn get_table_columns(&self, table_oid: &str) -> Vec<String> {
+        let mut columns = Vec::new();
+        for node in self.oid_index.values() {
+            // Must be under the table's subtree
+            if !node.oid.starts_with(&format!("{}.", table_oid)) && node.oid != table_oid {
+                continue;
+            }
+            // Skip TABLE and ROW containers — they're not queryable columns
+            if matches!(node.syntax_type, SyntaxType::Table | SyntaxType::TableRow) {
+                continue;
+            }
+            // Only leaf objects are columns (not intermediate OBJECT IDENTIFIER subtrees)
+            if node.syntax_type == SyntaxType::ObjectIdentifier {
+                continue;
+            }
+            columns.push(node.oid.clone());
+        }
+        columns.sort();
+        columns
     }
 
     /// Returns the total number of indexed nodes.
@@ -622,6 +665,7 @@ mod tests {
                 name: "sysDescr".to_string(),
                 syntax_type: SyntaxType::OctetString,
                 mib_name: "SNMPv2-MIB".to_string(),
+                is_table: false,
             },
         );
         resolver
@@ -642,6 +686,7 @@ mod tests {
                 name: "system".to_string(),
                 syntax_type: SyntaxType::ObjectIdentifier,
                 mib_name: "SNMPv2-MIB".to_string(),
+                is_table: false,
             },
         );
 
@@ -660,6 +705,7 @@ mod tests {
                 name: "org".to_string(),
                 syntax_type: SyntaxType::ObjectIdentifier,
                 mib_name: "ROOT".to_string(),
+                is_table: false,
             },
         );
 
@@ -690,6 +736,7 @@ mod tests {
                 name: "sysDescr".to_string(),
                 syntax_type: SyntaxType::OctetString,
                 mib_name: "SNMPv2-MIB".to_string(),
+                is_table: false,
             },
         );
 
@@ -715,6 +762,7 @@ mod tests {
                 name: "mib-2".to_string(),
                 syntax_type: SyntaxType::ObjectIdentifier,
                 mib_name: "SNMPv2-MIB".to_string(),
+                is_table: false,
             },
         );
 
@@ -736,6 +784,7 @@ mod tests {
                 name: "system".to_string(),
                 syntax_type: SyntaxType::ObjectIdentifier,
                 mib_name: "SNMPv2-MIB".to_string(),
+                is_table: false,
             },
         );
 
@@ -747,6 +796,7 @@ mod tests {
                 name: "sysDescr".to_string(),
                 syntax_type: SyntaxType::OctetString,
                 mib_name: "SNMPv2-MIB".to_string(),
+                is_table: false,
             },
         );
 
@@ -767,6 +817,7 @@ mod tests {
                 name: "sysDescr".to_string(),
                 syntax_type: SyntaxType::OctetString,
                 mib_name: "SNMPv2-MIB".to_string(),
+                is_table: false,
             },
         );
 
@@ -788,6 +839,7 @@ mod tests {
                 name: "sysDescr".to_string(),
                 syntax_type: SyntaxType::OctetString,
                 mib_name: "SNMPv2-MIB".to_string(),
+                is_table: false,
             },
         );
 
@@ -806,6 +858,7 @@ mod tests {
                 name: "sysDescr".to_string(),
                 syntax_type: SyntaxType::OctetString,
                 mib_name: "SNMPv2-MIB".to_string(),
+                is_table: false,
             },
         );
 
@@ -822,6 +875,7 @@ mod tests {
                 name: "sysDescr".to_string(),
                 syntax_type: SyntaxType::OctetString,
                 mib_name: "SNMPv2-MIB".to_string(),
+                is_table: false,
             },
         );
         resolver
@@ -846,6 +900,7 @@ mod tests {
                 name: "sysDescr".to_string(),
                 syntax_type: SyntaxType::OctetString,
                 mib_name: "SNMPv2-MIB".to_string(),
+                is_table: false,
             },
         );
         resolver
@@ -859,6 +914,7 @@ mod tests {
                 name: "vendorObj".to_string(),
                 syntax_type: SyntaxType::Integer32,
                 mib_name: "VENDOR-MIB".to_string(),
+                is_table: false,
             },
         );
         resolver
@@ -891,6 +947,7 @@ mod tests {
                 name: "sysDescr".to_string(),
                 syntax_type: SyntaxType::OctetString,
                 mib_name: "SNMPv2-MIB".to_string(),
+                is_table: false,
             },
         );
 
@@ -905,5 +962,119 @@ mod tests {
         assert_eq!(Resolver::parent_oid("1.3.6.1.2.1.1"), "1.3.6.1.2.1");
         assert_eq!(Resolver::parent_oid("1.3.6.1"), "1.3.6");
         assert_eq!(Resolver::parent_oid("1"), "");
+    }
+
+    #[test]
+    fn get_table_columns_finds_leaf_objects() {
+        let mut resolver = Resolver::new();
+
+        // Table container.
+        resolver.oid_index.insert(
+            "1.3.6.1.2.1.2.2.1".to_string(),
+            MibNode {
+                oid: "1.3.6.1.2.1.2.2.1".to_string(),
+                name: "ifEntry".to_string(),
+                syntax_type: SyntaxType::TableRow,
+                mib_name: "IF-MIB".to_string(),
+                is_table: false,
+            },
+        );
+
+        // Column 1 (index).
+        resolver.oid_index.insert(
+            "1.3.6.1.2.1.2.2.1.1".to_string(),
+            MibNode {
+                oid: "1.3.6.1.2.1.2.2.1.1".to_string(),
+                name: "ifIndex".to_string(),
+                syntax_type: SyntaxType::Integer32,
+                mib_name: "IF-MIB".to_string(),
+                is_table: false,
+            },
+        );
+
+        // Column 2 (description).
+        resolver.oid_index.insert(
+            "1.3.6.1.2.1.2.2.1.2".to_string(),
+            MibNode {
+                oid: "1.3.6.1.2.1.2.2.1.2".to_string(),
+                name: "ifDescr".to_string(),
+                syntax_type: SyntaxType::OctetString,
+                mib_name: "IF-MIB".to_string(),
+                is_table: false,
+            },
+        );
+
+        // Column 3 (type).
+        resolver.oid_index.insert(
+            "1.3.6.1.2.1.2.2.1.3".to_string(),
+            MibNode {
+                oid: "1.3.6.1.2.1.2.2.1.3".to_string(),
+                name: "ifType".to_string(),
+                syntax_type: SyntaxType::Integer32,
+                mib_name: "IF-MIB".to_string(),
+                is_table: false,
+            },
+        );
+
+        // Intermediate subtree (should be excluded).
+        resolver.oid_index.insert(
+            "1.3.6.1.2.1.2.2.1.99".to_string(),
+            MibNode {
+                oid: "1.3.6.1.2.1.2.2.1.99".to_string(),
+                name: "ifSubtree".to_string(),
+                syntax_type: SyntaxType::ObjectIdentifier,
+                mib_name: "IF-MIB".to_string(),
+                is_table: false,
+            },
+        );
+
+        let columns = resolver.get_table_columns("1.3.6.1.2.1.2.2.1");
+        assert_eq!(columns.len(), 3);
+        assert_eq!(columns[0], "1.3.6.1.2.1.2.2.1.1"); // ifIndex
+        assert_eq!(columns[1], "1.3.6.1.2.1.2.2.1.2"); // ifDescr
+        assert_eq!(columns[2], "1.3.6.1.2.1.2.2.1.3"); // ifType
+    }
+
+    #[test]
+    fn get_table_columns_excludes_unrelated_subtree() {
+        let mut resolver = Resolver::new();
+
+        resolver.oid_index.insert(
+            "1.3.6.1.2.1.2.2.1".to_string(),
+            MibNode {
+                oid: "1.3.6.1.2.1.2.2.1".to_string(),
+                name: "ifEntry".to_string(),
+                syntax_type: SyntaxType::TableRow,
+                mib_name: "IF-MIB".to_string(),
+                is_table: false,
+            },
+        );
+
+        resolver.oid_index.insert(
+            "1.3.6.1.2.1.2.2.1.1".to_string(),
+            MibNode {
+                oid: "1.3.6.1.2.1.2.2.1.1".to_string(),
+                name: "ifIndex".to_string(),
+                syntax_type: SyntaxType::Integer32,
+                mib_name: "IF-MIB".to_string(),
+                is_table: false,
+            },
+        );
+
+        // Unrelated node in a different subtree.
+        resolver.oid_index.insert(
+            "1.3.6.1.2.1.3.1".to_string(),
+            MibNode {
+                oid: "1.3.6.1.2.1.3.1".to_string(),
+                name: "ipAddrTable".to_string(),
+                syntax_type: SyntaxType::Integer32,
+                mib_name: "IP-MIB".to_string(),
+                is_table: false,
+            },
+        );
+
+        let columns = resolver.get_table_columns("1.3.6.1.2.1.2.2.1");
+        assert_eq!(columns.len(), 1);
+        assert_eq!(columns[0], "1.3.6.1.2.1.2.2.1.1");
     }
 }

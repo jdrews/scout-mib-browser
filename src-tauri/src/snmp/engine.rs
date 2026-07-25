@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -5,6 +6,7 @@ use std::sync::Arc;
 use tauri::Emitter;
 use tracing::{info, warn};
 
+use super::table::*;
 use super::tolerant::*;
 use super::types::*;
 
@@ -119,6 +121,58 @@ impl SnmpEngine {
     /// Executes a Set operation to write a value at the given OID.
     pub fn set(&self, target: &Target, oid: &str, value: SetValue) -> Result<ResultSet, String> {
         self.runtime.block_on(self.do_set(target, oid, value))
+    }
+
+    /// Walks all columns of a table and assembles results into a grid.
+    ///
+    /// Takes the table's root OID and column OIDs, BulkWalks each column,
+    /// then merges results by instance suffix into rows. Returns a [`TableResult`]
+    /// with best-effort merge for inconsistent data.
+    pub fn walk_table(
+        &self,
+        target: &Target,
+        table_oid: &str,
+        column_oids: &[String],
+    ) -> Result<TableResult, String> {
+        if column_oids.is_empty() {
+            return Ok(TableResult {
+                table_oid: table_oid.to_string(),
+                columns: Vec::new(),
+                rows: Vec::new(),
+                total_rows: 0,
+                missing_cells: 0,
+                warnings: Vec::new(),
+                partial: false,
+            });
+        }
+
+        let mut column_results: HashMap<String, Vec<VariableBinding>> = HashMap::new();
+        let mut all_warnings: Vec<SnmpWarning> = Vec::new();
+        let mut any_partial = false;
+
+        for col_oid in column_oids {
+            match self.bulk_walk(target, col_oid) {
+                Ok(rs) => {
+                    column_results.insert(col_oid.clone(), rs.bindings);
+                    all_warnings.extend(rs.warnings);
+                    any_partial |= rs.partial;
+                }
+                Err(e) => {
+                    warn!("Table walk failed for column {}: {}", col_oid, e);
+                    all_warnings.push(SnmpWarning {
+                        kind: "column-walk-error".to_string(),
+                        message: format!("Failed to walk column {}: {}", col_oid, e),
+                        oid: Some(col_oid.clone()),
+                    });
+                    any_partial = true;
+                }
+            }
+        }
+
+        let mut grid = assemble_table_grid(table_oid.to_string(), column_results);
+        grid.warnings.extend(all_warnings);
+        grid.partial = any_partial;
+        Ok(grid)
     }
 
     // ── Async implementations ────────────────────────────────────────────────

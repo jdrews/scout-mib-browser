@@ -10,6 +10,7 @@ import type {
   ResultSet,
   VariableBinding,
   TargetConfig,
+  TableResult,
 } from "./types";
 
 /** Reads the application configuration. */
@@ -187,6 +188,24 @@ export async function snmpSet(
     value_type: valueType,
     value,
   });
+}
+
+/** Walks all columns of a table and returns results as a pivoted grid. */
+export async function snmpWalkTable(
+  targetConfig: TargetConfig,
+  tableOid: string,
+  columnOids: string[],
+): Promise<TableResult> {
+  return invoke("snmp_walk_table", {
+    params: buildSnmpParams(targetConfig),
+    table_oid: tableOid,
+    column_oids: columnOids,
+  });
+}
+
+/** Returns column OIDs for a TABLE node. */
+export async function mibTableColumns(tableOid: string): Promise<string[]> {
+  return invoke("mib_table_columns", { table_oid: tableOid });
 }
 
 // ── File System Commands ─────────────────────────────────────────────────────

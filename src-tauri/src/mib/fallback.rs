@@ -133,6 +133,7 @@ impl FallbackExtractor {
                     name,
                     syntax_type,
                     mib_name: mib_name.to_string(),
+                    is_table: false,
                 });
             } else {
                 // No explicit OID — use a placeholder. The node can still be
@@ -142,6 +143,7 @@ impl FallbackExtractor {
                     name,
                     syntax_type,
                     mib_name: mib_name.to_string(),
+                    is_table: false,
                 });
             }
         }
@@ -174,6 +176,7 @@ impl FallbackExtractor {
                 name,
                 syntax_type: super::SyntaxType::ObjectIdentifier,
                 mib_name: mib_name.to_string(),
+                is_table: false,
             });
         }
 

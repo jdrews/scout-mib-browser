@@ -1,5 +1,5 @@
 import { writable } from "svelte/store";
-import type { TreeNode, MibSearchResult, TargetConfig, ConnectionState, SnmpOperation, ResultSet, VariableBinding } from "./types";
+import type { TreeNode, MibSearchResult, TargetConfig, ConnectionState, SnmpOperation, ResultSet, VariableBinding, TableResult } from "./types";
 
 /** Currently selected MIB node (null = no selection). */
 export const selectedNode = writable<TreeNode | null>(null);
@@ -70,3 +70,8 @@ export const walkProgress = writable("");
 
 /** Root OID of the last query (for export default filename). */
 export const queryRootOid = writable<string | null>(null);
+
+// ── Table Retrieval stores ───────────────────────────────────────────────────
+
+/** Result from a table retrieval operation (grid view data). */
+export const tableResult = writable<TableResult | null>(null);

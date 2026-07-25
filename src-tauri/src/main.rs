@@ -73,12 +73,14 @@ fn main() {
             mib_search,
             mib_unload,
             mib_loaded_list,
+            mib_table_columns,
             snmp_connect,
             snmp_get,
             snmp_get_next,
             snmp_walk,
             snmp_bulk_walk,
             snmp_set,
+            snmp_walk_table,
             fs_write_file,
         ])
         .run(tauri::generate_context!())
@@ -172,6 +174,16 @@ fn mib_loaded_list(
     Ok(res.loaded_mibs())
 }
 
+/// Returns column OIDs for a TABLE node.
+#[tauri::command]
+fn mib_table_columns(
+    resolver: tauri::State<MibResolverState>,
+    table_oid: String,
+) -> Result<Vec<String>, String> {
+    let res = resolver.inner.read().map_err(|e| e.to_string())?;
+    Ok(res.get_table_columns(&table_oid))
+}
+
 // ── SNMP Commands ────────────────────────────────────────────────────────────
 
 /// Tests connectivity to a Target.
@@ -252,6 +264,19 @@ fn snmp_set(
     let set_value = parse_set_value(&value_type, &value)?;
     let engine = engine.inner.read().map_err(|e| e.to_string())?;
     engine.set(&target, &oid, set_value)
+}
+
+/// Walks all columns of a table and returns results as a pivoted grid.
+#[tauri::command]
+fn snmp_walk_table(
+    engine: tauri::State<SnmpEngineState>,
+    params: SnmpCommandParams,
+    table_oid: String,
+    column_oids: Vec<String>,
+) -> Result<snmp::TableResult, String> {
+    let target = build_target(&params);
+    let engine = engine.inner.read().map_err(|e| e.to_string())?;
+    engine.walk_table(&target, &table_oid, &column_oids)
 }
 
 // ── File System Commands ─────────────────────────────────────────────────────
