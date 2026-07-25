@@ -79,6 +79,7 @@ fn main() {
             snmp_walk,
             snmp_bulk_walk,
             snmp_set,
+            fs_write_file,
         ])
         .run(tauri::generate_context!())
         .expect("error running Scout MIB Browser");
@@ -251,6 +252,15 @@ fn snmp_set(
     let set_value = parse_set_value(&value_type, &value)?;
     let engine = engine.inner.read().map_err(|e| e.to_string())?;
     engine.set(&target, &oid, set_value)
+}
+
+// ── File System Commands ─────────────────────────────────────────────────────
+
+/// Writes a string to the given file path.
+#[tauri::command]
+fn fs_write_file(path: String, content: String) -> Result<(), String> {
+    std::fs::write(&path, content).map_err(|e| format!("Failed to write {}: {}", path, e))?;
+    Ok(())
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

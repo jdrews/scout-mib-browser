@@ -1,10 +1,15 @@
 <script lang="ts">
-  import { executionBindings, executionResults, walkProgress, treeData } from "$lib/stores";
+  import { executionBindings, executionResults, walkProgress, treeData, targetConfig, queryRootOid } from "$lib/stores";
   import type { VariableBinding, SnmpValue, ResultSet, TreeNode } from "$lib/types";
+  import type { ExportFormat } from "$lib/export";
+  import * as exportMod from "$lib/export";
+  import { saveToFile } from "$lib/tauriCommands";
 
   $: bindings = $executionBindings;
   $: results = $executionResults;
   $: progress = $walkProgress;
+
+  let exportMenuOpen = false;
 
   let filterText = "";
   let sortColumn: "oid" | "name" | "type" | "value" = "oid";
@@ -110,11 +115,46 @@
 
   $: hasWarnings = results?.warnings && results.warnings.length > 0;
   $: isPartial = results?.partial || false;
+
+  async function handleExport(format: ExportFormat) {
+    exportMenuOpen = false;
+    if (bindings.length === 0) return;
+
+    const rows = exportMod.bindingsToRows(bindings, nameMap);
+    let content: string;
+
+    switch (format) {
+      case "tsv":
+        content = exportMod.formatTSV(rows);
+        break;
+      case "json":
+        content = exportMod.formatJSON($targetConfig, $queryRootOid, rows, results?.warnings);
+        break;
+      case "csv":
+        content = exportMod.formatCSV(rows);
+        break;
+    }
+
+    const filename = exportMod.defaultFilename($targetConfig, $queryRootOid, format);
+    await saveToFile(content, filename);
+  }
+
+  function toggleExportMenu(e: MouseEvent) {
+    e.stopPropagation();
+    exportMenuOpen = !exportMenuOpen;
+  }
+
+  function hideExportOnOutsideClick(e: MouseEvent) {
+    const target = e.target as HTMLElement;
+    if (!target.closest("[data-export-menu]")) {
+      exportMenuOpen = false;
+    }
+  }
 </script>
 
 <div class="flex flex-col flex-1 overflow-hidden">
   <!-- Header bar -->
-  <div class="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-overlay bg-base-00 border-b border-base-01 flex items-center justify-between gap-3">
+  <div class="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-overlay bg-base-00 border-b border-base-01 flex items-center justify-between gap-3" on:click|self={hideExportOnOutsideClick}>
     <span>Results</span>
     <div class="flex items-center gap-3">
       {#if progress}
@@ -122,6 +162,29 @@
       {/if}
       {#if isPartial}
         <span class="text-[11px] text-peach">⚠ partial results</span>
+      {/if}
+      {#if bindings.length > 0}
+        <div data-export-menu class="relative">
+          <button
+            class="bg-surface-0 border border-base-01 text-text px-2 py-0.5 text-[11px] font-mono rounded outline-none hover:border-blue cursor-pointer"
+            on:click={toggleExportMenu}
+          >
+            Save Results ▾
+          </button>
+          {#if exportMenuOpen}
+            <div class="absolute top-full right-0 bg-base-00 border border-base-01 rounded-lg py-1 min-w-[140px] z-[1000] shadow-lg mt-1">
+              <div class="px-3 py-1.5 text-[12px] cursor-pointer hover:bg-base-01" on:click={() => handleExport("tsv")}>
+                Save as TSV
+              </div>
+              <div class="px-3 py-1.5 text-[12px] cursor-pointer hover:bg-base-01" on:click={() => handleExport("json")}>
+                Save as JSON
+              </div>
+              <div class="px-3 py-1.5 text-[12px] cursor-pointer hover:bg-base-01" on:click={() => handleExport("csv")}>
+                Save as CSV
+              </div>
+            </div>
+          {/if}
+        </div>
       {/if}
       <input
         type="text"

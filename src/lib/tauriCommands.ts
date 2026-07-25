@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { open as tauriOpen } from "@tauri-apps/plugin-dialog";
+import { open as tauriOpen, save as tauriSave } from "@tauri-apps/plugin-dialog";
 import type {
   TreeNode,
   MibSearchResult,
@@ -187,4 +187,27 @@ export async function snmpSet(
     value_type: valueType,
     value,
   });
+}
+
+// ── File System Commands ─────────────────────────────────────────────────────
+
+/** Writes a string to the given file path via backend. */
+export async function fsWriteFile(path: string, content: string): Promise<void> {
+  return invoke("fs_write_file", { path, content });
+}
+
+/** Opens a native save dialog and writes content to the selected path. Returns the saved path or null if cancelled. */
+export async function saveToFile(
+  content: string,
+  defaultFilename: string,
+  filters?: Array<{ name: string; extensions: string[] }>,
+): Promise<string | null> {
+  const path = await tauriSave({
+    title: "Save Results",
+    defaultPath: defaultFilename,
+    filters: filters ? [{ name: defaultFilename.split(".").pop() || "File", extensions: [defaultFilename.split(".").pop() || "*"] }] : undefined,
+  });
+  if (!path) return null;
+  await fsWriteFile(path, content);
+  return path;
 }
