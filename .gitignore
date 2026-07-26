@@ -34,3 +34,6 @@ src-tauri/tauri.conf.json.bak
 
 # Vite build output
 src/dist/
+
+# WDIO test logs
+logs/

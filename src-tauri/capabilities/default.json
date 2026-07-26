@@ -3,6 +3,7 @@
   "description": "Default permissions for Scout MIB Browser",
   "windows": ["main"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "wdio:default"
   ]
 }
