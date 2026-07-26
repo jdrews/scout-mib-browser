@@ -51,3 +51,34 @@ ARCH=x86_64 NO_STRIP=true npm run build
 npm run check        # TypeScript + Svelte type checking
 npm run check:rust   # Rust compilation check (no linking, fast)
 ```
+
+## E2E Testing
+
+End-to-end tests use [WebdriverIO](https://webdriver.io/) with the embedded Tauri WebDriver provider. The test runner starts a Vite dev server, launches the app headless via Xvfb, and drives the UI through WebDriver.
+
+### System Dependencies
+
+Install these before running E2E tests:
+
+**Ubuntu/Debian:**
+```bash
+sudo apt install xvfb webkit2gtk-driver libgbm1 libasound2-data \
+  libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 \
+  libxcomposite1 libxdamage1 libxrandr2
+```
+
+**Fedora:**
+```bash
+sudo dnf install xorg-x11-server-Xvfb webkit2gtk-driver mesa-libgbm \
+  alsa-lib atkmm cups-libs libdrm libxkbcommon \
+  libXcomposite libXdamage libXrandr
+```
+
+### Running Tests
+
+| Script | Command | Description |
+|--------|---------|-------------|
+| `test:e2e` | `npm run test:e2e` | Start Vite + launch app headless + run WDIO tests |
+| `test:e2e:build` | `npm run test:e2e:build` | Build Rust first, then run E2E tests |
+
+The `scripts/test-e2e.sh` wrapper handles the full lifecycle: starts Vite on port 5173, waits for it to be ready, runs WDIO under Xvfb, and cleans up all processes.

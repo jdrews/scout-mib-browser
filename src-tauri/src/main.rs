@@ -48,6 +48,8 @@ fn main() {
     let snmp_state = SnmpEngineState::new().expect("failed to create SNMP engine");
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_wdio_webdriver::init())
+        .plugin(tauri_plugin_wdio::init())
         .setup(move |app| {
             log::set_tauri_app_handle(app.handle().clone());
 
