@@ -74,6 +74,7 @@ fn main() {
             mib_reverse_lookup,
             mib_status,
             mib_tree,
+            mib_children,
             mib_search,
             mib_unload,
             mib_loaded_list,
@@ -148,6 +149,16 @@ fn mib_status(resolver: tauri::State<MibResolverState>) -> Result<MibLoadStatus,
 fn mib_tree(resolver: tauri::State<MibResolverState>) -> Result<Vec<mib::TreeNode>, String> {
     let res = resolver.inner.read().map_err(|e| e.to_string())?;
     Ok(res.build_tree())
+}
+
+/// Returns direct children of the given OID for lazy loading.
+#[tauri::command]
+fn mib_children(
+    resolver: tauri::State<MibResolverState>,
+    oid: String,
+) -> Result<Vec<mib::TreeNode>, String> {
+    let res = resolver.inner.read().map_err(|e| e.to_string())?;
+    Ok(res.get_children(&oid))
 }
 
 /// Searches for MIB nodes matching the given query (autocomplete).

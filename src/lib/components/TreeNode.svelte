@@ -5,9 +5,12 @@
 
   let { node }: { node: TreeNodeType } = $props();
 
-  let hasChildren = $derived(!!(node.children && node.children.length > 0));
+  let hasChildren = $derived(!!node.hasChildren);
   let isSelected = $derived(S.selectedNode?.oid === node.oid);
-  let childrenList = $derived(node.children ?? []);
+  let childrenList = $state<TreeNodeType[]>(node.children ?? []);
+  let loaded = $state(!!node.children && node.children.length > 0);
+  let loading = $state(false);
+
   let truncatedOid = $derived(truncateOid(node.oid));
 
   function truncateOid(oid: string): string {
@@ -15,6 +18,28 @@
     if (segments.length <= 5) return oid;
     const tail = segments.slice(-6).join(".");
     return `...${tail}`;
+  }
+
+  async function loadChildren() {
+    if (loading || loaded || !hasChildren) return;
+    loading = true;
+    try {
+      const { mibChildren } = await import("$lib/tauriCommands");
+      const data = await mibChildren(node.oid);
+      childrenList = data;
+      loaded = true;
+    } catch (err) {
+      console.error("Failed to load children for", node.oid, err);
+    } finally {
+      loading = false;
+    }
+  }
+
+  function onToggle(e: Event) {
+    const isNowOpen = (e.target as HTMLDetailsElement).open;
+    if (isNowOpen) {
+      loadChildren();
+    }
   }
 
   function selectNode() {
@@ -31,7 +56,7 @@
 
 <li>
   {#if hasChildren}
-    <details open>
+    <details ontoggle={onToggle}>
       <summary
         data-tree-node
         title="{node.name} ({node.oid})"
@@ -40,7 +65,11 @@
       >
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" /></svg>
         <span class="truncate">{node.name}</span>
-        <span class="ml-auto pl-2 font-mono text-[10px] opacity-60">{truncatedOid}</span>
+        {#if loading}
+          <span class="ml-auto pl-2 text-[10px] opacity-40">loading...</span>
+        {:else}
+          <span class="ml-auto pl-2 font-mono text-[10px] opacity-60">{truncatedOid}</span>
+        {/if}
       </summary>
       <ul>
         {#each childrenList as child (child.oid)}

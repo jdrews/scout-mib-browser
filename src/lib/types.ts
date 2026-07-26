@@ -5,6 +5,7 @@ export interface TreeNode {
   syntax_type?: string;
   mib_name: string;
   is_table?: boolean;
+  hasChildren?: boolean;
   children?: TreeNode[];
 }
 
