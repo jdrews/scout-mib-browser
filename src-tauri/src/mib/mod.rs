@@ -118,9 +118,16 @@ pub struct TreeNode {
     /// Whether this node is an SMI TABLE container.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub is_table: bool,
-    /// Child nodes (empty for leaf nodes).
+    /// Whether this node has children (for lazy loading).
+    #[serde(skip_serializing_if = "is_false")]
+    pub has_children: bool,
+    /// Child nodes (populated only when explicitly requested via `get_children`).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<TreeNode>,
+}
+
+fn is_false(v: &bool) -> bool {
+    !v
 }
 
 /// Metadata about a loaded MIB file for the Manage MIBs dialog.
@@ -366,11 +373,15 @@ impl Resolver {
         );
     }
 
-    /// Builds a hierarchical tree of all loaded MIB nodes.
+    /// Builds a hierarchical tree of all loaded MIB nodes (shallow — no children).
     ///
     /// The tree is organized by OID hierarchy: each node's parent is determined
     /// by removing the last numeric segment from its OID. Root-level OIDs become
-    /// top-level tree entries. Results are sorted alphabetically at each level.
+    /// top-level tree entries. Children are NOT included — use `get_children()`
+    /// to fetch them lazily when a node is expanded.
+    ///
+    /// Root-level leaf nodes (no children) are grouped into an "other" folder
+    /// at the bottom to reduce clutter.
     pub fn build_tree(&self) -> Vec<TreeNode> {
         if self.oid_index.is_empty() {
             return Vec::new();
@@ -386,29 +397,56 @@ impl Resolver {
         // Set of all indexed OIDs for orphan detection.
         let indexed_oids: HashSet<_> = self.oid_index.keys().cloned().collect();
 
-        // Build tree recursively from root (empty string parent).
-        let mut roots = Vec::new();
+        // Collect all root-level nodes (direct roots + orphans).
+        let mut roots: Vec<&MibNode> = Vec::new();
         if let Some(root_children) = children_map.get("") {
             for node in self.sort_nodes(root_children) {
-                roots.push(self.build_tree_node(node, &children_map));
+                roots.push(node);
             }
         }
 
-        // Add orphaned subtrees: nodes whose parent OID is not in our index.
+        // Add orphaned nodes whose parent OID is not in our index.
         let root_oids: HashSet<_> = roots.iter().map(|r| r.oid.clone()).collect();
         for node in self.oid_index.values() {
             let parent_oid = Self::parent_oid(&node.oid);
-            // A node is orphaned if its parent isn't indexed and it's not already a root.
             if !parent_oid.is_empty()
                 && !indexed_oids.contains(&parent_oid)
                 && !root_oids.contains(&node.oid)
             {
-                roots.push(self.build_tree_node(node, &children_map));
+                roots.push(node);
             }
         }
 
-        roots.sort_by(|a, b| a.name.cmp(&b.name));
-        roots
+        // Split into subtrees (have children/descendants) and leaves.
+        let mut subtrees: Vec<TreeNode> = Vec::new();
+        let mut leaves: Vec<TreeNode> = Vec::new();
+        for node in &roots {
+            let has_children = self.node_has_descendants(node.oid.as_str(), &children_map);
+            let tree_node = self.build_tree_node_shallow(node, has_children);
+            if has_children {
+                subtrees.push(tree_node);
+            } else {
+                leaves.push(tree_node);
+            }
+        }
+
+        subtrees.sort_by(|a, b| a.name.cmp(&b.name));
+
+        // If there are leaf nodes at the root level, group them under "other".
+        if !leaves.is_empty() {
+            leaves.sort_by(|a, b| a.name.cmp(&b.name));
+            subtrees.push(TreeNode {
+                oid: "__other__".to_string(),
+                name: "other".to_string(),
+                syntax_type: None,
+                mib_name: "".to_string(),
+                is_table: false,
+                has_children: true,
+                children: leaves,
+            });
+        }
+
+        subtrees
     }
 
     /// Searches for MIB nodes matching the given query string.
@@ -458,7 +496,7 @@ impl Resolver {
         }
     }
 
-    /// Recursively builds a TreeNode from a MibNode.
+    /// Recursively builds a TreeNode from a MibNode (full tree, with children).
     fn build_tree_node(
         &self,
         node: &MibNode,
@@ -470,10 +508,13 @@ impl Resolver {
             None
         };
 
+        let has_children = children_map
+            .get(&node.oid)
+            .map_or(false, |c| c.iter().any(|child| child.oid != node.oid));
+
         let mut children = Vec::new();
         if let Some(child_nodes) = children_map.get(&node.oid) {
             for child in self.sort_nodes(child_nodes) {
-                // Skip if this child is actually the same node (self-reference).
                 if child.oid != node.oid {
                     children.push(self.build_tree_node(child, children_map));
                 }
@@ -486,8 +527,102 @@ impl Resolver {
             syntax_type: syntax_label,
             mib_name: node.mib_name.clone(),
             is_table: node.is_table,
+            has_children,
             children,
         }
+    }
+
+    /// Builds a shallow TreeNode (no children populated) for lazy loading.
+    fn build_tree_node_shallow(&self, node: &MibNode, has_children: bool) -> TreeNode {
+        let syntax_label = if node.syntax_type != SyntaxType::ObjectIdentifier {
+            Some(node.syntax_type.label().to_string())
+        } else {
+            None
+        };
+
+        TreeNode {
+            oid: node.oid.clone(),
+            name: node.name.clone(),
+            syntax_type: syntax_label,
+            mib_name: node.mib_name.clone(),
+            is_table: node.is_table,
+            has_children,
+            children: Vec::new(),
+        }
+    }
+
+    /// Returns direct children of the given OID for lazy loading.
+    /// For the special "__other__" folder, returns empty (children are pre-populated).
+    pub fn get_children(&self, parent_oid: &str) -> Vec<TreeNode> {
+        if parent_oid == "__other__" {
+            return Vec::new();
+        }
+
+        let mut children_map: HashMap<String, Vec<&MibNode>> = HashMap::new();
+        for node in self.oid_index.values() {
+            let p = Self::parent_oid(&node.oid);
+            children_map.entry(p).or_default().push(node);
+        }
+
+        let indexed_oids: HashSet<_> = self.oid_index.keys().cloned().collect();
+
+        // Get direct children (excluding self-references).
+        let mut result: Vec<TreeNode> = Vec::new();
+        if let Some(child_nodes) = children_map.get(parent_oid) {
+            for child in self.sort_nodes(child_nodes) {
+                if child.oid != parent_oid {
+                    let has_children = self.node_has_descendants(child.oid.as_str(), &children_map);
+                    result.push(self.build_tree_node_shallow(child, has_children));
+                }
+            }
+        }
+
+        // If no direct children but deeper descendants exist (orphans), include them.
+        if result.is_empty() && !parent_oid.is_empty() {
+            let child_prefix = format!("{}.", parent_oid);
+            let mut orphans: Vec<&MibNode> = Vec::new();
+            for node in self.oid_index.values() {
+                if node.oid.starts_with(&child_prefix)
+                    && !indexed_oids.contains(&Self::parent_oid(&node.oid))
+                {
+                    orphans.push(node);
+                }
+            }
+
+            if !orphans.is_empty() {
+                orphans.sort_by(|a, b| a.name.cmp(&b.name));
+                for node in orphans {
+                    let has_children = self.node_has_descendants(node.oid.as_str(), &children_map);
+                    result.push(self.build_tree_node_shallow(node, has_children));
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Checks whether a node has any descendants (direct children or deeper).
+    fn node_has_descendants(
+        &self,
+        oid: &str,
+        children_map: &HashMap<String, Vec<&MibNode>>,
+    ) -> bool {
+        // Direct children (excluding self-references).
+        if let Some(children) = children_map.get(oid) {
+            if children.iter().any(|c| c.oid != oid) {
+                return true;
+            }
+        }
+
+        // Deeper descendants: any indexed OID that is a proper sub-OID.
+        let child_prefix = format!("{}.", oid);
+        for indexed_oid in self.oid_index.keys() {
+            if indexed_oid.starts_with(&child_prefix) {
+                return true;
+            }
+        }
+
+        false
     }
 
     /// Sorts nodes by a stable order: OBJECT IDENTIFIER subtrees first (alphabetical),
@@ -770,9 +905,11 @@ mod tests {
         );
 
         let tree = resolver.build_tree();
+        // Single leaf node goes into "other" folder.
         assert_eq!(tree.len(), 1);
-        assert_eq!(tree[0].name, "mib-2");
-        assert!(tree[0].children.is_empty());
+        assert_eq!(tree[0].name, "other");
+        assert_eq!(tree[0].children.len(), 1);
+        assert_eq!(tree[0].children[0].name, "mib-2");
     }
 
     #[test]
@@ -804,10 +941,57 @@ mod tests {
         );
 
         let tree = resolver.build_tree();
+        // "system" has children -> subtree (shallow, no children populated).
+        // "sysDescr"'s parent is indexed, so it's nested under system, not a root orphan.
         assert_eq!(tree.len(), 1);
         assert_eq!(tree[0].name, "system");
-        assert_eq!(tree[0].children.len(), 1);
-        assert_eq!(tree[0].children[0].name, "sysDescr");
+        assert!(tree[0].has_children);
+        assert!(tree[0].children.is_empty()); // lazy-loaded
+    }
+
+    #[test]
+    fn get_children_returns_direct_children() {
+        let mut resolver = Resolver::new();
+
+        resolver.oid_index.insert(
+            "1.3.6.1.2.1.1".to_string(),
+            MibNode {
+                oid: "1.3.6.1.2.1.1".to_string(),
+                name: "system".to_string(),
+                syntax_type: SyntaxType::ObjectIdentifier,
+                mib_name: "SNMPv2-MIB".to_string(),
+                is_table: false,
+            },
+        );
+
+        resolver.oid_index.insert(
+            "1.3.6.1.2.1.1.1".to_string(),
+            MibNode {
+                oid: "1.3.6.1.2.1.1.1".to_string(),
+                name: "sysDescr".to_string(),
+                syntax_type: SyntaxType::OctetString,
+                mib_name: "SNMPv2-MIB".to_string(),
+                is_table: false,
+            },
+        );
+
+        resolver.oid_index.insert(
+            "1.3.6.1.2.1.1.2".to_string(),
+            MibNode {
+                oid: "1.3.6.1.2.1.1.2".to_string(),
+                name: "sysObjectID".to_string(),
+                syntax_type: SyntaxType::ObjectIdentifier,
+                mib_name: "SNMPv2-MIB".to_string(),
+                is_table: false,
+            },
+        );
+
+        let children = resolver.get_children("1.3.6.1.2.1.1");
+        assert_eq!(children.len(), 2);
+        assert_eq!(children[0].name, "sysObjectID"); // subtree first
+        assert!(children[0].has_children == false); // no grandchildren indexed
+        assert_eq!(children[1].name, "sysDescr");
+        assert!(!children[1].has_children);
     }
 
     #[test]

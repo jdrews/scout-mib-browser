@@ -31,6 +31,11 @@ export async function mibTree(): Promise<TreeNode[]> {
   return invoke("mib_tree");
 }
 
+/** Returns direct children of the given OID for lazy loading. */
+export async function mibChildren(oid: string): Promise<TreeNode[]> {
+  return invoke("mib_children", { oid });
+}
+
 /** Searches for MIB nodes matching the given query (autocomplete). */
 export async function mibSearch(query: string): Promise<MibSearchResult[]> {
   return invoke("mib_search", { query });

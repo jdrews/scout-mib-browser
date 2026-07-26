@@ -66,9 +66,7 @@
   async function refreshTree() {
     try {
       const { mibTree } = await import("$lib/tauriCommands");
-      const data = await mibTree();
-      S.treeData.length = 0;
-      S.treeData.push(...data);
+      S.treeData = await mibTree();
     } catch (err) {
       console.error("Failed to load tree:", err);
     }
