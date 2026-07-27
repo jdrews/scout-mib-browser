@@ -1,12 +1,15 @@
 <script lang="ts">
   import { S } from "$lib/stores.svelte";
-  import { snmpConnect, persistTargetConfig } from "$lib/tauriCommands";
+  import { persistTargetConfig } from "$lib/tauriCommands";
+  import { runTestConnection, clearResultTimer } from "$lib/connectionLogic";
 
   let open = $derived(S.connectionPanelOpen);
-  let cfg = $derived(S.targetConfig);
+  let cfg = $derived.by(() => ({ ...S.targetConfig }));
   let isV3 = $derived(cfg.version === "v3");
 
   let connecting = $state(false);
+  let connectionResult: "idle" | "success" | "error" = $state("idle");
+  let errorMessage = $state("");
 
   function close() {
     S.connectionPanelOpen = false;
@@ -49,29 +52,17 @@
     }
 
     connecting = true;
-    S.connectionState = "connecting";
-    S.statusText = `Testing connection to ${cfg.host}:${cfg.port}...`;
+    connectionResult = "idle";
+    errorMessage = "";
+    clearResultTimer();
 
-    try {
-      await snmpConnect({
-        host: cfg.host,
-        port: cfg.port,
-        version: cfg.version,
-        community: isV3 ? undefined : cfg.community,
-        v3_username: isV3 ? cfg.v3_username : undefined,
-        v3_auth_protocol: isV3 ? cfg.v3_auth_protocol : undefined,
-        v3_auth_passphrase: isV3 ? cfg.v3_auth_passphrase : undefined,
-        v3_priv_protocol: isV3 ? cfg.v3_priv_protocol : undefined,
-        v3_priv_passphrase: isV3 ? cfg.v3_priv_passphrase : undefined,
-      });
-      S.connectionState = "connected";
-      S.statusText = `Connected to ${cfg.host}:${cfg.port}`;
-    } catch (err) {
-      S.connectionState = "disconnected";
-      S.statusText = `Connection failed: ${err}`;
-    } finally {
-      connecting = false;
-    }
+    // Force UI flush before blocking call
+    await new Promise((r) => setTimeout(r, 0));
+
+    const result = await runTestConnection(cfg);
+    connecting = false;
+    connectionResult = result.result;
+    errorMessage = result.errorMessage;
   }
 
   function handleBackdropClick(e: MouseEvent) {
@@ -83,9 +74,7 @@
 {#if open}
   <dialog class="modal modal-open" onclick={handleBackdropClick}>
     <div data-connection-panel class="modal-box max-w-[480px]">
-      <form method="dialog">
-        <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
-      </form>
+      <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick={(e) => { e.stopPropagation(); close(); }}>✕</button>
       <h3 class="text-lg font-bold">Target Connection</h3>
 
       <div class="space-y-4 mt-4">
@@ -176,12 +165,16 @@
         {/if}
 
         <button
-          class="btn btn-primary btn-block mt-2"
+          class="btn btn-block mt-2 {connectionResult === 'success' ? 'btn-success' : connectionResult === 'error' ? 'btn-error' : 'btn-primary'}"
           onclick={testConnection}
           disabled={connecting || !cfg.host.trim()}
         >
-          {connecting ? "Testing..." : "Test Connection"}
+          {connecting ? "Testing..." : connectionResult === 'success' ? "✓ Connected" : connectionResult === 'error' ? "✕ Failed" : "Test Connection"}
         </button>
+
+        {#if errorMessage}
+          <p class="text-xs text-error font-mono bg-error/10 rounded px-2 py-1.5 break-all">{errorMessage}</p>
+        {/if}
 
         <p class="text-xs text-base-content/60 italic">Credentials are not persisted beyond the current session. Re-enter on each launch.</p>
       </div>
