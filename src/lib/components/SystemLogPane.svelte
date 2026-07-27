@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from "svelte";
   import { S } from "$lib/stores.svelte";
   import { logRead, logClear } from "$lib/tauriCommands";
-  import { listen } from "@tauri-apps/api/event";
+  import { tauriListen } from "$lib/tauriCommands";
   import type { LogEntry, LogLevel } from "$lib/types";
 
   const MIN_HEIGHT = 100;
@@ -75,9 +75,9 @@
   }
 
   onMount(async () => {
-    const unlisten = await listen<LogEntry>("system-log-entry", (event) => {
+    const unlisten = await tauriListen<LogEntry>("system-log-entry", (payload) => {
       if (S.systemLogOpen) {
-        S.logEntries.push(event.payload);
+        S.logEntries.push(payload);
         scrollToBottom();
       }
     });
