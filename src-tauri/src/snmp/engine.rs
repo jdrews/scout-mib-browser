@@ -35,6 +35,7 @@ impl WalkMode {
 }
 
 /// Core SNMP engine that executes operations against a Target with error tolerance.
+#[derive(Clone)]
 pub struct SnmpEngine {
     runtime: Arc<tokio::runtime::Runtime>,
 }
@@ -54,12 +55,17 @@ impl SnmpEngine {
 
     /// Executes a Get operation for the given OIDs against the Target.
     pub fn get(&self, target: &Target, oids: &[String]) -> Result<ResultSet, String> {
-        self.runtime.block_on(self.do_get(target, oids))
+        self.runtime.block_on(Self::do_get(target, oids))
+    }
+
+    /// Async version of `get` — does not hold any lock. Used by async Tauri commands.
+    pub async fn get_async(&self, target: &Target, oids: &[String]) -> Result<ResultSet, String> {
+        Self::do_get(target, oids).await
     }
 
     /// Executes a GetNext operation for the given OIDs against the Target.
     pub fn get_next(&self, target: &Target, oids: &[String]) -> Result<ResultSet, String> {
-        self.runtime.block_on(self.do_get_next(target, oids))
+        self.runtime.block_on(Self::do_get_next(target, oids))
     }
 
     /// Executes a Walk operation and returns all results.
@@ -196,7 +202,8 @@ impl SnmpEngine {
             .collect()
     }
 
-    async fn do_get(&self, target: &Target, oids: &[String]) -> Result<ResultSet, String> {
+    /// Async Get operation — public so it can be called directly from Tauri's runtime.
+    pub async fn do_get(target: &Target, oids: &[String]) -> Result<ResultSet, String> {
         info!("Get started on {} for {} OID(s)", target.addr(), oids.len());
         let target = target.clone();
         let oids_owned = oids.to_vec();
@@ -212,11 +219,13 @@ impl SnmpEngine {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        // Retry: each attempt creates a fresh session and extracts owned data.
-        let (result, retries) = with_retry(|| {
+        // Inline retry loop to avoid large generic future types.
+        let mut retries: u32 = 0;
+        let mut last_err = None;
+        for attempt in 0..=MAX_RETRIES {
             let t = target.clone();
             let oids: Vec<Arc<snmp2::Oid<'static>>> = snmp_oids.clone();
-            async move {
+            let result: Result<Vec<VariableBinding>, snmp2::Error> = (async {
                 let mut session = Self::connect(&t).await.map_err(|_| snmp2::Error::Receive)?;
 
                 let pdu = if oids.len() == 1 {
@@ -226,35 +235,47 @@ impl SnmpEngine {
                     session.get_many(&refs).await?
                 };
 
-                Ok::<Vec<VariableBinding>, snmp2::Error>(Self::extract_bindings(pdu))
-            }
-        })
-        .await;
+                Ok(Self::extract_bindings(pdu))
+            })
+            .await;
 
-        match result {
-            Ok(bindings) => {
-                info!(
-                    "Get completed on {}: {} binding(s)",
-                    target.addr(),
-                    bindings.len()
-                );
-                let mut rs = ResultSet::new();
-                rs.retries = retries;
-                rs.bindings = bindings;
-                Ok(rs)
-            }
-            Err(e) => {
-                warn!("Get failed after {} retries: {:?}", retries, e);
-                let mut rs = ResultSet::new();
-                rs.retries = retries;
-                rs.partial = true;
-                rs.warnings.push(error_to_warning(&e, None));
-                Ok(rs)
+            match result {
+                Ok(bindings) => {
+                    retries = attempt;
+                    info!(
+                        "Get completed on {}: {} binding(s)",
+                        target.addr(),
+                        bindings.len()
+                    );
+                    let mut rs = ResultSet::new();
+                    rs.retries = retries;
+                    rs.bindings = bindings;
+                    return Ok(rs);
+                }
+                Err(e) => {
+                    if is_retryable_error(&e) && attempt < MAX_RETRIES {
+                        let delay = backoff_delay(attempt);
+                        warn!(
+                            "Get network error on attempt {}/{} — retrying in {:?}",
+                            attempt + 1,
+                            MAX_RETRIES + 1,
+                            delay
+                        );
+                        tokio::time::sleep(delay).await;
+                    } else {
+                        last_err = Some(e);
+                        break;
+                    }
+                }
             }
         }
+
+        let e = last_err.unwrap_or(snmp2::Error::Receive);
+        warn!("Get failed after {} retries: {:?}", MAX_RETRIES, e);
+        Err(format!("{:?}", e))
     }
 
-    async fn do_get_next(&self, target: &Target, oids: &[String]) -> Result<ResultSet, String> {
+    async fn do_get_next(target: &Target, oids: &[String]) -> Result<ResultSet, String> {
         info!(
             "GetNext started on {} for {} OID(s)",
             target.addr(),
@@ -266,30 +287,51 @@ impl SnmpEngine {
             let target = target.clone();
             let oid = oid_str.clone();
 
-            let (result, retries) = with_retry(|| {
+            // Inline retry loop.
+            let mut last_err = None;
+            for attempt in 0..=MAX_RETRIES {
                 let t = target.clone();
                 let o = oid.clone();
-                async move {
+                let result: Result<Vec<VariableBinding>, snmp2::Error> = (async {
                     let mut session = Self::connect(&t).await.map_err(|_| snmp2::Error::Receive)?;
                     let parsed: snmp2::Oid = o.parse().map_err(|_| snmp2::Error::AsnParse)?;
                     let pdu = session.getnext(&parsed).await?;
-                    Ok::<Vec<VariableBinding>, snmp2::Error>(Self::extract_bindings(pdu))
-                }
-            })
-            .await;
-            rs.retries = rs.retries.max(retries);
+                    Ok(Self::extract_bindings(pdu))
+                })
+                .await;
 
-            match result {
-                Ok(bindings) => rs.bindings.extend(bindings),
-                Err(e) => {
-                    warn!(
-                        "GetNext failed for {} after {} retries: {:?}",
-                        oid_str, retries, e
-                    );
-                    rs.partial = true;
-                    rs.warnings
-                        .push(error_to_warning(&e, Some(oid_str.clone())));
+                match result {
+                    Ok(bindings) => {
+                        rs.retries = rs.retries.max(attempt);
+                        rs.bindings.extend(bindings);
+                        break;
+                    }
+                    Err(e) => {
+                        if is_retryable_error(&e) && attempt < MAX_RETRIES {
+                            let delay = backoff_delay(attempt);
+                            warn!(
+                                "GetNext network error on attempt {}/{} — retrying in {:?}",
+                                attempt + 1,
+                                MAX_RETRIES + 1,
+                                delay
+                            );
+                            tokio::time::sleep(delay).await;
+                        } else {
+                            last_err = Some(e);
+                            break;
+                        }
+                    }
                 }
+            }
+
+            if let Some(e) = last_err {
+                warn!(
+                    "GetNext failed for {} after {} retries: {:?}",
+                    oid_str, MAX_RETRIES, e
+                );
+                rs.partial = true;
+                rs.warnings
+                    .push(error_to_warning(&e, Some(oid_str.clone())));
             }
         }
 
@@ -314,7 +356,12 @@ impl SnmpEngine {
         let mut rs = ResultSet::new();
         let mut batch = Vec::new();
 
-        let root: snmp2::Oid = root_oid
+        let normalized = if !root_oid.contains('.') {
+            format!("{}.0", root_oid)
+        } else {
+            root_oid.to_string()
+        };
+        let root: snmp2::Oid = normalized
             .parse()
             .map_err(|e| format!("Invalid root OID: {:?}", e))?;
         let mut current_oid = root;
@@ -421,42 +468,58 @@ impl SnmpEngine {
                 .map_err(|e| format!("Invalid OID '{}': {:?}", &oid, e))?,
         );
 
-        // Retry: each attempt creates a fresh session and value.
-        let (result, retries) = with_retry(|| {
+        // Inline retry loop.
+        let mut last_err = None;
+        for attempt in 0..=MAX_RETRIES {
             let t = target.clone();
             let o = Arc::clone(&parsed_oid);
             let v = value_owned.clone();
-            async move {
+            let result: Result<Vec<VariableBinding>, snmp2::Error> = (async {
                 let mut session = Self::connect(&t).await.map_err(|_| snmp2::Error::Receive)?;
                 let snmp_value = Self::set_value_to_snmp(v);
                 let pdu = session.set(&[(&o, snmp_value)]).await?;
-                Ok::<Vec<VariableBinding>, snmp2::Error>(Self::extract_bindings(pdu))
-            }
-        })
-        .await;
+                Ok(Self::extract_bindings(pdu))
+            })
+            .await;
 
-        match result {
-            Ok(bindings) => {
-                info!(
-                    "Set completed on {}: {} binding(s)",
-                    target.addr(),
-                    bindings.len()
-                );
-                let mut rs = ResultSet::new();
-                rs.retries = retries;
-                rs.bindings = bindings;
-                Ok(rs)
-            }
-            Err(e) => {
-                warn!("Set failed after {} retries: {:?}", retries, e);
-                let mut rs = ResultSet::new();
-                rs.retries = retries;
-                rs.partial = true;
-                rs.warnings
-                    .push(error_to_warning(&e, Some(oid_str.to_string())));
-                Ok(rs)
+            match result {
+                Ok(bindings) => {
+                    info!(
+                        "Set completed on {}: {} binding(s)",
+                        target.addr(),
+                        bindings.len()
+                    );
+                    let mut rs = ResultSet::new();
+                    rs.retries = attempt;
+                    rs.bindings = bindings;
+                    return Ok(rs);
+                }
+                Err(e) => {
+                    if is_retryable_error(&e) && attempt < MAX_RETRIES {
+                        let delay = backoff_delay(attempt);
+                        warn!(
+                            "Set network error on attempt {}/{} — retrying in {:?}",
+                            attempt + 1,
+                            MAX_RETRIES + 1,
+                            delay
+                        );
+                        tokio::time::sleep(delay).await;
+                    } else {
+                        last_err = Some(e);
+                        break;
+                    }
+                }
             }
         }
+
+        let e = last_err.unwrap_or(snmp2::Error::Receive);
+        warn!("Set failed after {} retries: {:?}", MAX_RETRIES, e);
+        let mut rs = ResultSet::new();
+        rs.retries = MAX_RETRIES;
+        rs.partial = true;
+        rs.warnings
+            .push(error_to_warning(&e, Some(oid_str.to_string())));
+        Ok(rs)
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

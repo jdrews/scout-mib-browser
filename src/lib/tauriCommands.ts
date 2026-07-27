@@ -1,5 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+
+/** Tauri 2.x event listener — uses core.registerListener. */
+export async function tauriListen<T = any>(
+  event: string,
+  handler: (payload: T) => void,
+): Promise<() => void | Promise<void>> {
+  const eventId = await invoke<number>("registerListener", { event });
+  return () => invoke("unregisterListener", { eventId }).then(() => {});
+}
+
 import type {
   TreeNode,
   MibSearchResult,
@@ -142,15 +151,15 @@ async function snmpStreamingWalk(
 ): Promise<{ unlisten: () => void }> {
   const params = buildSnmpParams(targetConfig);
 
-  const batchUnlisten = await listen<ResultSet>("snmp-walk-batch", (event) => {
-    onBatch(event.payload.bindings);
+  const batchUnlisten = await tauriListen<{ bindings: VariableBinding[] }>("snmp-walk-batch", (payload) => {
+    onBatch(payload.bindings);
   });
 
-  const completeUnlisten = await listen<ResultSet>("snmp-walk-complete", (event) => {
-    onComplete(event.payload);
+  const completeUnlisten = await tauriListen<ResultSet>("snmp-walk-complete", (payload) => {
+    onComplete(payload);
   });
 
-  await invoke(command, { params, root_oid: rootOid });
+  await invoke(command, { params, rootOid });
 
   return {
     unlisten: async () => {
@@ -160,24 +169,30 @@ async function snmpStreamingWalk(
   };
 }
 
-/** Executes a Walk operation from the given root OID. Returns immediately — results stream via callbacks. */
+/** Executes a Walk operation from the given root OID (blocking). */
 export async function snmpWalk(
   targetConfig: TargetConfig,
   rootOid: string,
   onBatch: (bindings: VariableBinding[]) => void,
   onComplete: (result: ResultSet) => void,
 ): Promise<{ unlisten: () => void }> {
-  return snmpStreamingWalk("snmp_walk", targetConfig, rootOid, onBatch, onComplete);
+  const result = await invoke<ResultSet>("snmp_walk", { params: buildSnmpParams(targetConfig), rootOid: rootOid });
+  onBatch(result.bindings);
+  onComplete(result);
+  return { unlisten: () => {} };
 }
 
-/** Executes a BulkWalk operation from the given root OID. Returns immediately — results stream via callbacks. */
+/** Executes a BulkWalk operation from the given root OID (blocking). */
 export async function snmpBulkWalk(
   targetConfig: TargetConfig,
   rootOid: string,
   onBatch: (bindings: VariableBinding[]) => void,
   onComplete: (result: ResultSet) => void,
 ): Promise<{ unlisten: () => void }> {
-  return snmpStreamingWalk("snmp_bulk_walk", targetConfig, rootOid, onBatch, onComplete);
+  const result = await invoke<ResultSet>("snmp_bulk_walk", { params: buildSnmpParams(targetConfig), rootOid });
+  onBatch(result.bindings);
+  onComplete(result);
+  return { unlisten: () => {} };
 }
 
 /** Executes a Set operation to write a value at the given OID. */
@@ -190,7 +205,7 @@ export async function snmpSet(
   return invoke("snmp_set", {
     params: buildSnmpParams(targetConfig),
     oid,
-    value_type: valueType,
+    valueType,
     value,
   });
 }
@@ -203,14 +218,14 @@ export async function snmpWalkTable(
 ): Promise<TableResult> {
   return invoke("snmp_walk_table", {
     params: buildSnmpParams(targetConfig),
-    table_oid: tableOid,
-    column_oids: columnOids,
+    tableOid,
+    columnOids,
   });
 }
 
 /** Returns column OIDs for a TABLE node. */
 export async function mibTableColumns(tableOid: string): Promise<string[]> {
-  return invoke("mib_table_columns", { table_oid: tableOid });
+  return invoke("mib_table_columns", { tableOid });
 }
 
 // ── File System Commands ─────────────────────────────────────────────────────
