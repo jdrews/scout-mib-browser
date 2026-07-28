@@ -7,6 +7,8 @@
     "build": "tauri build",
     "dev:web": "vite",
     "build:web": "vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "check:rust": "bash scripts/check.sh",
     "tauri:debug": "tauri build --debug",
@@ -21,6 +23,7 @@
     "@sveltejs/vite-plugin-svelte": "^5.0.3",
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2.11.4",
+    "@testing-library/svelte": "^5.4.2",
     "@types/mocha": "^10.0.10",
     "@types/node": "^26.1.1",
     "@types/webdriverio": "^4.13.3",
@@ -32,6 +35,8 @@
     "@wdio/tauri-service": "^1.2.0",
     "daisyui": "^5.7.4",
     "expect-webdriverio": "^5.7.0",
+    "happy-dom": "^20.11.1",
+    "jsdom": "^29.1.1",
     "mocha": "^11.7.6",
     "svelte": "^5.20.1",
     "svelte-check": "^4.1.5",
@@ -40,6 +45,7 @@
     "tsx": "^4.23.1",
     "typescript": "^5.9.3",
     "vite": "^6.0.0",
+    "vitest": "^4.1.10",
     "webdriverio": "^9.30.0"
   },
   "dependencies": {

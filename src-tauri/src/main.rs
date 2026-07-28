@@ -47,9 +47,15 @@ fn main() {
     let log_buffer = log::init_logging().expect("failed to initialize logging");
     let snmp_state = SnmpEngineState::new().expect("failed to create SNMP engine");
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_wdio_webdriver::init())
-        .plugin(tauri_plugin_wdio::init())
+    let builder = tauri::Builder::default();
+
+    #[cfg(feature = "wdio")]
+    let builder = builder.plugin(tauri_plugin_wdio_webdriver::init());
+
+    #[cfg(feature = "wdio")]
+    let builder = builder.plugin(tauri_plugin_wdio::init());
+
+    builder
         .setup(move |app| {
             log::set_tauri_app_handle(app.handle().clone());
 
@@ -208,15 +214,40 @@ fn mib_table_columns(
 
 // ── SNMP Commands ────────────────────────────────────────────────────────────
 
-/// Tests connectivity to a Target.
+/// Tests connectivity to a Target (async — runs off the main thread).
 #[tauri::command]
-fn snmp_connect(
-    engine: tauri::State<SnmpEngineState>,
+async fn snmp_connect(
+    _engine: tauri::State<'_, SnmpEngineState>,
     params: SnmpCommandParams,
 ) -> Result<snmp::ResultSet, String> {
     let target = build_target(&params);
-    let engine = engine.inner.read().map_err(|e| e.to_string())?;
-    engine.get(&target, &["1.3.6.1.2.1.1.9.1.5.0".to_string()])
+    let oids: Vec<String> = vec!["1.3.6.1.2.1.1.9.1.5.0".to_string()];
+
+    // Run on a dedicated OS thread with normal 8MB stack to avoid tokio worker
+    // stack overflow inside snmp2's connection code (which can recurse deeply).
+    let target_clone = target.clone();
+    let oids_clone = oids.clone();
+    let handle = std::thread::Builder::new()
+        .stack_size(8 * 1024 * 1024) // 8MB — default OS thread stack
+        .spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|e| format!("Failed to create runtime: {}", e))?;
+            rt.block_on(snmp::SnmpEngine::do_get(&target_clone, &oids_clone))
+        })
+        .map_err(|e| format!("Failed to spawn thread: {}", e))?;
+
+    // Await the thread completion with a timeout.
+    let join_handle = tokio::task::spawn_blocking(move || handle.join());
+
+    match tokio::time::timeout(std::time::Duration::from_secs(10), join_handle).await {
+        Ok(Ok(Ok(Ok(rs)))) => Ok(rs),
+        Ok(Ok(Ok(Err(e)))) => Err(e),
+        Ok(Ok(Err(_join_err))) => Err("Connection thread panicked".to_string()),
+        Ok(Err(join_err)) => Err(format!("Task panicked: {}", join_err)),
+        Err(_timeout) => Err("Connection timed out (10s)".to_string()),
+    }
 }
 
 /// Executes a Get operation for the given OIDs.
@@ -243,34 +274,28 @@ fn snmp_get_next(
     engine.get_next(&target, &oids)
 }
 
-/// Executes a Walk operation from the given root OID.
-/// Returns immediately — results stream via Tauri events.
+/// Executes a Walk operation from the given root OID (blocking).
 #[tauri::command]
 fn snmp_walk(
-    app: tauri::AppHandle,
     engine: tauri::State<SnmpEngineState>,
     params: SnmpCommandParams,
     root_oid: String,
 ) -> Result<snmp::ResultSet, String> {
     let target = build_target(&params);
     let engine = engine.inner.read().map_err(|e| e.to_string())?;
-    engine.walk_spawn(app, &target, &root_oid);
-    Ok(snmp::ResultSet::new())
+    engine.walk(&target, &root_oid)
 }
 
-/// Executes a BulkWalk operation from the given root OID.
-/// Returns immediately — results stream via Tauri events.
+/// Executes a BulkWalk operation from the given root OID (blocking).
 #[tauri::command]
 fn snmp_bulk_walk(
-    app: tauri::AppHandle,
     engine: tauri::State<SnmpEngineState>,
     params: SnmpCommandParams,
     root_oid: String,
 ) -> Result<snmp::ResultSet, String> {
     let target = build_target(&params);
     let engine = engine.inner.read().map_err(|e| e.to_string())?;
-    engine.bulk_walk_spawn(app, &target, &root_oid);
-    Ok(snmp::ResultSet::new())
+    engine.bulk_walk(&target, &root_oid)
 }
 
 /// Executes a Set operation to write a value at the given OID.
