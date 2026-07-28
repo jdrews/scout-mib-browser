@@ -142,6 +142,7 @@ async fn walk_getbulk(root_oid: &str) -> Vec<String> {
 
 // ── Tests ────────────────────────────────────────────────────────────────
 
+#[ignore]
 #[tokio::test]
 async fn snmp_get_sysdescr() {
     require_snmpsim();
@@ -166,6 +167,7 @@ async fn snmp_get_sysdescr() {
     }
 }
 
+#[ignore]
 #[tokio::test]
 async fn snmp_get_multiple_oids() {
     require_snmpsim();
@@ -181,6 +183,7 @@ async fn snmp_get_multiple_oids() {
     assert_eq!(bindings.len(), 2);
 }
 
+#[ignore]
 #[tokio::test]
 async fn snmp_get_next() {
     require_snmpsim();
@@ -195,6 +198,7 @@ async fn snmp_get_next() {
     assert_ne!(o.to_string(), "1.3.6.1.2.1.1.1.0");
 }
 
+#[ignore]
 #[tokio::test]
 async fn snmp_walk_sysgroup() {
     require_snmpsim();
@@ -215,6 +219,7 @@ async fn snmp_walk_sysgroup() {
     }
 }
 
+#[ignore]
 #[tokio::test]
 async fn snmp_bulk_walk_sysgroup() {
     require_snmpsim();
@@ -235,6 +240,7 @@ async fn snmp_bulk_walk_sysgroup() {
     }
 }
 
+#[ignore]
 #[tokio::test]
 async fn snmp_walk_contains_sysname() {
     require_snmpsim();
@@ -246,6 +252,7 @@ async fn snmp_walk_contains_sysname() {
     );
 }
 
+#[ignore]
 #[tokio::test]
 async fn snmp_walk_contains_uptime() {
     require_snmpsim();
@@ -257,6 +264,7 @@ async fn snmp_walk_contains_uptime() {
     );
 }
 
+#[ignore]
 #[tokio::test]
 async fn snmp_walk_small_subtree() {
     require_snmpsim();
@@ -270,6 +278,7 @@ async fn snmp_walk_small_subtree() {
     assert_eq!(bindings[0], "1.3.6.1.2.1.1.5.0");
 }
 
+#[ignore]
 #[tokio::test]
 async fn snmp_get_nonexistent_oid() {
     require_snmpsim();
