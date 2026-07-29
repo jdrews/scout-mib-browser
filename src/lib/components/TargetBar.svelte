@@ -198,7 +198,6 @@
             S.executionResults = result;
             S.walkProgress = "";
             S.statusText = `${op} complete: ${result.bindings.length} binding(s)`;
-            handle.unlisten();
           }
         );
         unlisten = handle.unlisten;
