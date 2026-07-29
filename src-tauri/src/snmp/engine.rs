@@ -16,9 +16,6 @@ const WALK_BATCH_SIZE: usize = 100;
 /// Tauri event name for walk batch emission.
 pub const WALK_BATCH_EVENT: &str = "snmp-walk-batch";
 
-/// Tauri event name for walk completion.
-pub const WALK_COMPLETE_EVENT: &str = "snmp-walk-complete";
-
 /// Walk mode — determines which SNMP fetch operation is used.
 enum WalkMode {
     GetNext,
@@ -58,11 +55,6 @@ impl SnmpEngine {
         self.runtime.block_on(Self::do_get(target, oids))
     }
 
-    /// Async version of `get` — does not hold any lock. Used by async Tauri commands.
-    pub async fn get_async(&self, target: &Target, oids: &[String]) -> Result<ResultSet, String> {
-        Self::do_get(target, oids).await
-    }
-
     /// Executes a GetNext operation for the given OIDs against the Target.
     pub fn get_next(&self, target: &Target, oids: &[String]) -> Result<ResultSet, String> {
         self.runtime.block_on(Self::do_get_next(target, oids))
@@ -78,21 +70,6 @@ impl SnmpEngine {
         ))
     }
 
-    /// Executes a Walk operation as a background task with batch event emission.
-    /// Returns immediately — results stream via Tauri events (`WALK_BATCH_EVENT`, `WALK_COMPLETE_EVENT`).
-    pub fn walk_spawn(&self, app: tauri::AppHandle, target: &Target, root_oid: &str) {
-        let target = target.clone();
-        let root_oid = root_oid.to_string();
-        let runtime = Arc::clone(&self.runtime);
-        std::thread::spawn(move || {
-            runtime.block_on(async {
-                let rs =
-                    Self::do_walk_loop(WalkMode::GetNext, &target, &root_oid, Some(&app)).await;
-                let _ = app.emit(WALK_COMPLETE_EVENT, rs);
-            });
-        });
-    }
-
     /// Executes a BulkWalk operation and returns all results.
     pub fn bulk_walk(&self, target: &Target, root_oid: &str) -> Result<ResultSet, String> {
         if matches!(target.version, Version::V1) {
@@ -104,24 +81,6 @@ impl SnmpEngine {
             root_oid,
             None,
         ))
-    }
-
-    /// Executes a BulkWalk operation as a background task with batch event emission.
-    /// Returns immediately — results stream via Tauri events (`WALK_BATCH_EVENT`, `WALK_COMPLETE_EVENT`).
-    pub fn bulk_walk_spawn(&self, app: tauri::AppHandle, target: &Target, root_oid: &str) {
-        if matches!(target.version, Version::V1) {
-            return;
-        }
-        let target = target.clone();
-        let root_oid = root_oid.to_string();
-        let runtime = Arc::clone(&self.runtime);
-        std::thread::spawn(move || {
-            runtime.block_on(async {
-                let rs =
-                    Self::do_walk_loop(WalkMode::GetBulk, &target, &root_oid, Some(&app)).await;
-                let _ = app.emit(WALK_COMPLETE_EVENT, rs);
-            });
-        });
     }
 
     /// Executes a Set operation to write a value at the given OID.
@@ -220,7 +179,6 @@ impl SnmpEngine {
             .collect::<Result<Vec<_>, _>>()?;
 
         // Inline retry loop to avoid large generic future types.
-        let mut retries: u32 = 0;
         let mut last_err = None;
         for attempt in 0..=MAX_RETRIES {
             let t = target.clone();
@@ -241,14 +199,13 @@ impl SnmpEngine {
 
             match result {
                 Ok(bindings) => {
-                    retries = attempt;
                     info!(
                         "Get completed on {}: {} binding(s)",
                         target.addr(),
                         bindings.len()
                     );
                     let mut rs = ResultSet::new();
-                    rs.retries = retries;
+                    rs.retries = attempt;
                     rs.bindings = bindings;
                     return Ok(rs);
                 }
@@ -664,13 +621,6 @@ mod tests {
     fn target_addr_format() {
         let t = Target::v2c("example.com", 1161, "private");
         assert_eq!(t.addr(), "example.com:1161");
-    }
-
-    #[test]
-    fn snmp_operation_serialization() {
-        let op = SnmpOperation::Walk;
-        let json = serde_json::to_string(&op).unwrap();
-        assert_eq!(json, "\"walk\"");
     }
 
     #[test]

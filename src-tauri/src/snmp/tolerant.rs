@@ -77,40 +77,6 @@ pub fn is_walk_termination_value(v: &snmp2::Value<'_>) -> bool {
     )
 }
 
-/// Executes an async operation with retry logic for network errors.
-/// Returns `(result, retries)` where `retries` is the number of successful retries.
-pub async fn with_retry<F, Fut, T>(mut operation: F) -> (Result<T, snmp2::Error>, u32)
-where
-    F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = Result<T, snmp2::Error>>,
-{
-    let mut last_err = None;
-
-    for attempt in 0..=MAX_RETRIES {
-        match operation().await {
-            Ok(val) => return (Ok(val), attempt),
-            Err(e) => {
-                if is_retryable_error(&e) && attempt < MAX_RETRIES {
-                    let delay = backoff_delay(attempt);
-                    warn!(
-                        "Network error on attempt {}/{} — retrying in {:?}",
-                        attempt + 1,
-                        MAX_RETRIES + 1,
-                        delay
-                    );
-                    tokio::time::sleep(delay).await;
-                } else {
-                    last_err = Some(e);
-                    break;
-                }
-            }
-        }
-    }
-
-    let err = last_err.unwrap_or(snmp2::Error::Receive);
-    (Err(err), MAX_RETRIES)
-}
-
 /// Converts a snmp2 error into our warning format.
 pub fn error_to_warning(err: &snmp2::Error, oid: Option<String>) -> SnmpWarning {
     let (kind, message) = match err {
@@ -156,8 +122,6 @@ pub fn error_to_warning(err: &snmp2::Error, oid: Option<String>) -> SnmpWarning 
                 oid,
             }
         }
-        // Catch-all for any future variants.
-        _ => ("unknown-error", "Unknown SNMP error"),
     };
 
     SnmpWarning {
@@ -177,158 +141,136 @@ pub fn binding_from_snmp(oid: String, value: snmp2::Value<'_>) -> VariableBindin
     }
 }
 
-/// Attempts to decode raw BER bytes into a SnmpValue.
-pub fn try_decode_ber(bytes: &[u8]) -> (SnmpValue, bool) {
-    if bytes.is_empty() {
-        return (SnmpValue::Null, false);
-    }
-
-    let tag = bytes[0];
-
-    // Parse BER length byte(s).
-    let (data_start, data_len) = match bytes.get(1) {
-        None => return (SnmpValue::Null, true),
-        Some(&len_byte) if len_byte & 0x80 == 0 => (2, len_byte as usize),
-        Some(&len_byte) => {
-            let num_len_bytes = (len_byte & 0x7F) as usize;
-            if bytes.len() < 2 + num_len_bytes {
-                return (SnmpValue::Null, true);
-            }
-            let mut total_len: usize = 0;
-            for i in 0..num_len_bytes {
-                total_len = (total_len << 8) | (bytes[2 + i] as usize);
-            }
-            (2 + num_len_bytes, total_len)
-        }
-    };
-
-    if bytes.len() < data_start + data_len {
-        return (SnmpValue::Null, true);
-    }
-    let data = &bytes[data_start..data_start + data_len];
-
-    match tag {
-        0x02 => {
-            let val = parse_integer(data);
-            (SnmpValue::Integer(val), false)
-        }
-        0x04 => (SnmpValue::OctetString(data.to_vec()), false),
-        0x06 => {
-            let oid = parse_oid_bytes(data);
-            (SnmpValue::ObjectIdentifier(oid), false)
-        }
-        0x40 => {
-            if data.len() == 4 {
-                let ip = format!("{}.{}.{}.{}", data[0], data[1], data[2], data[3]);
-                (SnmpValue::IpAddress(ip), false)
-            } else {
-                warn!("Malformed IPADDRESS: expected 4 bytes, got {}", data.len());
-                (
-                    SnmpValue::Raw {
-                        type_code: tag,
-                        data: bytes.to_vec(),
-                    },
-                    true,
-                )
-            }
-        }
-        0x43 => {
-            let val = parse_u32(data);
-            (SnmpValue::TimeTicks(val), false)
-        }
-        0x44 => {
-            warn!("Received opaque type in raw BER decode");
-            (
-                SnmpValue::Raw {
-                    type_code: tag,
-                    data: bytes.to_vec(),
-                },
-                true,
-            )
-        }
-        0x05 if data.is_empty() => (SnmpValue::Null, false),
-        0x01 => {
-            let val = !data.is_empty() && data[data.len() - 1] != 0;
-            (SnmpValue::TruthValue(val), false)
-        }
-        _ => {
-            warn!("Unexpected ASN.1 type code 0x{:02x}, storing as raw", tag);
-            (
-                SnmpValue::Raw {
-                    type_code: tag,
-                    data: bytes.to_vec(),
-                },
-                true,
-            )
-        }
-    }
-}
-
-/// Parses a BER-encoded integer into i64.
-fn parse_integer(bytes: &[u8]) -> i64 {
-    if bytes.is_empty() {
-        return 0;
-    }
-    let mut result: i64 = 0;
-    for &b in bytes {
-        result = (result << 8) | (b as i64);
-    }
-    result
-}
-
-/// Parses a BER-encoded unsigned integer into u32.
-fn parse_u32(bytes: &[u8]) -> u32 {
-    if bytes.is_empty() {
-        return 0;
-    }
-    let mut result: u32 = 0;
-    for &b in bytes {
-        result = (result << 8) | (b as u32);
-    }
-    result
-}
-
-/// Parses BER-encoded OID bytes into dotted-decimal string.
-fn parse_oid_bytes(bytes: &[u8]) -> String {
-    if bytes.is_empty() {
-        return "0.0".to_string();
-    }
-
-    let mut parts = Vec::new();
-    let first = bytes[0];
-    parts.push((first / 40).to_string());
-    parts.push((first % 40).to_string());
-
-    let mut idx = 1;
-    while idx < bytes.len() {
-        let mut val: u32 = 0;
-        loop {
-            let b = bytes[idx];
-            val = (val << 7) | ((b & 0x7F) as u32);
-            idx += 1;
-            if b & 0x80 == 0 || idx >= bytes.len() {
-                break;
-            }
-        }
-        parts.push(val.to_string());
-    }
-
-    parts.join(".")
-}
-
-/// Creates a VariableBinding from raw BER bytes with tolerance handling.
-pub fn binding_from_raw_ber(oid: String, ber_bytes: &[u8]) -> VariableBinding {
-    let (snmp_val, warning) = try_decode_ber(ber_bytes);
-    VariableBinding {
-        oid,
-        value: snmp_val,
-        warning,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn parse_integer(bytes: &[u8]) -> i64 {
+        if bytes.is_empty() {
+            return 0;
+        }
+        let mut result: i64 = 0;
+        for &b in bytes {
+            result = (result << 8) | (b as i64);
+        }
+        result
+    }
+
+    fn parse_u32(bytes: &[u8]) -> u32 {
+        if bytes.is_empty() {
+            return 0;
+        }
+        let mut result: u32 = 0;
+        for &b in bytes {
+            result = (result << 8) | (b as u32);
+        }
+        result
+    }
+
+    fn parse_oid_bytes(bytes: &[u8]) -> String {
+        if bytes.is_empty() {
+            return "0.0".to_string();
+        }
+
+        let mut parts = Vec::new();
+        let first = bytes[0];
+        parts.push((first / 40).to_string());
+        parts.push((first % 40).to_string());
+
+        let mut idx = 1;
+        while idx < bytes.len() {
+            let mut val: u32 = 0;
+            loop {
+                let b = bytes[idx];
+                val = (val << 7) | ((b & 0x7F) as u32);
+                idx += 1;
+                if b & 0x80 == 0 || idx >= bytes.len() {
+                    break;
+                }
+            }
+            parts.push(val.to_string());
+        }
+
+        parts.join(".")
+    }
+
+    fn try_decode_ber(bytes: &[u8]) -> (SnmpValue, bool) {
+        if bytes.is_empty() {
+            return (SnmpValue::Null, false);
+        }
+
+        let tag = bytes[0];
+
+        let (data_start, data_len) = match bytes.get(1) {
+            None => return (SnmpValue::Null, true),
+            Some(&len_byte) if len_byte & 0x80 == 0 => (2, len_byte as usize),
+            Some(&len_byte) => {
+                let num_len_bytes = (len_byte & 0x7F) as usize;
+                if bytes.len() < 2 + num_len_bytes {
+                    return (SnmpValue::Null, true);
+                }
+                let mut total_len: usize = 0;
+                for i in 0..num_len_bytes {
+                    total_len = (total_len << 8) | (bytes[2 + i] as usize);
+                }
+                (2 + num_len_bytes, total_len)
+            }
+        };
+
+        if bytes.len() < data_start + data_len {
+            return (SnmpValue::Null, true);
+        }
+        let data = &bytes[data_start..data_start + data_len];
+
+        match tag {
+            0x02 => {
+                let val = parse_integer(data);
+                (SnmpValue::Integer(val), false)
+            }
+            0x04 => (SnmpValue::OctetString(data.to_vec()), false),
+            0x06 => {
+                let oid = parse_oid_bytes(data);
+                (SnmpValue::ObjectIdentifier(oid), false)
+            }
+            0x40 => {
+                if data.len() == 4 {
+                    let ip = format!("{}.{}.{}.{}", data[0], data[1], data[2], data[3]);
+                    (SnmpValue::IpAddress(ip), false)
+                } else {
+                    (
+                        SnmpValue::Raw {
+                            type_code: tag,
+                            data: bytes.to_vec(),
+                        },
+                        true,
+                    )
+                }
+            }
+            0x43 => {
+                let val = parse_u32(data);
+                (SnmpValue::TimeTicks(val), false)
+            }
+            0x44 => (
+                SnmpValue::Raw {
+                    type_code: tag,
+                    data: bytes.to_vec(),
+                },
+                true,
+            ),
+            0x05 if data.is_empty() => (SnmpValue::Null, false),
+            0x01 => {
+                let val = !data.is_empty() && data[data.len() - 1] != 0;
+                (SnmpValue::TruthValue(val), false)
+            }
+            _ => (
+                SnmpValue::Raw {
+                    type_code: tag,
+                    data: bytes.to_vec(),
+                },
+                true,
+            ),
+        }
+    }
 
     #[test]
     fn parse_integer_basic() {

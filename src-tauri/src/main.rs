@@ -40,9 +40,6 @@ impl SnmpEngineState {
     }
 }
 
-/// Tauri event name for walk batch emission.
-const WALK_BATCH_EVENT: &str = snmp::WALK_BATCH_EVENT;
-
 fn main() {
     let log_buffer = log::init_logging().expect("failed to initialize logging");
     let snmp_state = SnmpEngineState::new().expect("failed to create SNMP engine");
@@ -347,7 +344,10 @@ fn dialog_open_directory(app: tauri::AppHandle) -> Result<Option<String>, String
 
 /// Opens a native save file dialog.
 #[tauri::command]
-fn dialog_save_file(app: tauri::AppHandle, default_path: String) -> Result<Option<String>, String> {
+fn dialog_save_file(
+    app: tauri::AppHandle,
+    _default_path: String,
+) -> Result<Option<String>, String> {
     let window = app
         .get_webview_window("main")
         .expect("main window not found");

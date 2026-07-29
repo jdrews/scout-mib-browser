@@ -39,7 +39,6 @@ pub enum SyntaxType {
     TruthValue,
     Bits,
     Sequence,
-    SequenceOf,
     /// SMI TABLE container (SYNTAX SEQUENCE OF Entry). Not directly queryable.
     Table,
     /// SMI ROW entry. Not directly queryable — contains column definitions.
@@ -63,7 +62,6 @@ impl SyntaxType {
             SyntaxType::TruthValue => "TruthValue",
             SyntaxType::Bits => "BITS",
             SyntaxType::Sequence => "SEQUENCE",
-            SyntaxType::SequenceOf => "SEQUENCE OF",
             SyntaxType::Table => "TABLE",
             SyntaxType::TableRow => "ROW",
             SyntaxType::Unknown(s) => s.as_str(),
@@ -98,8 +96,6 @@ pub struct LoadResult {
     pub nodes: Vec<MibNode>,
     /// Whether the primary (mib-rs) loader succeeded.
     pub primary_success: bool,
-    /// Log messages collected during loading.
-    pub messages: Vec<String>,
 }
 
 /// Single node in the hierarchical MIB tree for UI rendering.
@@ -162,11 +158,6 @@ pub struct Resolver {
 }
 
 impl Resolver {
-    /// Creates a new empty resolver.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Loads all MIB files from the given directories.
     ///
     /// Binary and non-text files are pre-filtered before any parse attempt.
@@ -248,7 +239,6 @@ impl Resolver {
                                 all_nodes.push(LoadResult {
                                     nodes,
                                     primary_success: false,
-                                    messages: vec![format!("Loaded via regex fallback")],
                                 });
                             }
                         }
@@ -302,11 +292,6 @@ impl Resolver {
             self.fallback_mibs.len(),
             self.loaded_files.len()
         );
-    }
-
-    /// Records a file-to-MIB-module mapping for tracking loaded files.
-    pub fn track_loaded_file(&mut self, file_path: String, mib_name: String) {
-        self.loaded_files.insert(file_path, mib_name);
     }
 
     /// Returns information about all currently loaded MIB modules.
@@ -493,42 +478,6 @@ impl Resolver {
             oid[..last_dot].to_string()
         } else {
             String::new()
-        }
-    }
-
-    /// Recursively builds a TreeNode from a MibNode (full tree, with children).
-    fn build_tree_node(
-        &self,
-        node: &MibNode,
-        children_map: &HashMap<String, Vec<&MibNode>>,
-    ) -> TreeNode {
-        let syntax_label = if node.syntax_type != SyntaxType::ObjectIdentifier {
-            Some(node.syntax_type.label().to_string())
-        } else {
-            None
-        };
-
-        let has_children = children_map
-            .get(&node.oid)
-            .map_or(false, |c| c.iter().any(|child| child.oid != node.oid));
-
-        let mut children = Vec::new();
-        if let Some(child_nodes) = children_map.get(&node.oid) {
-            for child in self.sort_nodes(child_nodes) {
-                if child.oid != node.oid {
-                    children.push(self.build_tree_node(child, children_map));
-                }
-            }
-        }
-
-        TreeNode {
-            oid: node.oid.clone(),
-            name: node.name.clone(),
-            syntax_type: syntax_label,
-            mib_name: node.mib_name.clone(),
-            is_table: node.is_table,
-            has_children,
-            children,
         }
     }
 
@@ -795,7 +744,7 @@ mod tests {
 
     #[test]
     fn resolve_exact_match() {
-        let mut resolver = Resolver::new();
+        let mut resolver = Resolver::default();
         resolver.oid_index.insert(
             "1.3.6.1.2.1.1.1".to_string(),
             MibNode {
@@ -816,7 +765,7 @@ mod tests {
 
     #[test]
     fn resolve_longest_prefix_match() {
-        let mut resolver = Resolver::new();
+        let mut resolver = Resolver::default();
         resolver.oid_index.insert(
             "1.3.6.1.2.1.1".to_string(),
             MibNode {
@@ -835,7 +784,7 @@ mod tests {
 
     #[test]
     fn resolve_no_false_positive_on_similar_prefix() {
-        let mut resolver = Resolver::new();
+        let mut resolver = Resolver::default();
         resolver.oid_index.insert(
             "1.3.6".to_string(),
             MibNode {
@@ -853,7 +802,7 @@ mod tests {
 
     #[test]
     fn reverse_lookup_basic() {
-        let mut resolver = Resolver::new();
+        let mut resolver = Resolver::default();
         resolver
             .name_index
             .insert("sysDescr".to_string(), "1.3.6.1.2.1.1.1".to_string());
@@ -864,7 +813,7 @@ mod tests {
 
     #[test]
     fn merge_primary_takes_precedence() {
-        let mut resolver = Resolver::new();
+        let mut resolver = Resolver::default();
 
         // Simulate primary node.
         resolver.oid_index.insert(
@@ -885,14 +834,14 @@ mod tests {
 
     #[test]
     fn build_tree_empty() {
-        let resolver = Resolver::new();
+        let resolver = Resolver::default();
         let tree = resolver.build_tree();
         assert!(tree.is_empty());
     }
 
     #[test]
     fn build_tree_single_node() {
-        let mut resolver = Resolver::new();
+        let mut resolver = Resolver::default();
         resolver.oid_index.insert(
             "1.3.6.1.2.1".to_string(),
             MibNode {
@@ -914,7 +863,7 @@ mod tests {
 
     #[test]
     fn build_tree_hierarchy() {
-        let mut resolver = Resolver::new();
+        let mut resolver = Resolver::default();
 
         // Parent subtree.
         resolver.oid_index.insert(
@@ -951,7 +900,7 @@ mod tests {
 
     #[test]
     fn get_children_returns_direct_children() {
-        let mut resolver = Resolver::new();
+        let mut resolver = Resolver::default();
 
         resolver.oid_index.insert(
             "1.3.6.1.2.1.1".to_string(),
@@ -996,7 +945,7 @@ mod tests {
 
     #[test]
     fn search_by_oid_prefix() {
-        let mut resolver = Resolver::new();
+        let mut resolver = Resolver::default();
         resolver.oid_index.insert(
             "1.3.6.1.2.1.1.1".to_string(),
             MibNode {
@@ -1015,7 +964,7 @@ mod tests {
 
     #[test]
     fn search_by_name() {
-        let mut resolver = Resolver::new();
+        let mut resolver = Resolver::default();
         resolver
             .name_index
             .insert("sysDescr".to_string(), "1.3.6.1.2.1.1.1".to_string());
@@ -1037,7 +986,7 @@ mod tests {
 
     #[test]
     fn search_empty_query() {
-        let mut resolver = Resolver::new();
+        let mut resolver = Resolver::default();
         resolver.oid_index.insert(
             "1.3.6.1.2.1.1.1".to_string(),
             MibNode {
@@ -1054,7 +1003,7 @@ mod tests {
 
     #[test]
     fn unload_mib_removes_nodes() {
-        let mut resolver = Resolver::new();
+        let mut resolver = Resolver::default();
         resolver.oid_index.insert(
             "1.3.6.1.2.1.1.1".to_string(),
             MibNode {
@@ -1079,7 +1028,7 @@ mod tests {
 
     #[test]
     fn unload_mib_preserves_other_modules() {
-        let mut resolver = Resolver::new();
+        let mut resolver = Resolver::default();
         resolver.oid_index.insert(
             "1.3.6.1.2.1.1.1".to_string(),
             MibNode {
@@ -1122,7 +1071,7 @@ mod tests {
 
     #[test]
     fn loaded_mibs_returns_info() {
-        let mut resolver = Resolver::new();
+        let mut resolver = Resolver::default();
         resolver.loaded_files.insert(
             "/usr/share/snmp/mibs/SNMPv2-MIB.txt".to_string(),
             "SNMPv2-MIB".to_string(),
@@ -1153,7 +1102,7 @@ mod tests {
 
     #[test]
     fn get_table_columns_finds_leaf_objects() {
-        let mut resolver = Resolver::new();
+        let mut resolver = Resolver::default();
 
         // Table container.
         resolver.oid_index.insert(
@@ -1224,7 +1173,7 @@ mod tests {
 
     #[test]
     fn get_table_columns_excludes_unrelated_subtree() {
-        let mut resolver = Resolver::new();
+        let mut resolver = Resolver::default();
 
         resolver.oid_index.insert(
             "1.3.6.1.2.1.2.2.1".to_string(),
