@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { S } from "$lib/stores.svelte";
+  import { S, clearResults } from "$lib/stores.svelte";
   import type { VariableBinding, SnmpValue, ResultSet, TreeNode, TableResult, TableRowData, TableCell } from "$lib/types";
   import type { ExportFormat } from "$lib/export";
   import * as exportMod from "$lib/export";
@@ -275,6 +275,14 @@
     }
   }
 
+  function clearAll() {
+    clearResults();
+    filterText = "";
+    gridView = false;
+    sortColumn = "oid";
+    sortAsc = true;
+  }
+
   $effect(() => {
     return () => onDividerMouseUp();
   });
@@ -301,6 +309,7 @@
             </ul>
           {/if}
         </div>
+        <button class="btn btn-sm btn-ghost" title="Clear results" onclick={clearAll}>🗑️</button>
         {#if !isGridView}
           <button class="btn btn-sm {showResolvedNames ? 'btn-primary' : 'btn-ghost'}" onclick={() => showResolvedNames = !showResolvedNames}>{showResolvedNames ? "MIB Names" : "Raw OIDs"}</button>
           <button class="btn btn-sm {wrapValue ? 'btn-primary' : 'btn-ghost'}" onclick={() => wrapValue = !wrapValue}>↳ Wrap</button>

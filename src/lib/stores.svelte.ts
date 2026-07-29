@@ -52,6 +52,12 @@ const persistKeys: Record<string, string> = {
   systemLogHeight: "scout-log-height",
 };
 
+export function clearResults() {
+  raw.executionBindings.length = 0;
+  raw.executionResults = null;
+  raw.tableResult = null;
+}
+
 export const S = new Proxy(raw, {
   get(target, prop) {
     return target[prop as keyof typeof target];
