@@ -14,8 +14,85 @@
   let gridView = $state(false);
 
   let filterText = $state("");
-  let sortColumn: "oid" | "name" | "type" | "value" = $state("oid");
+  let sortColumn: "oid" | "value" | "type" = $state("oid");
   let sortAsc = $state(true);
+
+  let showResolvedNames = $state(true);
+  let wrapValue = $state(false);
+
+  const COL_MIN_OID = 100;
+  const COL_MAX_OID = 500;
+  const COL_MIN_TYPE = 70;
+  const COL_MAX_TYPE = 200;
+
+  let colOid = $state(180);
+  let colType = $state(90);
+
+  function saveColWidths() {
+    try {
+      localStorage.setItem("scout-results-col-widths", JSON.stringify({ colOid, colType }));
+    } catch {}
+  }
+
+  function loadColWidths() {
+    try {
+      const saved = JSON.parse(localStorage.getItem("scout-results-col-widths") || "null");
+      if (saved?.colOid) colOid = Math.max(COL_MIN_OID, Math.min(COL_MAX_OID, saved.colOid));
+      if (saved?.colType) colType = Math.max(COL_MIN_TYPE, Math.min(COL_MAX_TYPE, saved.colType));
+    } catch {}
+  }
+  loadColWidths();
+
+  $effect(() => {
+    saveColWidths();
+  });
+
+  let draggingDivider = $state(false);
+  let dragStartX = 0;
+  let dragStartColOid = 0;
+  let dragStartColType = 0;
+
+  function onDivider1MouseDown(e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    draggingDivider = true;
+    dragStartX = e.clientX;
+    dragStartColOid = colOid;
+    document.addEventListener("mousemove", onDividerMouseMove);
+    document.addEventListener("mouseup", onDividerMouseUp);
+  }
+
+  function onDivider2MouseDown(e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    draggingDivider = true;
+    dragStartX = e.clientX;
+    dragStartColType = colType;
+    document.addEventListener("mousemove", onDividerMouseMove2);
+    document.addEventListener("mouseup", onDividerMouseUp);
+  }
+
+  function onDividerMouseMove(e: MouseEvent) {
+    if (!draggingDivider) return;
+    const newOid = Math.max(COL_MIN_OID, Math.min(COL_MAX_OID, dragStartColOid + (e.clientX - dragStartX)));
+    colOid = newOid;
+  }
+
+  function onDividerMouseMove2(e: MouseEvent) {
+    if (!draggingDivider) return;
+    const newType = Math.max(COL_MIN_TYPE, Math.min(COL_MAX_TYPE, dragStartColType + (e.clientX - dragStartX)));
+    colType = newType;
+  }
+
+  function onDividerMouseUp() {
+    draggingDivider = false;
+    document.removeEventListener("mousemove", onDividerMouseMove);
+    document.removeEventListener("mousemove", onDividerMouseMove2);
+    document.removeEventListener("mouseup", onDividerMouseUp);
+  }
+
+  const divider1Left = $derived(colOid + 2);
+  const divider2Left = $derived(`calc(100% - ${colType}px - 2px)`);
 
   function buildNameMap(nodes: TreeNode[]): Map<string, string> {
     const map = new Map<string, string>();
@@ -32,6 +109,39 @@
   }
 
   let nameMap = $derived(buildNameMap(S.treeData));
+
+  function buildFullPathMap(nodes: TreeNode[]): Map<string, string> {
+    const map = new Map<string, string>();
+    function walk(n: TreeNode, parentPath: string) {
+      const seg = n.name !== n.oid ? n.name : n.oid.split(".").pop() || n.oid;
+      const path = parentPath ? `${parentPath}.${seg}` : seg;
+      map.set(n.oid, path);
+      for (const child of n.children || []) {
+        walk(child, path);
+      }
+    }
+    for (const n of nodes) walk(n, "");
+    return map;
+  }
+
+  let fullPathMap = $derived(buildFullPathMap(S.treeData));
+
+  function resolveOidName(oid: string): { displayName: string; fullPath: string } {
+    const oids = oid.split(".");
+    for (let i = oids.length; i > 0; i--) {
+      const prefix = oids.slice(0, i).join(".");
+      if (nameMap.has(prefix)) {
+        const suffix = oids.slice(i).join(".");
+        const baseName = nameMap.get(prefix)!;
+        const fp = fullPathMap.get(prefix) || "";
+        return {
+          displayName: suffix ? `${baseName}.${suffix}` : baseName,
+          fullPath: fp ? `${fp}${suffix ? "." + suffix : ""}` : oid,
+        };
+      }
+    }
+    return { displayName: oid, fullPath: oid };
+  }
 
   function valueDisplay(v: SnmpValue): string {
     if ("Integer" in v) return String(v.Integer);
@@ -73,18 +183,23 @@
     return "UNKNOWN";
   }
 
-  let rows = $derived(bindings.map(b => ({
-    oid: b.oid,
-    name: nameMap.get(b.oid) || "",
-    type: typeLabel(b.value),
-    value: valueDisplay(b.value),
-    warning: !!b.warning,
-  })));
+  let rows = $derived(bindings.map(b => {
+    const resolved = resolveOidName(b.oid);
+    return {
+      oid: b.oid,
+      displayName: resolved.displayName,
+      fullPath: resolved.fullPath,
+      type: typeLabel(b.value),
+      value: valueDisplay(b.value),
+      warning: !!b.warning,
+    };
+  }));
 
   let filteredRows = $derived(filterText
     ? rows.filter((r: typeof rows[number]) =>
         r.oid.toLowerCase().includes(filterText) ||
-        r.name.toLowerCase().includes(filterText) ||
+        r.displayName.toLowerCase().includes(filterText) ||
+        r.fullPath.toLowerCase().includes(filterText) ||
         r.type.toLowerCase().includes(filterText) ||
         r.value.toLowerCase().includes(filterText),
       )
@@ -97,7 +212,7 @@
     return sortAsc ? cmp : -cmp;
   }));
 
-  function toggleSort(col: "oid" | "name" | "type" | "value") {
+  function toggleSort(col: "oid" | "value" | "type") {
     if (sortColumn === col) {
       sortAsc = !sortAsc;
     } else {
@@ -118,7 +233,6 @@
   let gridColumns = $derived(tableResult?.columns || []);
   let gridRows = $derived(tableResult?.rows || []);
   let gridMissingCells = $derived(tableResult?.missing_cells || 0);
-  let gridWarnings = $derived(tableResult?.warnings && tableResult.warnings.length > 0);
 
   function columnName(oid: string): string {
     const baseName = nameMap.get(oid) || oid.split(".").pop() || oid;
@@ -193,12 +307,16 @@
       exportMenuOpen = false;
     }
   }
+
+  $effect(() => {
+    return () => onDividerMouseUp();
+  });
 </script>
 
 <div class="flex flex-col flex-1 overflow-hidden">
   <div class="px-4 py-3 text-sm font-semibold uppercase tracking-wide text-base-content/60 bg-base-100 border-b border-base-300 flex items-center justify-between gap-3" onclick={(e) => { if (e.target === e.currentTarget) hideExportOnOutsideClick(e); }}>
     <span>Results</span>
-    <div class="flex items-center gap-3">
+    <div class="flex items-center gap-2">
       {#if progress}
         <span class="text-xs text-primary font-mono">{progress}</span>
       {/if}
@@ -207,12 +325,7 @@
       {/if}
       {#if bindings.length > 0 || isGridView}
         <div data-export-menu class="dropdown dropdown-end relative">
-          <button
-            class="btn btn-sm"
-            onclick={toggleExportMenu}
-          >
-            Save Results
-          </button>
+          <button class="btn btn-sm" onclick={toggleExportMenu}>Save Results</button>
           {#if exportMenuOpen}
             <ul class="absolute top-full right-0 menu menu-sm bg-base-100 rounded-box w-40 p-2 shadow-lg z-[1000] mt-1">
               <li><a onclick={() => handleExport("tsv")}>Save as TSV</a></li>
@@ -221,13 +334,12 @@
             </ul>
           {/if}
         </div>
+        {#if !isGridView}
+          <button class="btn btn-sm {showResolvedNames ? 'btn-primary' : 'btn-ghost'}" onclick={() => showResolvedNames = !showResolvedNames}>{showResolvedNames ? "MIB Names" : "Raw OIDs"}</button>
+          <button class="btn btn-sm {wrapValue ? 'btn-primary' : 'btn-ghost'}" onclick={() => wrapValue = !wrapValue}>↳ Wrap</button>
+        {/if}
       {/if}
-      <input
-        type="text"
-        placeholder="Filter..."
-        class="input input-bordered input-sm w-40 font-mono"
-        bind:value={filterText}
-      />
+      <input type="text" placeholder="Filter..." class="input input-bordered input-sm w-40 font-mono" bind:value={filterText} />
     </div>
   </div>
 
@@ -277,20 +389,16 @@
                   <td class="text-base-content/60">{i + 1}</td>
                   <td class="font-semibold">{row.instance_id}</td>
                   {#each gridColumns as colOid (colOid)}
-                    {#if row.cells[colOid]}
-                      {@const cell = row.cells[colOid]}
-                      <td class="{cell.missing ? 'text-accent' : ''}">
-                        {#if cell.missing}
-                          <span class="text-base-content/60 italic">\u2014 missing \u26a0</span>
-                        {:else if cell.value}
-                          <span>{valueDisplay(cell.value.value)}</span>
-                        {:else}
-                          <span class="text-base-content/60">\u2014</span>
-                        {/if}
-                      </td>
-                    {:else}
-                      <td class="text-accent italic">\u2014 missing \u26a0</td>
-                    {/if}
+                    {@const cell = row.cells[colOid]}
+                    <td class="{cell.missing ? 'text-accent' : ''}">
+                      {#if cell.missing}
+                        <span class="text-base-content/60 italic">\u2014 missing \u26a0</span>
+                      {:else if cell.value}
+                        <span>{valueDisplay(cell.value.value)}</span>
+                      {:else}
+                        <span class="text-base-content/60">\u2014</span>
+                      {/if}
+                    </td>
                   {/each}
                 </tr>
               {/each}
@@ -303,32 +411,29 @@
     {:else if sortedRows.length === 0}
       <p class="text-base-content/60 text-sm text-center mt-8">No results match filter.</p>
     {:else}
-      <div class="overflow-x-auto">
-        <table class="table table-sm">
-          <thead>
-            <tr>
-              <th class="cursor-pointer" onclick={() => toggleSort("oid")}>\u2116 {sortIcon("oid")}</th>
-              <th class="cursor-pointer max-w-[200px]" onclick={() => toggleSort("oid")}>OID {sortIcon("oid")}</th>
-              <th class="cursor-pointer" onclick={() => toggleSort("name")}>Name {sortIcon("name")}</th>
-              <th class="cursor-pointer w-28" onclick={() => toggleSort("type")}>Type {sortIcon("type")}</th>
-              <th class="cursor-pointer flex-1" onclick={() => toggleSort("value")}>Value {sortIcon("value")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each sortedRows as row, i (row.oid + i)}
-              <tr class="{row.warning ? 'text-accent' : ''}">
-                <td class="text-base-content/60">{i + 1}</td>
-                <td class="break-all max-w-[250px]">{row.oid}</td>
-                <td class="text-primary whitespace-nowrap">{row.name || "\u2014"}</td>
-                <td class="text-base-content/60 w-28">{row.type}</td>
-                <td class="break-all flex-1">
-                  {row.value}
-                  {#if row.warning} <span class="text-accent">\u26a0</span>{/if}
-                </td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
+      <div class="overflow-x-auto relative" style="cursor: {draggingDivider ? 'col-resize' : ''}">
+
+        <div class="resize-divider absolute top-0 bottom-0 w-[5px] z-20 hover:bg-primary/50 transition-colors" style="left: {divider1Left}px;" onmousedown={onDivider1MouseDown}></div>
+        <div class="resize-divider absolute top-0 bottom-0 w-[5px] z-20 hover:bg-primary/50 transition-colors" style="left: {divider2Left};" onmousedown={onDivider2MouseDown}></div>
+
+        <div class="flex bg-base-200 border-b-2 border-base-content/30 sticky top-0 z-10 text-xs font-semibold uppercase tracking-wider" style="min-width: max-content;">
+          <div class="cursor-pointer px-2 py-1.5 truncate select-none" style="width: {colOid}px; min-width: {COL_MIN_OID}px; max-width: {COL_MAX_OID}px;" onclick={() => toggleSort("oid")}>OID {sortIcon("oid")}</div>
+          <div class="flex-1 min-w-[120px] cursor-pointer px-2 py-1.5 truncate select-none" onclick={() => toggleSort("value")}>Value {sortIcon("value")}</div>
+          <div class="cursor-pointer px-2 py-1.5 truncate select-none" style="width: {colType}px; min-width: {COL_MIN_TYPE}px; max-width: {COL_MAX_TYPE}px;" onclick={() => toggleSort("type")}>Type {sortIcon("type")}</div>
+        </div>
+
+        {#each sortedRows as row (row.oid)}
+          <div class="flex border-b border-base-300 {row.warning ? 'text-accent' : ''}" style="min-width: max-content;">
+            <div class="px-2 py-1 truncate font-mono text-[13px] relative" style="width: {colOid}px; min-width: {COL_MIN_OID}px; max-width: {COL_MAX_OID}px;" title="{row.fullPath}\n{row.oid}">
+              {showResolvedNames ? row.displayName : row.oid}
+            </div>
+            <div class="flex-1 min-w-[120px] px-2 py-1 font-mono text-[13px] {wrapValue ? 'break-all' : 'truncate'}">
+              {row.value}
+              {#if row.warning} <span class="text-accent">\u26a0</span>{/if}
+            </div>
+            <div class="px-2 py-1 font-mono text-[13px] text-base-content/60" style="width: {colType}px; min-width: {COL_MIN_TYPE}px; max-width: {COL_MAX_TYPE}px;">{row.type}</div>
+          </div>
+        {/each}
       </div>
     {/if}
   </div>
