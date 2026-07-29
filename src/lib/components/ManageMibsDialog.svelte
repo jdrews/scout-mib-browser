@@ -27,6 +27,13 @@
       S.fallbackMibs.length = 0;
       S.fallbackMibs.push(...status.fallbackMibs);
 
+      try {
+        const pairs = await import("$lib/tauriCommands").then(m => m.mibOidNameMap());
+        S.oidNameMap = new Map(pairs);
+      } catch (e) {
+        console.error("Failed to refresh OID name map:", e);
+      }
+
       const data = await mibTree();
       S.treeData.length = 0;
       S.treeData.push(...data);

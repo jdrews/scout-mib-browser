@@ -661,6 +661,14 @@ impl Resolver {
         self.oid_index.len()
     }
 
+    /// Returns all OID → name pairs for frontend resolution.
+    pub fn oid_name_map(&self) -> Vec<(String, String)> {
+        self.oid_index
+            .values()
+            .map(|node| (node.oid.clone(), node.name.clone()))
+            .collect()
+    }
+
     /// Returns names of MIB modules that were loaded via regex fallback.
     pub fn fallback_mib_names(&self) -> impl Iterator<Item = &String> {
         self.fallback_mibs.iter()

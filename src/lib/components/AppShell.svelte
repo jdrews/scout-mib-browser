@@ -48,11 +48,19 @@
 
       if (dirs.length > 0) {
         S.statusText = `Loading MIBs from ${dirs.length} directory(ies)...`;
-        const { mibLoadDirectories } = await import("$lib/tauriCommands");
-        const status = await mibLoadDirectories(dirs);
+        const cmds = await import("$lib/tauriCommands");
+        const status = await cmds.mibLoadDirectories(dirs);
         S.nodeCount = status.nodeCount;
         S.fallbackMibs.length = 0;
         S.fallbackMibs.push(...status.fallbackMibs);
+
+        // Refresh OID→name map for frontend resolution.
+        try {
+          const pairs = await cmds.mibOidNameMap();
+          S.oidNameMap = new Map(pairs);
+        } catch (e) {
+          console.error("Failed to load OID name map:", e);
+        }
       }
 
       await refreshTree();

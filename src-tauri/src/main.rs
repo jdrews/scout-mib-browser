@@ -84,6 +84,7 @@ fn main() {
             mib_unload,
             mib_loaded_list,
             mib_table_columns,
+            mib_oid_name_map,
             snmp_connect,
             snmp_get,
             snmp_get_next,
@@ -207,6 +208,15 @@ fn mib_table_columns(
 ) -> Result<Vec<String>, String> {
     let res = resolver.inner.read().map_err(|e| e.to_string())?;
     Ok(res.get_table_columns(&table_oid))
+}
+
+/// Returns all OID → name pairs for frontend resolution.
+#[tauri::command]
+fn mib_oid_name_map(
+    resolver: tauri::State<MibResolverState>,
+) -> Result<Vec<(String, String)>, String> {
+    let res = resolver.inner.read().map_err(|e| e.to_string())?;
+    Ok(res.oid_name_map())
 }
 
 // ── SNMP Commands ────────────────────────────────────────────────────────────

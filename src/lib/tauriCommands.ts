@@ -228,6 +228,11 @@ export async function mibTableColumns(tableOid: string): Promise<string[]> {
   return invoke("mib_table_columns", { tableOid });
 }
 
+/** Returns all OID → name pairs from the loaded MIB index. */
+export async function mibOidNameMap(): Promise<[string, string][]> {
+  return invoke("mib_oid_name_map");
+}
+
 // ── File System Commands ─────────────────────────────────────────────────────
 
 /** Writes a string to the given file path via backend. */

@@ -94,49 +94,16 @@
   const divider1Left = $derived(colOid + 2);
   const divider2Left = $derived(`calc(100% - ${colType}px - 2px)`);
 
-  function buildNameMap(nodes: TreeNode[]): Map<string, string> {
-    const map = new Map<string, string>();
-    function walk(n: TreeNode) {
-      if (n.name && n.name !== n.oid) {
-        map.set(n.oid, n.name);
-      }
-      for (const child of n.children || []) {
-        walk(child);
-      }
-    }
-    for (const n of nodes) walk(n);
-    return map;
-  }
-
-  let nameMap = $derived(buildNameMap(S.treeData));
-
-  function buildFullPathMap(nodes: TreeNode[]): Map<string, string> {
-    const map = new Map<string, string>();
-    function walk(n: TreeNode, parentPath: string) {
-      const seg = n.name !== n.oid ? n.name : n.oid.split(".").pop() || n.oid;
-      const path = parentPath ? `${parentPath}.${seg}` : seg;
-      map.set(n.oid, path);
-      for (const child of n.children || []) {
-        walk(child, path);
-      }
-    }
-    for (const n of nodes) walk(n, "");
-    return map;
-  }
-
-  let fullPathMap = $derived(buildFullPathMap(S.treeData));
-
   function resolveOidName(oid: string): { displayName: string; fullPath: string } {
-    const oids = oid.split(".");
-    for (let i = oids.length; i > 0; i--) {
-      const prefix = oids.slice(0, i).join(".");
-      if (nameMap.has(prefix)) {
-        const suffix = oids.slice(i).join(".");
-        const baseName = nameMap.get(prefix)!;
-        const fp = fullPathMap.get(prefix) || "";
+    const parts = oid.split(".");
+    for (let i = parts.length; i > 1; i--) {
+      const prefix = parts.slice(0, i).join(".");
+      if (S.oidNameMap.has(prefix)) {
+        const suffix = parts.slice(i).join(".");
+        const baseName = S.oidNameMap.get(prefix)!;
         return {
           displayName: suffix ? `${baseName}.${suffix}` : baseName,
-          fullPath: fp ? `${fp}${suffix ? "." + suffix : ""}` : oid,
+          fullPath: oid,
         };
       }
     }
@@ -235,7 +202,7 @@
   let gridMissingCells = $derived(tableResult?.missing_cells || 0);
 
   function columnName(oid: string): string {
-    const baseName = nameMap.get(oid) || oid.split(".").pop() || oid;
+    const baseName = S.oidNameMap.get(oid) || oid.split(".").pop() || oid;
     return baseName;
   }
 
@@ -277,7 +244,7 @@
 
     if (bindings.length === 0) return;
 
-    const rowsExport = exportMod.bindingsToRows(bindings, nameMap);
+    const rowsExport = exportMod.bindingsToRows(bindings, S.oidNameMap);
     let content: string;
 
     switch (format) {

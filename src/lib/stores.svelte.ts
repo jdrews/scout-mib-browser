@@ -39,6 +39,7 @@ const raw = $state({
   systemLogOpen: false,
   logLevelFilter: "all" as LogLevel,
   logEntries: [] as LogEntry[],
+  oidNameMap: new Map<string, string>(),
   mibPanelWidth: typeof localStorage !== "undefined" ? parseInt(localStorage.getItem("scout-mib-width") || "320", 10) : 320,
   systemLogHeight: typeof localStorage !== "undefined" ? parseInt(localStorage.getItem("scout-log-height") || "200", 10) : 200,
 });
