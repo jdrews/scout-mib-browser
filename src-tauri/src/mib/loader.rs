@@ -43,10 +43,6 @@ impl MibRsLoader {
             return Ok(LoadResult {
                 nodes: Vec::new(),
                 primary_success: false,
-                messages: vec![format!(
-                    "Cannot determine module name for {}",
-                    path.display()
-                )],
             });
         }
 
@@ -69,9 +65,7 @@ impl MibRsLoader {
         match result {
             Ok(mib) => {
                 let mut nodes = Vec::new();
-                let mut messages = Vec::new();
 
-                // Check for errors in the loaded MIB.
                 if mib.has_errors() {
                     let error_count = mib
                         .diagnostics()
@@ -84,7 +78,6 @@ impl MibRsLoader {
                         })
                         .count();
                     warn!("mib-rs loaded {} with {} errors", module_name, error_count);
-                    messages.push(format!("Loaded with {} errors", error_count));
                 }
 
                 // Extract all objects from the module.
@@ -146,7 +139,6 @@ impl MibRsLoader {
                 Ok(LoadResult {
                     nodes,
                     primary_success: true,
-                    messages,
                 })
             }
             Err(e) => {
@@ -159,7 +151,6 @@ impl MibRsLoader {
                 Ok(LoadResult {
                     nodes: Vec::new(),
                     primary_success: false,
-                    messages: vec![format!("mib-rs parse error: {}", e)],
                 })
             }
         }

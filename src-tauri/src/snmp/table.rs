@@ -2,7 +2,6 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde::Serialize;
 
-use super::tolerant::binding_from_snmp;
 use super::types::*;
 
 /// A single cell in a table grid result.
@@ -163,6 +162,7 @@ pub fn assemble_table_grid(
 
 #[cfg(test)]
 mod tests {
+    use super::super::tolerant::binding_from_snmp;
     use super::*;
 
     #[test]

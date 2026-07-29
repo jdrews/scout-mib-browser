@@ -149,22 +149,6 @@ impl Target {
     }
 }
 
-/// SNMP operation mode — determines what kind of request is sent to the Target.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum SnmpOperation {
-    /// Retrieves exact values for specified OIDs.
-    Get,
-    /// Retrieves the next OID(s) after the specified one(s).
-    GetNext,
-    /// Walks an entire subtree starting from the given OID.
-    Walk,
-    /// Bulk walk using GETBULK for efficiency (v2c/v3 only).
-    BulkWalk,
-    /// Sets a value at the specified OID.
-    Set,
-}
-
 /// A single SNMP data value that can be returned in a Variable Binding.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum SnmpValue {
@@ -185,8 +169,8 @@ pub enum SnmpValue {
     },
 }
 
+#[cfg(test)]
 impl SnmpValue {
-    /// Human-readable display string for the value.
     pub fn display(&self) -> String {
         match self {
             SnmpValue::Integer(v) => format!("{}", v),
@@ -227,7 +211,6 @@ impl SnmpValue {
         }
     }
 
-    /// Type label for display.
     pub fn type_label(&self) -> &'static str {
         match self {
             SnmpValue::Integer(_) => "INTEGER",
@@ -307,12 +290,12 @@ impl ResultSet {
         }
     }
 
-    /// Returns `true` if the result set contains no bindings and no warnings.
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.bindings.is_empty() && self.warnings.is_empty()
     }
 
-    /// Combines another result set into this one (used for batch accumulation).
+    #[cfg(test)]
     pub fn merge(&mut self, other: ResultSet) {
         self.bindings.extend(other.bindings);
         self.warnings.extend(other.warnings);
