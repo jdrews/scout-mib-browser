@@ -3,8 +3,54 @@ mod log;
 mod mib;
 mod snmp;
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use tauri::Manager;
+
+/// Shared cancellation token for in-progress walks.
+#[derive(Clone)]
+pub struct WalkCancelToken {
+    inner: Arc<AtomicBool>,
+    handle: Arc<std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
+}
+
+impl WalkCancelToken {
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(AtomicBool::new(false)),
+            handle: Arc::new(std::sync::Mutex::new(None)),
+        }
+    }
+
+    /// Returns true if a cancellation was requested.
+    pub fn is_cancelled(&self) -> bool {
+        self.inner.load(Ordering::Acquire)
+    }
+
+    /// Signals the walk to stop and aborts the spawned task immediately.
+    pub fn cancel(&self) {
+        self.inner.store(true, Ordering::Release);
+        if let Some(handle) = self.handle.lock().unwrap().take() {
+            handle.abort();
+        }
+    }
+
+    /// Resets the token so a new walk can be cancelled independently.
+    pub fn reset(&self) {
+        self.inner.store(false, Ordering::Release);
+        *self.handle.lock().unwrap() = None;
+    }
+
+    /// Returns the inner Arc for passing to the engine.
+    pub fn inner(&self) -> Arc<AtomicBool> {
+        self.inner.clone()
+    }
+
+    /// Stores the JoinHandle so it can be aborted on cancel.
+    pub fn set_handle(&self, handle: tokio::task::JoinHandle<()>) {
+        *self.handle.lock().unwrap() = Some(handle);
+    }
+}
 
 /// Thread-safe handle to the MIB resolver stored in Tauri app state.
 #[derive(Clone)]
@@ -64,6 +110,7 @@ fn main() {
             app.manage(MibResolverState::new());
             app.manage(snmp_state.clone());
             app.manage(log_buffer);
+            app.manage(WalkCancelToken::new());
 
             let window = app.get_webview_window("main").unwrap();
             window.show()?;
@@ -88,8 +135,9 @@ fn main() {
             snmp_connect,
             snmp_get,
             snmp_get_next,
-            snmp_walk,
-            snmp_bulk_walk,
+            snmp_walk_streaming,
+            snmp_bulk_walk_streaming,
+            snmp_cancel_walk,
             snmp_set,
             snmp_walk_table,
             fs_write_file,
@@ -281,28 +329,71 @@ fn snmp_get_next(
     engine.get_next(&target, &oids)
 }
 
-/// Executes a Walk operation from the given root OID (blocking).
+/// Executes a Walk operation from the given root OID (streaming via channels).
 #[tauri::command]
-fn snmp_walk(
-    engine: tauri::State<SnmpEngineState>,
+async fn snmp_walk_streaming(
+    engine_state: tauri::State<'_, SnmpEngineState>,
+    cancel_token: tauri::State<'_, WalkCancelToken>,
     params: SnmpCommandParams,
     root_oid: String,
-) -> Result<snmp::ResultSet, String> {
+    batch_channel: tauri::ipc::Channel,
+    complete_channel: tauri::ipc::Channel,
+) -> Result<(), String> {
+    cancel_token.reset();
     let target = build_target(&params);
-    let engine = engine.inner.read().map_err(|e| e.to_string())?;
-    engine.walk(&target, &root_oid)
+    let engine = engine_state
+        .inner
+        .read()
+        .map_err(|e| e.to_string())?
+        .clone();
+    let cancel = (*cancel_token).inner();
+    let handle = engine.walk_streaming(
+        &target,
+        &root_oid,
+        Some(batch_channel),
+        Some(complete_channel),
+        Some(cancel),
+    )?;
+    cancel_token.set_handle(handle);
+    Ok(())
 }
 
-/// Executes a BulkWalk operation from the given root OID (blocking).
+/// Executes a BulkWalk operation from the given root OID (streaming via channels).
 #[tauri::command]
-fn snmp_bulk_walk(
-    engine: tauri::State<SnmpEngineState>,
+async fn snmp_bulk_walk_streaming(
+    engine_state: tauri::State<'_, SnmpEngineState>,
+    cancel_token: tauri::State<'_, WalkCancelToken>,
     params: SnmpCommandParams,
     root_oid: String,
-) -> Result<snmp::ResultSet, String> {
+    batch_channel: tauri::ipc::Channel,
+    complete_channel: tauri::ipc::Channel,
+) -> Result<(), String> {
+    cancel_token.reset();
     let target = build_target(&params);
-    let engine = engine.inner.read().map_err(|e| e.to_string())?;
-    engine.bulk_walk(&target, &root_oid)
+    if matches!(target.version, snmp::Version::V1) {
+        return Err("BulkWalk is not supported in SNMPv1 — use Walk instead".to_string());
+    }
+    let engine = engine_state
+        .inner
+        .read()
+        .map_err(|e| e.to_string())?
+        .clone();
+    let cancel = (*cancel_token).inner();
+    let handle = engine.bulk_walk_streaming(
+        &target,
+        &root_oid,
+        Some(batch_channel),
+        Some(complete_channel),
+        Some(cancel),
+    )?;
+    cancel_token.set_handle(handle);
+    Ok(())
+}
+
+/// Cancels an in-progress walk.
+#[tauri::command]
+fn snmp_cancel_walk(cancel_token: tauri::State<'_, WalkCancelToken>) {
+    cancel_token.cancel();
 }
 
 /// Executes a Set operation to write a value at the given OID.

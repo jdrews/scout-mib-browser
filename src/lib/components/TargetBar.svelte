@@ -23,6 +23,9 @@
   let operation = $derived(S.snmpOperation);
   let executing = $derived(S.isExecuting);
 
+  // Track active walk state for Go/Stop toggle and Esc key cancellation
+  let isWalkActive = $state(false);
+
   const operations: SnmpOperation[] = ["get", "getNext", "walk", "bulkWalk", "set"];
 
   function onHostInput(e: Event) {
@@ -71,6 +74,13 @@
   }
 
   function onKeyDown(e: KeyboardEvent) {
+    // Cancel active walk with Escape
+    if (e.key === "Escape" && isWalkActive) {
+      e.preventDefault();
+      handleStop();
+      return;
+    }
+
     if (!results.length && e.key !== "Enter") return;
 
     if (e.key === "ArrowDown") {
@@ -143,6 +153,18 @@
     await executeOperation(operation, effectiveOid);
   }
 
+  async function handleStop() {
+    if (!isWalkActive) return;
+    isWalkActive = false;
+
+    const cmds = await import("$lib/tauriCommands");
+    await cmds.snmpCancelWalk();
+
+    S.isExecuting = false;
+    S.walkProgress = "";
+    S.statusText = "Walk cancelled";
+  }
+
   async function executeOperation(op: SnmpOperation, oid: string) {
     const cfg = S.targetConfig;
     if (!cfg.host) {
@@ -159,6 +181,7 @@
     S.tableResult = null;
     S.walkProgress = "";
     S.queryRootOid = oid;
+    isWalkActive = false;
 
     if (isTableNode && (op === "walk" || op === "bulkWalk")) {
       await executeTableRetrieval(op, oid);
@@ -167,7 +190,6 @@
 
     S.statusText = `Starting ${op} on ${oid}...`;
 
-    let unlisten: (() => void) | undefined;
     try {
       if (op === "get") {
         const cmds = await import("$lib/tauriCommands");
@@ -186,28 +208,67 @@
       } else if (op === "walk" || op === "bulkWalk") {
         const cmds = await import("$lib/tauriCommands");
         let count = 0;
+        isWalkActive = true;
+
+        // Buffer bindings and flush to reactive store periodically.
+        // Larger batches reduce Svelte $derived recalculation frequency (which is O(n) per row).
+        const buffer: VariableBinding[] = [];
+        let flushTimer: ReturnType<typeof setTimeout> | null = null;
+        function scheduleFlush() {
+          if (flushTimer) clearTimeout(flushTimer);
+          flushTimer = setTimeout(() => {
+            flushTimer = null;
+            if (buffer.length > 0) {
+              S.executionBindings.push(...buffer);
+              buffer.length = 0;
+            }
+          }, 100);
+        }
+
         const fn = op === "walk" ? cmds.snmpWalk : cmds.snmpBulkWalk;
-        const handle = await fn(cfg, oid,
+        await fn(cfg, oid,
           (batch: VariableBinding[]) => {
+            if (!isWalkActive) return;
             count += batch.length;
-            S.executionBindings.push(...batch);
+            buffer.push(...batch);
             S.walkProgress = `${count} bindings`;
             S.statusText = `${op}: ${count} bindings...`;
+            // Flush every 200 bindings or on timer, whichever comes first.
+            if (buffer.length >= 200) {
+              S.executionBindings.push(...buffer);
+              buffer.length = 0;
+              if (flushTimer) {
+                clearTimeout(flushTimer);
+                flushTimer = null;
+              }
+            } else {
+              scheduleFlush();
+            }
           },
           (result: ResultSet) => {
+            if (!isWalkActive) return;
+            // Flush remaining buffered bindings
+            if (buffer.length > 0) {
+              S.executionBindings.push(...buffer);
+              buffer.length = 0;
+            }
+            if (flushTimer) {
+              clearTimeout(flushTimer);
+              flushTimer = null;
+            }
+            isWalkActive = false;
             S.executionResults = result;
             S.walkProgress = "";
             S.statusText = `${op} complete: ${result.bindings.length} binding(s)`;
           }
         );
-        unlisten = handle.unlisten;
       }
     } catch (err) {
       console.error("SNMP operation failed:", err);
+      isWalkActive = false;
       S.statusText = `Error: ${err}`;
       S.executionResults = { bindings: [], partial: true, warnings: [{ kind: "error", message: String(err) }] };
     } finally {
-      if (unlisten) unlisten();
       S.isExecuting = false;
     }
   }
@@ -375,13 +436,22 @@
     {/each}
   </select>
 
-  <button
-    class="btn btn-primary btn-sm"
-    onclick={handleGo}
-    disabled={executing || !inputValue.trim()}
-  >
-    {executing ? "..." : "Go"}
-  </button>
+  {#if isWalkActive}
+    <button
+      class="btn btn-error btn-sm"
+      onclick={handleStop}
+    >
+      Stop
+    </button>
+  {:else}
+    <button
+      class="btn btn-primary btn-sm"
+      onclick={handleGo}
+      disabled={executing || !inputValue.trim()}
+    >
+      {executing ? "..." : "Go"}
+    </button>
+  {/if}
 
   {#if results.length > 0}
     <div class="absolute top-full left-4 right-[200px] bg-base-100 border border-base-300 rounded-box max-h-[240px] overflow-y-auto z-[500] shadow-lg">

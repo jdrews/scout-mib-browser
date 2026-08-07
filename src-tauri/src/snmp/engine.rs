@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use tauri::Emitter;
 use tracing::{info, warn};
 
 use super::table::*;
@@ -11,10 +11,6 @@ use super::tolerant::*;
 use super::types::*;
 
 /// Batch size for walk streaming.
-const WALK_BATCH_SIZE: usize = 100;
-
-/// Tauri event name for walk batch emission.
-pub const WALK_BATCH_EVENT: &str = "snmp-walk-batch";
 
 /// Walk mode — determines which SNMP fetch operation is used.
 enum WalkMode {
@@ -38,9 +34,11 @@ pub struct SnmpEngine {
 }
 
 impl SnmpEngine {
-    /// Creates a new engine backed by a dedicated tokio runtime.
+    /// Creates a new engine backed by a dedicated multi-threaded tokio runtime.
     pub fn new() -> Result<Self, String> {
-        let runtime = tokio::runtime::Builder::new_current_thread()
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .thread_stack_size(4 * 1024 * 1024) // 4 MB for deep JSON serialization during large walks
             .enable_all()
             .build()
             .map_err(|e| format!("Failed to create tokio runtime: {}", e))?;
@@ -60,27 +58,121 @@ impl SnmpEngine {
         self.runtime.block_on(Self::do_get_next(target, oids))
     }
 
-    /// Executes a Walk operation and returns all results.
-    pub fn walk(&self, target: &Target, root_oid: &str) -> Result<ResultSet, String> {
-        self.runtime.block_on(Self::do_walk_loop(
-            WalkMode::GetNext,
-            target,
-            root_oid,
-            None,
-        ))
-    }
-
-    /// Executes a BulkWalk operation and returns all results.
-    pub fn bulk_walk(&self, target: &Target, root_oid: &str) -> Result<ResultSet, String> {
-        if matches!(target.version, Version::V1) {
-            return Err("BulkWalk is not supported in SNMPv1 — use Walk instead".to_string());
-        }
+    /// Blocking helper for table walks (walks all columns then assembles grid).
+    fn bulk_walk_blocking(&self, target: &Target, root_oid: &str) -> Result<ResultSet, String> {
         self.runtime.block_on(Self::do_walk_loop(
             WalkMode::GetBulk,
             target,
             root_oid,
             None,
+            None,
         ))
+    }
+
+    /// Executes a streaming Walk operation with cancellation support. Returns the JoinHandle for aborting.
+    pub fn walk_streaming(
+        &self,
+        target: &Target,
+        root_oid: &str,
+        batch_channel: Option<tauri::ipc::Channel>,
+        complete_channel: Option<tauri::ipc::Channel>,
+        cancel_token: Option<Arc<AtomicBool>>,
+    ) -> Result<tokio::task::JoinHandle<()>, String> {
+        let mode = WalkMode::GetNext;
+        let target = target.clone();
+        let root_oid = root_oid.to_string();
+        let batch_ch = batch_channel;
+        let complete_ch = complete_channel;
+        let cancel = cancel_token.map(|a| a.clone());
+
+        let handle = self.runtime.spawn(async move {
+            let result = Self::do_walk_loop(
+                mode,
+                &target,
+                &root_oid,
+                batch_ch.as_ref(),
+                cancel.as_deref(),
+            )
+            .await;
+            match result {
+                Ok(rs) => {
+                    if let Some(ch) = complete_ch {
+                        let _ = ch.send(serde_json::to_string(&rs).unwrap_or_default().into());
+                    }
+                }
+                Err(e) => {
+                    warn!("Walk streaming error: {}", e);
+                    if let Some(ch) = complete_ch {
+                        let rs = ResultSet {
+                            bindings: Vec::new(),
+                            partial: true,
+                            warnings: vec![SnmpWarning {
+                                kind: "error".to_string(),
+                                message: e.clone(),
+                                oid: None,
+                            }],
+                            retries: 0,
+                        };
+                        let _ = ch.send(serde_json::to_string(&rs).unwrap_or_default().into());
+                    }
+                }
+            }
+        });
+
+        Ok(handle)
+    }
+
+    /// Executes a streaming BulkWalk operation with cancellation support. Returns the JoinHandle for aborting.
+    pub fn bulk_walk_streaming(
+        &self,
+        target: &Target,
+        root_oid: &str,
+        batch_channel: Option<tauri::ipc::Channel>,
+        complete_channel: Option<tauri::ipc::Channel>,
+        cancel_token: Option<Arc<AtomicBool>>,
+    ) -> Result<tokio::task::JoinHandle<()>, String> {
+        let mode = WalkMode::GetBulk;
+        let target = target.clone();
+        let root_oid = root_oid.to_string();
+        let batch_ch = batch_channel;
+        let complete_ch = complete_channel;
+        let cancel = cancel_token.map(|a| a.clone());
+
+        let handle = self.runtime.spawn(async move {
+            let result = Self::do_walk_loop(
+                mode,
+                &target,
+                &root_oid,
+                batch_ch.as_ref(),
+                cancel.as_deref(),
+            )
+            .await;
+            match result {
+                Ok(rs) => {
+                    if let Some(ch) = complete_ch {
+                        let _ = ch.send(serde_json::to_string(&rs).unwrap_or_default().into());
+                    }
+                }
+                Err(e) => {
+                    warn!("BulkWalk streaming error: {}", e);
+                    if let Some(ch) = complete_ch {
+                        let rs = ResultSet {
+                            bindings: Vec::new(),
+                            partial: true,
+                            warnings: vec![SnmpWarning {
+                                kind: "error".to_string(),
+                                message: e.clone(),
+                                oid: None,
+                            }],
+                            retries: 0,
+                        };
+                        let _ = ch.send(serde_json::to_string(&rs).unwrap_or_default().into());
+                    }
+                }
+            }
+        });
+
+        Ok(handle)
     }
 
     /// Executes a Set operation to write a value at the given OID.
@@ -122,7 +214,7 @@ impl SnmpEngine {
         let mut any_partial = false;
 
         for col_oid in column_oids {
-            match self.bulk_walk(target, col_oid) {
+            match self.bulk_walk_blocking(target, col_oid) {
                 Ok(rs) => {
                     column_results.insert(col_oid.clone(), rs.bindings);
                     all_warnings.extend(rs.warnings);
@@ -305,13 +397,13 @@ impl SnmpEngine {
         mode: WalkMode,
         target: &Target,
         root_oid: &str,
-        app_handle: Option<&tauri::AppHandle>,
+        channel: Option<&tauri::ipc::Channel>,
+        cancel_token: Option<&AtomicBool>,
     ) -> Result<ResultSet, String> {
         let op_name = mode.label();
         info!("{} started on {} from {}", op_name, target.addr(), root_oid);
         let mut session = Self::connect(target).await?;
         let mut rs = ResultSet::new();
-        let mut batch = Vec::new();
 
         let normalized = if !root_oid.contains('.') {
             format!("{}.0", root_oid)
@@ -325,6 +417,12 @@ impl SnmpEngine {
         let mut retry_count: u32 = 0;
 
         loop {
+            if cancel_token.map_or(false, |t| t.load(Ordering::Acquire)) {
+                info!("{} cancelled by user", op_name);
+                rs.partial = true;
+                return Ok(rs);
+            }
+
             let pdu_result = match mode {
                 WalkMode::GetNext => session.getnext(&current_oid).await,
                 WalkMode::GetBulk => session.getbulk(&[&current_oid], 0, 50).await,
@@ -336,7 +434,6 @@ impl SnmpEngine {
                     for (o, v) in pdu.varbinds {
                         if is_walk_termination_value(&v) {
                             info!("{} terminated: {:?}", op_name, v);
-                            Self::drain_batch(&mut batch, app_handle, &mut rs);
                             return Ok(rs);
                         }
 
@@ -346,29 +443,36 @@ impl SnmpEngine {
                                 "{} passed root {} (got {}), terminating",
                                 op_name, root_oid, oid_str
                             );
-                            Self::drain_batch(&mut batch, app_handle, &mut rs);
                             return Ok(rs);
                         }
 
-                        batch.push(binding_from_snmp(oid_str, v));
+                        let binding = binding_from_snmp(oid_str.clone(), v);
+                        if let Some(ch) = channel {
+                            match serde_json::to_string(&binding) {
+                                Ok(json) => {
+                                    if let Err(e) = ch.send(json.into()) {
+                                        warn!("{} channel send failed: {:?}", op_name, e);
+                                        break;
+                                    }
+                                }
+                                Err(e) => {
+                                    warn!("{} serialization failed: {:?}", op_name, e);
+                                    break;
+                                }
+                            }
+                        } else {
+                            rs.bindings.push(binding);
+                        }
                         received_varbinds = true;
+
+                        match snmp2::Oid::from_str(&oid_str) {
+                            Ok(new_oid) => current_oid = new_oid,
+                            Err(_) => break,
+                        }
                     }
 
                     if !received_varbinds {
                         break;
-                    }
-
-                    if let Some(last) = batch.last() {
-                        match snmp2::Oid::from_str(&last.oid) {
-                            Ok(new_oid) => current_oid = new_oid,
-                            Err(_) => break,
-                        }
-                    } else {
-                        break;
-                    }
-
-                    if batch.len() >= WALK_BATCH_SIZE {
-                        Self::drain_batch(&mut batch, app_handle, &mut rs);
                     }
                 }
                 Err(e) => {
@@ -381,6 +485,12 @@ impl SnmpEngine {
                         let delay = backoff_delay(retry_count);
                         warn!("{} network error — retrying in {:?}", op_name, delay);
                         tokio::time::sleep(delay).await;
+
+                        if cancel_token.map_or(false, |t| t.load(Ordering::Acquire)) {
+                            info!("{} cancelled by user during retry", op_name);
+                            rs.partial = true;
+                            return Ok(rs);
+                        }
                         retry_count += 1;
 
                         match Self::connect(target).await {
@@ -398,7 +508,6 @@ impl SnmpEngine {
         }
 
         rs.retries = retry_count;
-        Self::drain_batch(&mut batch, app_handle, &mut rs);
         info!(
             "{} completed on {}: {} binding(s)",
             op_name,
@@ -522,24 +631,6 @@ impl SnmpEngine {
     /// Checks if `oid` is within the subtree rooted at `root`.
     fn is_subtree_of(oid: &str, root: &str) -> bool {
         oid == root || oid.starts_with(&format!("{}.", root))
-    }
-
-    /// Drains a batch — either emits via Tauri event or appends to result set.
-    fn drain_batch(
-        batch: &mut Vec<VariableBinding>,
-        app_handle: Option<&tauri::AppHandle>,
-        rs: &mut ResultSet,
-    ) {
-        let items = std::mem::take(batch);
-        if let Some(app) = app_handle {
-            let _ = app.emit_to(
-                "main",
-                WALK_BATCH_EVENT,
-                serde_json::json!({ "bindings": items }),
-            );
-        } else {
-            rs.bindings.extend(items);
-        }
     }
 
     /// Converts our SetValue enum to a snmp2 Value.

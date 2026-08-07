@@ -37,3 +37,4 @@ src/dist/
 
 # WDIO test logs
 logs/
+scout-backend-logs

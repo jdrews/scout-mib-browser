@@ -1,12 +1,12 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, Channel } from "@tauri-apps/api/core";
 
-/** Tauri 2.x event listener — uses core.registerListener. */
+/** Tauri event listener — no-op because window.__TAURI__.event is undefined at runtime. */
+//TODO: Fix this 
 export async function tauriListen<T = any>(
-  event: string,
-  handler: (payload: T) => void,
+  _event: string,
+  _handler: (payload: T) => void,
 ): Promise<() => void | Promise<void>> {
-  const eventId = await invoke<number>("registerListener", { event });
-  return () => invoke("unregisterListener", { eventId }).then(() => {});
+  return () => {};
 }
 
 import type {
@@ -141,9 +141,13 @@ export async function snmpGetNext(
   return invoke("snmp_get_next", { params: buildSnmpParams(targetConfig), oids });
 }
 
-/** Executes a streaming walk (Walk or BulkWalk). Returns immediately — results stream via callbacks. */
-async function snmpStreamingWalk(
-  command: string,
+/** Cancels an in-progress walk. */
+export async function snmpCancelWalk(): Promise<void> {
+  await invoke("snmp_cancel_walk");
+}
+
+/** Executes a streaming Walk operation from the given root OID. Returns immediately — results stream via callbacks. */
+export async function snmpWalk(
   targetConfig: TargetConfig,
   rootOid: string,
   onBatch: (bindings: VariableBinding[]) => void,
@@ -151,48 +155,35 @@ async function snmpStreamingWalk(
 ): Promise<{ unlisten: () => void }> {
   const params = buildSnmpParams(targetConfig);
 
-  const batchUnlisten = await tauriListen<{ bindings: VariableBinding[] }>("snmp-walk-batch", (payload) => {
-    onBatch(payload.bindings);
-  });
+  // Tauri channels auto-deserialize JSON — callbacks receive objects, not strings.
+  const batchChannel = new Channel<VariableBinding>((binding) => onBatch([binding]));
+  const completeChannel = new Channel<ResultSet>((result) => onComplete(result));
 
-  const completeUnlisten = await tauriListen<ResultSet>("snmp-walk-complete", (payload) => {
-    onComplete(payload);
-  });
-
-  await invoke(command, { params, rootOid });
+  await invoke("snmp_walk_streaming", { params, rootOid, batchChannel, completeChannel });
 
   return {
-    unlisten: async () => {
-      await batchUnlisten();
-      await completeUnlisten();
-    },
+    unlisten: () => {},
   };
 }
 
-/** Executes a Walk operation from the given root OID (blocking). */
-export async function snmpWalk(
-  targetConfig: TargetConfig,
-  rootOid: string,
-  onBatch: (bindings: VariableBinding[]) => void,
-  onComplete: (result: ResultSet) => void,
-): Promise<{ unlisten: () => void }> {
-  const result = await invoke<ResultSet>("snmp_walk", { params: buildSnmpParams(targetConfig), rootOid: rootOid });
-  onBatch(result.bindings);
-  onComplete(result);
-  return { unlisten: () => {} };
-}
-
-/** Executes a BulkWalk operation from the given root OID (blocking). */
+/** Executes a streaming BulkWalk operation from the given root OID. Returns immediately — results stream via callbacks. */
 export async function snmpBulkWalk(
   targetConfig: TargetConfig,
   rootOid: string,
   onBatch: (bindings: VariableBinding[]) => void,
   onComplete: (result: ResultSet) => void,
 ): Promise<{ unlisten: () => void }> {
-  const result = await invoke<ResultSet>("snmp_bulk_walk", { params: buildSnmpParams(targetConfig), rootOid });
-  onBatch(result.bindings);
-  onComplete(result);
-  return { unlisten: () => {} };
+  const params = buildSnmpParams(targetConfig);
+
+  // Tauri channels auto-deserialize JSON — callbacks receive objects, not strings.
+  const batchChannel = new Channel<VariableBinding>((binding) => onBatch([binding]));
+  const completeChannel = new Channel<ResultSet>((result) => onComplete(result));
+
+  await invoke("snmp_bulk_walk_streaming", { params, rootOid, batchChannel, completeChannel });
+
+  return {
+    unlisten: () => {},
+  };
 }
 
 /** Executes a Set operation to write a value at the given OID. */
