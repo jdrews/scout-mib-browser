@@ -1,6 +1,6 @@
 <script lang="ts">
   import { S } from "$lib/stores.svelte";
-  import { configRead, configWrite, mibLoadDirectories, openDirectory, mibTree } from "$lib/tauriCommands";
+  import { configRead, configWrite, mibLoadDirectories, openDirectory, mibTree, mibOidNameMap } from "$lib/tauriCommands";
 
   function toggleMenu(e: MouseEvent) {
     e.stopPropagation();
@@ -36,6 +36,13 @@
       S.nodeCount = status.nodeCount;
       S.fallbackMibs.length = 0;
       S.fallbackMibs.push(...status.fallbackMibs);
+
+      try {
+        const pairs = await mibOidNameMap();
+        S.oidNameMap = new Map(pairs);
+      } catch (e) {
+        console.error("Failed to load OID name map:", e);
+      }
 
       const data = await mibTree();
       S.treeData.length = 0;
