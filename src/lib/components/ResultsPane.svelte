@@ -296,7 +296,7 @@
         <span class="text-xs text-primary font-mono">{progress}</span>
       {/if}
       {#if isPartial}
-        <span class="text-xs text-accent">\u26a0 partial results</span>
+        <span class="text-xs text-accent">⚠ partial results</span>
       {/if}
       {#if bindings.length > 0 || isGridView}
         <div data-export-menu class="dropdown dropdown-end relative">
@@ -323,7 +323,7 @@
     <div role="alert" class="alert alert-warning px-4 py-2 text-xs max-h-24 overflow-y-auto">
       {#each results.warnings as w}
         <div class="flex gap-1">
-          <span>\u26a0</span>
+          <span>⚠</span>
           <span class="font-semibold">{w.kind}</span>
           <span>: {w.message}</span>
           {#if w.oid}<span class="font-mono opacity-70">({w.oid})</span>{/if}
@@ -405,7 +405,7 @@
             </div>
             <div class="flex-1 min-w-[120px] px-2 py-1 font-mono text-[13px] {wrapValue ? 'break-all' : 'truncate'}">
               {row.value}
-              {#if row.warning} <span class="text-accent">\u26a0</span>{/if}
+              {#if row.warning} <span class="text-accent">⚠</span>{/if}
             </div>
             <div class="px-2 py-1 font-mono text-[13px] text-base-content/60" style="width: {colType}px; min-width: {COL_MIN_TYPE}px; max-width: {COL_MAX_TYPE}px;">{row.type}</div>
           </div>
