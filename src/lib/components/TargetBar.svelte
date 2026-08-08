@@ -395,7 +395,7 @@
       class="input input-bordered input-sm w-[160px] font-mono join-item"
     />
 
-    <span class="bg-base-300 text-base-content/60 text-sm px-2 flex items-center join-item">:</span>
+    <span class="text-base-content/40 text-sm flex items-center join-item">:</span>
 
     <input
       type="text"
