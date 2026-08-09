@@ -185,9 +185,95 @@ pub fn config_dir() -> PathBuf {
         .join("scout")
 }
 
+/// Parses a single line from the rotating scout.log file into a LogEntry.
+fn parse_log_line(line: &str, seq: u64) -> Option<LogEntry> {
+    // Format from tracing_subscriber::fmt (without_time): "INFO scout_mib_browser::mib: loading MIB..."
+    let line = line.trim();
+    if line.is_empty() {
+        return None;
+    }
+
+    let parts: Vec<&str> = line.splitn(4, ' ').map(|s| s.trim()).collect();
+    if parts.len() < 3 {
+        return None;
+    }
+
+    // First token might be a timestamp (if with_time) or the level
+    let (level, target, message) = if parts[0].matches('-').count() >= 2 {
+        // Has timestamp: "2026-08-09T12:34:56.789Z INFO target: msg"
+        if parts.len() < 4 {
+            return None;
+        }
+        let lvl = parts[1]
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .to_string();
+        let tgt = parts[2].trim_end_matches(':').to_string();
+        let msg = parts[3..].join(" ");
+        (lvl, tgt, msg)
+    } else {
+        // No timestamp: "INFO target: msg"
+        let lvl = parts[0]
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .to_string();
+        let tgt = parts[1].trim_end_matches(':').to_string();
+        let msg = parts[2..].join(" ");
+        (lvl, tgt, msg)
+    };
+
+    // Use sequence number to create unique millisecond timestamps.
+    let ts = chrono::Local::now() + chrono::Duration::milliseconds(seq as i64);
+    Some(LogEntry {
+        timestamp: ts.format("%H:%M:%S%.3f").to_string(),
+        level,
+        target,
+        message,
+    })
+}
+
 #[tauri::command]
 pub fn log_read(buffer: tauri::State<LogBuffer>) -> Vec<LogEntry> {
-    buffer.entries()
+    let entries = buffer.entries();
+
+    // If in-memory buffer is empty, fall back to reading the last N lines from disk.
+    if entries.is_empty() {
+        let config_dir = config_dir();
+        // Collect all rotated log files (scout.log.YYYY-MM-DD) sorted newest first.
+        let mut log_files: Vec<PathBuf> = std::fs::read_dir(&config_dir)
+            .ok()
+            .into_iter()
+            .flat_map(|d| d)
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.starts_with("scout.log."))
+                    .unwrap_or(false)
+            })
+            .collect();
+        log_files.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
+
+        for log_file in &log_files {
+            if let Ok(content) = std::fs::read_to_string(log_file) {
+                let parsed: Vec<LogEntry> = content
+                    .lines()
+                    .rev()
+                    .take(2000)
+                    .enumerate()
+                    .filter_map(|(i, line)| parse_log_line(line, i as u64))
+                    .collect();
+                let parsed = parsed.into_iter().rev().collect::<Vec<_>>();
+
+                if !parsed.is_empty() {
+                    return parsed;
+                }
+            }
+        }
+    }
+
+    entries
 }
 
 #[tauri::command]
@@ -198,4 +284,71 @@ pub fn log_clear(buffer: tauri::State<LogBuffer>) {
 #[tauri::command]
 pub fn log_path() -> String {
     config_dir().join("scout.log").to_string_lossy().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_log_buffer_push_and_entries() {
+        let buffer = LogBuffer::new(10);
+        assert!(buffer.entries().is_empty());
+
+        buffer.push(LogEntry {
+            timestamp: "12:00:00.000".to_string(),
+            level: "INFO".to_string(),
+            target: "test".to_string(),
+            message: "hello".to_string(),
+        });
+
+        let entries = buffer.entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].message, "hello");
+    }
+
+    #[test]
+    fn test_log_buffer_trims_to_max() {
+        let buffer = LogBuffer::new(3);
+        for i in 0..5 {
+            buffer.push(LogEntry {
+                timestamp: format!("{:02}", i),
+                level: "INFO".to_string(),
+                target: "test".to_string(),
+                message: format!("msg{}", i),
+            });
+        }
+        let entries = buffer.entries();
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].message, "msg2");
+        assert_eq!(entries[1].message, "msg3");
+    }
+
+    #[test]
+    fn test_parse_log_line_no_timestamp() {
+        let entry = parse_log_line("INFO scout_mib_browser::mib: loading MIB file");
+        assert!(entry.is_some());
+        let e = entry.unwrap();
+        assert_eq!(e.level, "INFO");
+        assert_eq!(e.target, "scout_mib_browser::mib");
+        assert_eq!(e.message, "loading MIB file");
+    }
+
+    #[test]
+    fn test_parse_log_line_with_timestamp() {
+        let entry = parse_log_line(
+            "2026-08-09T12:34:56.789Z INFO scout_mib_browser::mib: loading MIB file",
+        );
+        assert!(entry.is_some());
+        let e = entry.unwrap();
+        assert_eq!(e.level, "INFO");
+        assert_eq!(e.target, "scout_mib_browser::mib");
+        assert_eq!(e.message, "loading MIB file");
+    }
+
+    #[test]
+    fn test_parse_log_line_empty() {
+        assert!(parse_log_line("").is_none());
+        assert!(parse_log_line("   ").is_none());
+    }
 }

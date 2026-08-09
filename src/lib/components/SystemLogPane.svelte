@@ -2,7 +2,6 @@
   import { onMount, onDestroy } from "svelte";
   import { S } from "$lib/stores.svelte";
   import { logRead, logClear } from "$lib/tauriCommands";
-  import { tauriListen } from "$lib/tauriCommands";
   import type { LogEntry, LogLevel } from "$lib/types";
 
   const MIN_HEIGHT = 100;
@@ -14,7 +13,6 @@
 
   let intervalId: ReturnType<typeof setInterval> | null = null;
   let logContainer: HTMLDivElement;
-  let unlistenEvent: (() => void) | null = null;
 
   let height = $derived(S.systemLogHeight);
   let filteredEntries = $derived(S.logEntries.filter((entry: LogEntry) => {
@@ -74,22 +72,13 @@
     S.logEntries.length = 0;
   }
 
-  onMount(async () => {
-    const unlisten = await tauriListen<LogEntry>("system-log-entry", (payload) => {
-      if (S.systemLogOpen) {
-        S.logEntries.push(payload);
-        scrollToBottom();
-      }
-    });
-    unlistenEvent = unlisten;
-
+  onMount(() => {
     loadEntries();
     intervalId = setInterval(loadEntries, 1000);
   });
 
   onDestroy(() => {
     if (intervalId) clearInterval(intervalId);
-    if (unlistenEvent) unlistenEvent();
   });
 </script>
 
@@ -129,7 +118,7 @@
     bind:this={logContainer}
     class="flex-1 overflow-y-auto font-mono text-[13px] py-2"
   >
-    {#each filteredEntries as entry (entry.timestamp + entry.message)}
+    {#each filteredEntries as entry, i (i)}
       <div class="flex gap-2 px-4 py-1.5 hover:bg-base-200">
         <span class="text-base-content/60 shrink-0">{entry.timestamp}</span>
         <span class="shrink-0 font-bold w-[46px]" class:text-error={entry.level === "ERROR"} class:text-warning={entry.level === "WARN"} class:text-info={entry.level === "INFO"} class:muted-level={entry.level === "DEBUG" || entry.level === "TRACE"}>

@@ -88,6 +88,7 @@ impl SnmpEngineState {
 
 fn main() {
     let log_buffer = log::init_logging().expect("failed to initialize logging");
+    tracing::info!("Scout MIB Browser started");
     let snmp_state = SnmpEngineState::new().expect("failed to create SNMP engine");
 
     let builder = tauri::Builder::default();

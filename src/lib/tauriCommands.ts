@@ -1,7 +1,6 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
 
-/** Tauri event listener — no-op because window.__TAURI__.event is undefined at runtime. */
-//TODO: Fix this 
+/** Tauri event listener — no-op because the event plugin is not available in this build. */
 export async function tauriListen<T = any>(
   _event: string,
   _handler: (payload: T) => void,
