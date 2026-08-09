@@ -14,6 +14,12 @@ pub struct WalkCancelToken {
     handle: Arc<std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
 }
 
+impl Default for WalkCancelToken {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WalkCancelToken {
     pub fn new() -> Self {
         Self {

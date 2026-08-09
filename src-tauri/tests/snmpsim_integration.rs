@@ -156,7 +156,7 @@ async fn snmp_get_sysdescr() {
     let (_, v) = &bindings[0];
     match v {
         snmp2::Value::OctetString(bytes) => {
-            let s = String::from_utf8_lossy(&bytes);
+            let s = String::from_utf8_lossy(bytes);
             assert!(
                 s.contains("Linux"),
                 "sysDescr should mention Linux, got: {}",

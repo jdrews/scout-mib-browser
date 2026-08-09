@@ -180,9 +180,7 @@ pub fn init_logging() -> Result<LogBuffer, String> {
 
 /// Returns the config directory path (`~/.config/scout`).
 pub fn config_dir() -> PathBuf {
-    dirs::config_dir()
-        .unwrap_or_else(PathBuf::new)
-        .join("scout")
+    dirs::config_dir().unwrap_or_default().join("scout")
 }
 
 /// Parses a single line from the rotating scout.log file into a LogEntry.
@@ -243,7 +241,7 @@ pub fn log_read(buffer: tauri::State<LogBuffer>) -> Vec<LogEntry> {
         let mut log_files: Vec<PathBuf> = std::fs::read_dir(&config_dir)
             .ok()
             .into_iter()
-            .flat_map(|d| d)
+            .flatten()
             .filter_map(|e| e.ok())
             .map(|e| e.path())
             .filter(|p| {
@@ -326,7 +324,7 @@ mod tests {
 
     #[test]
     fn test_parse_log_line_no_timestamp() {
-        let entry = parse_log_line("INFO scout_mib_browser::mib: loading MIB file");
+        let entry = parse_log_line("INFO scout_mib_browser::mib: loading MIB file", 0);
         assert!(entry.is_some());
         let e = entry.unwrap();
         assert_eq!(e.level, "INFO");
@@ -338,6 +336,7 @@ mod tests {
     fn test_parse_log_line_with_timestamp() {
         let entry = parse_log_line(
             "2026-08-09T12:34:56.789Z INFO scout_mib_browser::mib: loading MIB file",
+            0,
         );
         assert!(entry.is_some());
         let e = entry.unwrap();
@@ -348,7 +347,7 @@ mod tests {
 
     #[test]
     fn test_parse_log_line_empty() {
-        assert!(parse_log_line("").is_none());
-        assert!(parse_log_line("   ").is_none());
+        assert!(parse_log_line("", 0).is_none());
+        assert!(parse_log_line("   ", 0).is_none());
     }
 }
