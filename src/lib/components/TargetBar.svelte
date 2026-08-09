@@ -28,6 +28,14 @@
 
   const operations: SnmpOperation[] = ["get", "getNext", "walk", "bulkWalk", "set"];
 
+  const operationLabels: Record<SnmpOperation, string> = {
+    get: "Get",
+    getNext: "Get Next",
+    walk: "Walk",
+    bulkWalk: "Bulk Walk",
+    set: "Set",
+  };
+
   function onHostInput(e: Event) {
     const val = (e.target as HTMLInputElement).value;
     const next = { ...cfg, host: val };
@@ -432,7 +440,7 @@
     bind:value={S.snmpOperation}
   >
     {#each operations as op (op)}
-      <option value={op}>{op}</option>
+      <option value={op}>{operationLabels[op]}</option>
     {/each}
   </select>
 
