@@ -1,6 +1,5 @@
 <script lang="ts">
   import MIBPanel from "./MIBPanel.svelte";
-  import SelectionInfo from "./SelectionInfo.svelte";
   import ResultsPane from "./ResultsPane.svelte";
   import { S } from "$lib/stores.svelte";
 
@@ -51,7 +50,6 @@
     <div class="resize-grip-h mx-auto"></div>
   </div>
   <main class="flex flex-col flex-1 overflow-hidden min-w-0">
-    <SelectionInfo />
     <ResultsPane />
   </main>
 </div>

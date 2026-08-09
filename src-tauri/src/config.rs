@@ -102,6 +102,7 @@ impl V3PrivProtocol {
 }
 
 /// SNMPv3 security level.
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum V3SecurityLevel {

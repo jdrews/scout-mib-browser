@@ -55,11 +55,9 @@ pub fn extract_instance_suffix(column_oid: &str, binding_oid: &str) -> Option<St
     if binding_oid == column_oid {
         return Some("0".to_string());
     }
-    if let Some(suffix) = binding_oid.strip_prefix(&format!("{}.", column_oid)) {
-        Some(suffix.to_string())
-    } else {
-        None
-    }
+    binding_oid
+        .strip_prefix(&format!("{}.", column_oid))
+        .map(|suffix| suffix.to_string())
 }
 
 /// Assembles a grid of rows from per-column walk results.

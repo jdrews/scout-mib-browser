@@ -10,8 +10,6 @@ use super::table::*;
 use super::tolerant::*;
 use super::types::*;
 
-/// Batch size for walk streaming.
-
 /// Walk mode — determines which SNMP fetch operation is used.
 enum WalkMode {
     GetNext,
@@ -83,7 +81,7 @@ impl SnmpEngine {
         let root_oid = root_oid.to_string();
         let batch_ch = batch_channel;
         let complete_ch = complete_channel;
-        let cancel = cancel_token.map(|a| a.clone());
+        let cancel = cancel_token;
 
         let handle = self.runtime.spawn(async move {
             let result = Self::do_walk_loop(
@@ -136,7 +134,7 @@ impl SnmpEngine {
         let root_oid = root_oid.to_string();
         let batch_ch = batch_channel;
         let complete_ch = complete_channel;
-        let cancel = cancel_token.map(|a| a.clone());
+        let cancel = cancel_token;
 
         let handle = self.runtime.spawn(async move {
             let result = Self::do_walk_loop(
@@ -417,7 +415,7 @@ impl SnmpEngine {
         let mut retry_count: u32 = 0;
 
         loop {
-            if cancel_token.map_or(false, |t| t.load(Ordering::Acquire)) {
+            if cancel_token.is_some_and(|t| t.load(Ordering::Acquire)) {
                 info!("{} cancelled by user", op_name);
                 rs.partial = true;
                 return Ok(rs);
@@ -486,7 +484,7 @@ impl SnmpEngine {
                         warn!("{} network error — retrying in {:?}", op_name, delay);
                         tokio::time::sleep(delay).await;
 
-                        if cancel_token.map_or(false, |t| t.load(Ordering::Acquire)) {
+                        if cancel_token.is_some_and(|t| t.load(Ordering::Acquire)) {
                             info!("{} cancelled by user during retry", op_name);
                             rs.partial = true;
                             return Ok(rs);
@@ -531,7 +529,7 @@ impl SnmpEngine {
         // Parse OID once.
         let parsed_oid: Arc<snmp2::Oid<'static>> = Arc::new(
             oid.parse()
-                .map_err(|e| format!("Invalid OID '{}': {:?}", &oid, e))?,
+                .map_err(|e| format!("Invalid OID '{}': {:?}", oid, e))?,
         );
 
         // Inline retry loop.

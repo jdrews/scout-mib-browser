@@ -14,6 +14,12 @@ pub struct WalkCancelToken {
     handle: Arc<std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
 }
 
+impl Default for WalkCancelToken {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WalkCancelToken {
     pub fn new() -> Self {
         Self {
@@ -88,6 +94,7 @@ impl SnmpEngineState {
 
 fn main() {
     let log_buffer = log::init_logging().expect("failed to initialize logging");
+    tracing::info!("Scout MIB Browser started");
     let snmp_state = SnmpEngineState::new().expect("failed to create SNMP engine");
 
     let builder = tauri::Builder::default();

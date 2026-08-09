@@ -946,7 +946,7 @@ mod tests {
         let children = resolver.get_children("1.3.6.1.2.1.1");
         assert_eq!(children.len(), 2);
         assert_eq!(children[0].name, "sysObjectID"); // subtree first
-        assert!(children[0].has_children == false); // no grandchildren indexed
+        assert!(!children[0].has_children); // no grandchildren indexed
         assert_eq!(children[1].name, "sysDescr");
         assert!(!children[1].has_children);
     }
