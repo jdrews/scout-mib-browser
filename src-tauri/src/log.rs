@@ -24,6 +24,7 @@ pub struct LogEntry {
 #[derive(Clone)]
 pub struct LogBuffer {
     inner: Arc<Mutex<Vec<LogEntry>>>,
+    max_entries: usize,
 }
 
 impl Default for LogBuffer {
@@ -36,6 +37,7 @@ impl LogBuffer {
     pub fn new(max_entries: usize) -> Self {
         Self {
             inner: Arc::new(Mutex::new(Vec::with_capacity(max_entries))),
+            max_entries,
         }
     }
 
@@ -44,8 +46,8 @@ impl LogBuffer {
         let mut buf = self.inner.lock().unwrap();
         buf.push(entry);
         let len = buf.len();
-        if len > 2000 {
-            buf.drain(..len - 2000);
+        if len > self.max_entries {
+            buf.drain(..len - self.max_entries);
         }
     }
 
