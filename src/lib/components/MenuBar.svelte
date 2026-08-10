@@ -112,10 +112,14 @@
     {#if S.viewMenuOpen}
       <ul class="absolute top-full left-0 menu bg-base-100 rounded-box w-52 p-2 shadow-lg z-[1000] mt-1">
         <li>
-          <label class="flex items-center gap-2 px-4 py-2 cursor-pointer">
-            <input type="checkbox" checked={S.systemLogOpen} onchange={(e) => S.systemLogOpen = (e.target as HTMLInputElement).checked} class="checkbox checkbox-sm" />
-            <span>System Log</span>
-          </label>
+          <a onclick={(e) => { e.preventDefault(); e.stopPropagation(); S.systemLogOpen = !S.systemLogOpen; }}>
+            <span class="flex items-center gap-2">
+              {#if S.systemLogOpen}
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+              {/if}
+              <span class={S.systemLogOpen ? "text-primary" : ""}>System Log</span>
+            </span>
+          </a>
         </li>
       </ul>
     {/if}
