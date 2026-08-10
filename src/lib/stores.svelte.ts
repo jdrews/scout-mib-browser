@@ -15,6 +15,8 @@ const raw = $state({
   highlightedIndex: -1,
   manageMibsOpen: false,
   fileMenuOpen: false,
+  settingsMenuOpen: false,
+  viewMenuOpen: false,
   targetConfig: {
     host: "",
     port: 161,
