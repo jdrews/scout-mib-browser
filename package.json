@@ -16,7 +16,7 @@
     "sandcastle:run": "tsx .sandcastle/main.mts",
     "sandcastle:ticket": "tsx .sandcastle/main.mts",
     "test:e2e": "bash scripts/test-e2e.sh",
-    "test:e2e:build": "cargo build --manifest-path src-tauri/Cargo.toml && bash scripts/test-e2e.sh"
+    "test:e2e:build": "cargo build --workspace --features scout-mib-browser/wdio && bash scripts/test-e2e.sh"
   },
   "devDependencies": {
     "@ai-hero/sandcastle": "^0.12.0",

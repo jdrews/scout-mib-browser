@@ -1,0 +1,13 @@
+[package]
+name = "scout-mib"
+version = "0.1.0"
+description = "MIB parsing and OID resolution for Scout MIB Browser"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+mib-rs = "0.8"
+regex = "1"
+serde = "1"
+tracing = "0.1"
+walkdir = "2"
