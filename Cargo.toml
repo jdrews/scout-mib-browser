@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/scout-mib",
+    "crates/scout-snmp",
     "src-tauri",
 ]
 

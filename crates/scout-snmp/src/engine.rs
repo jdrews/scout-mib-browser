@@ -25,234 +25,33 @@ impl WalkMode {
     }
 }
 
-/// Core SNMP engine that executes operations against a Target with error tolerance.
-#[derive(Clone)]
-pub struct SnmpEngine {
-    runtime: Arc<tokio::runtime::Runtime>,
+/// Receives streamed walk results from the engine.
+///
+/// Implemented by the app crate to bridge to Tauri IPC channels. The pure
+/// crate never sees serialized JSON — the adapter owns serialization.
+pub trait WalkBatchSender: Send + Sync {
+    /// Sends one binding to the client. Returns `false` if the client is gone
+    /// (channel closed or serialization failed), in which case the engine stops walking.
+    fn send_binding(&self, binding: &VariableBinding) -> bool;
+
+    /// Sends the final result set (success or error summary).
+    fn send_complete(&self, result: &ResultSet);
 }
 
-impl SnmpEngine {
-    /// Creates a new engine backed by a dedicated multi-threaded tokio runtime.
-    pub fn new() -> Result<Self, String> {
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .thread_stack_size(4 * 1024 * 1024) // 4 MB for deep JSON serialization during large walks
-            .enable_all()
-            .build()
-            .map_err(|e| format!("Failed to create tokio runtime: {}", e))?;
+/// Core SNMP engine that executes operations against a Target with error tolerance.
+///
+/// The engine is stateless; the tokio runtime it runs on is owned by the app crate.
+#[derive(Clone)]
+pub struct SnmpEngine;
 
-        Ok(Self {
-            runtime: Arc::new(runtime),
-        })
+impl SnmpEngine {
+    /// Creates a new engine.
+    pub fn new() -> Self {
+        Self
     }
 
     /// Executes a Get operation for the given OIDs against the Target.
-    pub fn get(&self, target: &Target, oids: &[String]) -> Result<ResultSet, String> {
-        self.runtime.block_on(Self::do_get(target, oids))
-    }
-
-    /// Executes a GetNext operation for the given OIDs against the Target.
-    pub fn get_next(&self, target: &Target, oids: &[String]) -> Result<ResultSet, String> {
-        self.runtime.block_on(Self::do_get_next(target, oids))
-    }
-
-    /// Blocking helper for table walks (walks all columns then assembles grid).
-    fn bulk_walk_blocking(&self, target: &Target, root_oid: &str) -> Result<ResultSet, String> {
-        self.runtime.block_on(Self::do_walk_loop(
-            WalkMode::GetBulk,
-            target,
-            root_oid,
-            None,
-            None,
-        ))
-    }
-
-    /// Executes a streaming Walk operation with cancellation support. Returns the JoinHandle for aborting.
-    pub fn walk_streaming(
-        &self,
-        target: &Target,
-        root_oid: &str,
-        batch_channel: Option<tauri::ipc::Channel>,
-        complete_channel: Option<tauri::ipc::Channel>,
-        cancel_token: Option<Arc<AtomicBool>>,
-    ) -> Result<tokio::task::JoinHandle<()>, String> {
-        let mode = WalkMode::GetNext;
-        let target = target.clone();
-        let root_oid = root_oid.to_string();
-        let batch_ch = batch_channel;
-        let complete_ch = complete_channel;
-        let cancel = cancel_token;
-
-        let handle = self.runtime.spawn(async move {
-            let result = Self::do_walk_loop(
-                mode,
-                &target,
-                &root_oid,
-                batch_ch.as_ref(),
-                cancel.as_deref(),
-            )
-            .await;
-            match result {
-                Ok(rs) => {
-                    if let Some(ch) = complete_ch {
-                        let _ = ch.send(serde_json::to_string(&rs).unwrap_or_default().into());
-                    }
-                }
-                Err(e) => {
-                    warn!("Walk streaming error: {}", e);
-                    if let Some(ch) = complete_ch {
-                        let rs = ResultSet {
-                            bindings: Vec::new(),
-                            partial: true,
-                            warnings: vec![SnmpWarning {
-                                kind: "error".to_string(),
-                                message: e.clone(),
-                                oid: None,
-                            }],
-                            retries: 0,
-                        };
-                        let _ = ch.send(serde_json::to_string(&rs).unwrap_or_default().into());
-                    }
-                }
-            }
-        });
-
-        Ok(handle)
-    }
-
-    /// Executes a streaming BulkWalk operation with cancellation support. Returns the JoinHandle for aborting.
-    pub fn bulk_walk_streaming(
-        &self,
-        target: &Target,
-        root_oid: &str,
-        batch_channel: Option<tauri::ipc::Channel>,
-        complete_channel: Option<tauri::ipc::Channel>,
-        cancel_token: Option<Arc<AtomicBool>>,
-    ) -> Result<tokio::task::JoinHandle<()>, String> {
-        let mode = WalkMode::GetBulk;
-        let target = target.clone();
-        let root_oid = root_oid.to_string();
-        let batch_ch = batch_channel;
-        let complete_ch = complete_channel;
-        let cancel = cancel_token;
-
-        let handle = self.runtime.spawn(async move {
-            let result = Self::do_walk_loop(
-                mode,
-                &target,
-                &root_oid,
-                batch_ch.as_ref(),
-                cancel.as_deref(),
-            )
-            .await;
-            match result {
-                Ok(rs) => {
-                    if let Some(ch) = complete_ch {
-                        let _ = ch.send(serde_json::to_string(&rs).unwrap_or_default().into());
-                    }
-                }
-                Err(e) => {
-                    warn!("BulkWalk streaming error: {}", e);
-                    if let Some(ch) = complete_ch {
-                        let rs = ResultSet {
-                            bindings: Vec::new(),
-                            partial: true,
-                            warnings: vec![SnmpWarning {
-                                kind: "error".to_string(),
-                                message: e.clone(),
-                                oid: None,
-                            }],
-                            retries: 0,
-                        };
-                        let _ = ch.send(serde_json::to_string(&rs).unwrap_or_default().into());
-                    }
-                }
-            }
-        });
-
-        Ok(handle)
-    }
-
-    /// Executes a Set operation to write a value at the given OID.
-    pub fn set(&self, target: &Target, oid: &str, value: SetValue) -> Result<ResultSet, String> {
-        self.runtime.block_on(self.do_set(target, oid, value))
-    }
-
-    /// Walks all columns of a table and assembles results into a grid.
-    ///
-    /// Takes the table's root OID and column OIDs, BulkWalks each column,
-    /// then merges results by instance suffix into rows. Returns a [`TableResult`]
-    /// with best-effort merge for inconsistent data.
-    pub fn walk_table(
-        &self,
-        target: &Target,
-        table_oid: &str,
-        column_oids: &[String],
-    ) -> Result<TableResult, String> {
-        info!(
-            "WalkTable started on {} for {} ({} columns)",
-            target.addr(),
-            table_oid,
-            column_oids.len()
-        );
-        if column_oids.is_empty() {
-            return Ok(TableResult {
-                table_oid: table_oid.to_string(),
-                columns: Vec::new(),
-                rows: Vec::new(),
-                total_rows: 0,
-                missing_cells: 0,
-                warnings: Vec::new(),
-                partial: false,
-            });
-        }
-
-        let mut column_results: HashMap<String, Vec<VariableBinding>> = HashMap::new();
-        let mut all_warnings: Vec<SnmpWarning> = Vec::new();
-        let mut any_partial = false;
-
-        for col_oid in column_oids {
-            match self.bulk_walk_blocking(target, col_oid) {
-                Ok(rs) => {
-                    column_results.insert(col_oid.clone(), rs.bindings);
-                    all_warnings.extend(rs.warnings);
-                    any_partial |= rs.partial;
-                }
-                Err(e) => {
-                    warn!("Table walk failed for column {}: {}", col_oid, e);
-                    all_warnings.push(SnmpWarning {
-                        kind: "column-walk-error".to_string(),
-                        message: format!("Failed to walk column {}: {}", col_oid, e),
-                        oid: Some(col_oid.clone()),
-                    });
-                    any_partial = true;
-                }
-            }
-        }
-
-        let mut grid = assemble_table_grid(table_oid.to_string(), column_results);
-        grid.warnings.extend(all_warnings);
-        grid.partial = any_partial;
-        info!(
-            "WalkTable completed on {}: {} rows, {} missing cells",
-            target.addr(),
-            grid.total_rows,
-            grid.missing_cells
-        );
-        Ok(grid)
-    }
-
-    // ── Async implementations ────────────────────────────────────────────────
-
-    /// Extracts owned VariableBindings from a Pdu (consumes the iterator).
-    fn extract_bindings(pdu: snmp2::Pdu<'_>) -> Vec<VariableBinding> {
-        pdu.varbinds
-            .map(|(o, v)| binding_from_snmp(o.to_string(), v))
-            .collect()
-    }
-
-    /// Async Get operation — public so it can be called directly from Tauri's runtime.
-    pub async fn do_get(target: &Target, oids: &[String]) -> Result<ResultSet, String> {
+    pub async fn get(&self, target: &Target, oids: &[String]) -> Result<ResultSet, String> {
         info!("Get started on {} for {} OID(s)", target.addr(), oids.len());
         let target = target.clone();
         let oids_owned = oids.to_vec();
@@ -322,7 +121,8 @@ impl SnmpEngine {
         Err(format!("{:?}", e))
     }
 
-    async fn do_get_next(target: &Target, oids: &[String]) -> Result<ResultSet, String> {
+    /// Executes a GetNext operation for the given OIDs against the Target.
+    pub async fn get_next(&self, target: &Target, oids: &[String]) -> Result<ResultSet, String> {
         info!(
             "GetNext started on {} for {} OID(s)",
             target.addr(),
@@ -390,12 +190,218 @@ impl SnmpEngine {
         Ok(rs)
     }
 
+    /// Executes a streaming Walk operation with cancellation support. Returns the JoinHandle for aborting.
+    pub fn walk_streaming(
+        &self,
+        runtime: &tokio::runtime::Handle,
+        target: &Target,
+        root_oid: &str,
+        sender: Arc<dyn WalkBatchSender>,
+        cancel_token: Option<Arc<AtomicBool>>,
+    ) -> tokio::task::JoinHandle<()> {
+        let target = target.clone();
+        let root_oid = root_oid.to_string();
+
+        runtime.spawn(async move {
+            let result = Self::do_walk_loop(
+                WalkMode::GetNext,
+                &target,
+                &root_oid,
+                Some(sender.as_ref()),
+                cancel_token.as_deref(),
+            )
+            .await;
+            match result {
+                Ok(rs) => sender.send_complete(&rs),
+                Err(e) => {
+                    warn!("Walk streaming error: {}", e);
+                    sender.send_complete(&Self::error_result_set(e));
+                }
+            }
+        })
+    }
+
+    /// Executes a streaming BulkWalk operation with cancellation support. Returns the JoinHandle for aborting.
+    pub fn bulk_walk_streaming(
+        &self,
+        runtime: &tokio::runtime::Handle,
+        target: &Target,
+        root_oid: &str,
+        sender: Arc<dyn WalkBatchSender>,
+        cancel_token: Option<Arc<AtomicBool>>,
+    ) -> tokio::task::JoinHandle<()> {
+        let target = target.clone();
+        let root_oid = root_oid.to_string();
+
+        runtime.spawn(async move {
+            let result = Self::do_walk_loop(
+                WalkMode::GetBulk,
+                &target,
+                &root_oid,
+                Some(sender.as_ref()),
+                cancel_token.as_deref(),
+            )
+            .await;
+            match result {
+                Ok(rs) => sender.send_complete(&rs),
+                Err(e) => {
+                    warn!("BulkWalk streaming error: {}", e);
+                    sender.send_complete(&Self::error_result_set(e));
+                }
+            }
+        })
+    }
+
+    /// Executes a Set operation to write a value at the given OID.
+    pub async fn set(
+        &self,
+        target: &Target,
+        oid: &str,
+        value: SetValue,
+    ) -> Result<ResultSet, String> {
+        let target = target.clone();
+        let oid = oid.to_string();
+        let value_owned = value;
+        info!("Set started on {} for {}", target.addr(), oid);
+
+        // Parse OID once.
+        let parsed_oid: Arc<snmp2::Oid<'static>> = Arc::new(
+            oid.parse()
+                .map_err(|e| format!("Invalid OID '{}': {:?}", oid, e))?,
+        );
+
+        // Inline retry loop.
+        let mut last_err = None;
+        for attempt in 0..=MAX_RETRIES {
+            let t = target.clone();
+            let o = Arc::clone(&parsed_oid);
+            let v = value_owned.clone();
+            let result: Result<Vec<VariableBinding>, snmp2::Error> = (async {
+                let mut session = Self::connect(&t).await.map_err(|_| snmp2::Error::Receive)?;
+                let snmp_value = Self::set_value_to_snmp(v);
+                let pdu = session.set(&[(&o, snmp_value)]).await?;
+                Ok(Self::extract_bindings(pdu))
+            })
+            .await;
+
+            match result {
+                Ok(bindings) => {
+                    info!(
+                        "Set completed on {}: {} binding(s)",
+                        target.addr(),
+                        bindings.len()
+                    );
+                    let mut rs = ResultSet::new();
+                    rs.retries = attempt;
+                    rs.bindings = bindings;
+                    return Ok(rs);
+                }
+                Err(e) => {
+                    if is_retryable_error(&e) && attempt < MAX_RETRIES {
+                        let delay = backoff_delay(attempt);
+                        warn!(
+                            "Set network error on attempt {}/{} — retrying in {:?}",
+                            attempt + 1,
+                            MAX_RETRIES + 1,
+                            delay
+                        );
+                        tokio::time::sleep(delay).await;
+                    } else {
+                        last_err = Some(e);
+                        break;
+                    }
+                }
+            }
+        }
+
+        let e = last_err.unwrap_or(snmp2::Error::Receive);
+        warn!("Set failed after {} retries: {:?}", MAX_RETRIES, e);
+        let mut rs = ResultSet::new();
+        rs.retries = MAX_RETRIES;
+        rs.partial = true;
+        rs.warnings.push(error_to_warning(&e, Some(oid)));
+        Ok(rs)
+    }
+
+    /// Walks all columns of a table and assembles results into a grid.
+    ///
+    /// Takes the table's root OID and column OIDs, BulkWalks each column,
+    /// then merges results by instance suffix into rows. Returns a [`TableResult`]
+    /// with best-effort merge for inconsistent data.
+    pub async fn walk_table(
+        &self,
+        target: &Target,
+        table_oid: &str,
+        column_oids: &[String],
+    ) -> Result<TableResult, String> {
+        info!(
+            "WalkTable started on {} for {} ({} columns)",
+            target.addr(),
+            table_oid,
+            column_oids.len()
+        );
+        if column_oids.is_empty() {
+            return Ok(TableResult {
+                table_oid: table_oid.to_string(),
+                columns: Vec::new(),
+                rows: Vec::new(),
+                total_rows: 0,
+                missing_cells: 0,
+                warnings: Vec::new(),
+                partial: false,
+            });
+        }
+
+        let mut column_results: HashMap<String, Vec<VariableBinding>> = HashMap::new();
+        let mut all_warnings: Vec<SnmpWarning> = Vec::new();
+        let mut any_partial = false;
+
+        for col_oid in column_oids {
+            match Self::do_walk_loop(WalkMode::GetBulk, target, col_oid, None, None).await {
+                Ok(rs) => {
+                    column_results.insert(col_oid.clone(), rs.bindings);
+                    all_warnings.extend(rs.warnings);
+                    any_partial |= rs.partial;
+                }
+                Err(e) => {
+                    warn!("Table walk failed for column {}: {}", col_oid, e);
+                    all_warnings.push(SnmpWarning {
+                        kind: "column-walk-error".to_string(),
+                        message: format!("Failed to walk column {}: {}", col_oid, e),
+                        oid: Some(col_oid.clone()),
+                    });
+                    any_partial = true;
+                }
+            }
+        }
+
+        let mut grid = assemble_table_grid(table_oid.to_string(), column_results);
+        grid.warnings.extend(all_warnings);
+        grid.partial = any_partial;
+        info!(
+            "WalkTable completed on {}: {} rows, {} missing cells",
+            target.addr(),
+            grid.total_rows,
+            grid.missing_cells
+        );
+        Ok(grid)
+    }
+
+    // ── Async implementations ────────────────────────────────────────────────
+
+    /// Extracts owned VariableBindings from a Pdu (consumes the iterator).
+    fn extract_bindings(pdu: snmp2::Pdu<'_>) -> Vec<VariableBinding> {
+        pdu.varbinds
+            .map(|(o, v)| binding_from_snmp(o.to_string(), v))
+            .collect()
+    }
+
     /// Shared walk loop used by both Walk and BulkWalk.
     async fn do_walk_loop(
         mode: WalkMode,
         target: &Target,
         root_oid: &str,
-        channel: Option<&tauri::ipc::Channel>,
+        sender: Option<&dyn WalkBatchSender>,
         cancel_token: Option<&AtomicBool>,
     ) -> Result<ResultSet, String> {
         let op_name = mode.label();
@@ -445,18 +451,10 @@ impl SnmpEngine {
                         }
 
                         let binding = binding_from_snmp(oid_str.clone(), v);
-                        if let Some(ch) = channel {
-                            match serde_json::to_string(&binding) {
-                                Ok(json) => {
-                                    if let Err(e) = ch.send(json.into()) {
-                                        warn!("{} channel send failed: {:?}", op_name, e);
-                                        break;
-                                    }
-                                }
-                                Err(e) => {
-                                    warn!("{} serialization failed: {:?}", op_name, e);
-                                    break;
-                                }
+                        if let Some(s) = sender {
+                            if !s.send_binding(&binding) {
+                                warn!("{} client gone, stopping", op_name);
+                                break;
                             }
                         } else {
                             rs.bindings.push(binding);
@@ -515,78 +513,21 @@ impl SnmpEngine {
         Ok(rs)
     }
 
-    async fn do_set(
-        &self,
-        target: &Target,
-        oid_str: &str,
-        value: SetValue,
-    ) -> Result<ResultSet, String> {
-        let target = target.clone();
-        let oid = oid_str.to_string();
-        let value_owned = value;
-        info!("Set started on {} for {}", target.addr(), oid_str);
-
-        // Parse OID once.
-        let parsed_oid: Arc<snmp2::Oid<'static>> = Arc::new(
-            oid.parse()
-                .map_err(|e| format!("Invalid OID '{}': {:?}", oid, e))?,
-        );
-
-        // Inline retry loop.
-        let mut last_err = None;
-        for attempt in 0..=MAX_RETRIES {
-            let t = target.clone();
-            let o = Arc::clone(&parsed_oid);
-            let v = value_owned.clone();
-            let result: Result<Vec<VariableBinding>, snmp2::Error> = (async {
-                let mut session = Self::connect(&t).await.map_err(|_| snmp2::Error::Receive)?;
-                let snmp_value = Self::set_value_to_snmp(v);
-                let pdu = session.set(&[(&o, snmp_value)]).await?;
-                Ok(Self::extract_bindings(pdu))
-            })
-            .await;
-
-            match result {
-                Ok(bindings) => {
-                    info!(
-                        "Set completed on {}: {} binding(s)",
-                        target.addr(),
-                        bindings.len()
-                    );
-                    let mut rs = ResultSet::new();
-                    rs.retries = attempt;
-                    rs.bindings = bindings;
-                    return Ok(rs);
-                }
-                Err(e) => {
-                    if is_retryable_error(&e) && attempt < MAX_RETRIES {
-                        let delay = backoff_delay(attempt);
-                        warn!(
-                            "Set network error on attempt {}/{} — retrying in {:?}",
-                            attempt + 1,
-                            MAX_RETRIES + 1,
-                            delay
-                        );
-                        tokio::time::sleep(delay).await;
-                    } else {
-                        last_err = Some(e);
-                        break;
-                    }
-                }
-            }
-        }
-
-        let e = last_err.unwrap_or(snmp2::Error::Receive);
-        warn!("Set failed after {} retries: {:?}", MAX_RETRIES, e);
-        let mut rs = ResultSet::new();
-        rs.retries = MAX_RETRIES;
-        rs.partial = true;
-        rs.warnings
-            .push(error_to_warning(&e, Some(oid_str.to_string())));
-        Ok(rs)
-    }
-
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /// Builds a partial result set carrying a single error warning.
+    fn error_result_set(error: String) -> ResultSet {
+        ResultSet {
+            bindings: Vec::new(),
+            partial: true,
+            warnings: vec![SnmpWarning {
+                kind: "error".to_string(),
+                message: error,
+                oid: None,
+            }],
+            retries: 0,
+        }
+    }
 
     /// Establishes a connection to the Target and returns an AsyncSession.
     async fn connect(target: &Target) -> Result<snmp2::AsyncSession, String> {
@@ -721,7 +662,7 @@ mod tests {
 
     #[test]
     fn engine_new_succeeds() {
-        let engine = SnmpEngine::new().expect("engine should create");
+        let engine = SnmpEngine::new();
         drop(engine);
     }
 }

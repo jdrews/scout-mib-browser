@@ -1,12 +1,13 @@
 mod config;
 mod log;
-mod snmp;
 
 use scout_mib as mib;
+use scout_snmp as snmp;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use tauri::Manager;
+use tracing::warn;
 
 /// Shared cancellation token for in-progress walks.
 #[derive(Clone)]
@@ -79,17 +80,72 @@ impl MibResolverState {
     }
 }
 
-/// Thread-safe handle to the SNMP engine stored in Tauri app state.
+/// Thread-safe handle to the SNMP engine and its dedicated runtime, stored in Tauri app state.
 #[derive(Clone)]
 pub struct SnmpEngineState {
     inner: Arc<RwLock<snmp::SnmpEngine>>,
+    runtime: Arc<tokio::runtime::Runtime>,
 }
 
 impl SnmpEngineState {
     pub fn new() -> Result<Self, String> {
+        // 8MB worker stacks: snmp2's connection code can recurse deeply and
+        // overflow default tokio worker stacks (2MB).
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .thread_stack_size(8 * 1024 * 1024)
+            .enable_all()
+            .build()
+            .map_err(|e| format!("Failed to create tokio runtime: {}", e))?;
+
         Ok(Self {
-            inner: Arc::new(RwLock::new(snmp::SnmpEngine::new()?)),
+            inner: Arc::new(RwLock::new(snmp::SnmpEngine::new())),
+            runtime: Arc::new(runtime),
         })
+    }
+
+    /// Runs a future on the app-owned 8MB-stack runtime.
+    pub fn block_on<F: std::future::Future>(&self, fut: F) -> F::Output {
+        self.runtime.block_on(fut)
+    }
+
+    /// Owned handle to the app runtime for use inside spawned tasks.
+    pub fn runtime_arc(&self) -> Arc<tokio::runtime::Runtime> {
+        self.runtime.clone()
+    }
+
+    /// Handle for spawning long-running work (streaming walks) on the app runtime.
+    pub fn runtime_handle(&self) -> tokio::runtime::Handle {
+        self.runtime.handle().clone()
+    }
+}
+
+/// Bridges the engine's walk streaming to Tauri IPC channels.
+struct ChannelWalkSender {
+    batch: tauri::ipc::Channel,
+    complete: tauri::ipc::Channel,
+}
+
+impl snmp::WalkBatchSender for ChannelWalkSender {
+    fn send_binding(&self, binding: &snmp::VariableBinding) -> bool {
+        match serde_json::to_string(binding) {
+            Ok(json) => self.batch.send(json.into()).is_ok(),
+            Err(e) => {
+                warn!("Walk batch serialization failed: {}", e);
+                false
+            }
+        }
+    }
+
+    fn send_complete(&self, result: &snmp::ResultSet) {
+        match serde_json::to_string(result) {
+            Ok(json) => {
+                if let Err(e) = self.complete.send(json.into()) {
+                    warn!("Walk complete channel send failed: {}", e);
+                }
+            }
+            Err(e) => warn!("Walk complete serialization failed: {}", e),
+        }
     }
 }
 
@@ -280,34 +336,26 @@ fn mib_oid_name_map(
 /// Tests connectivity to a Target (async — runs off the main thread).
 #[tauri::command]
 async fn snmp_connect(
-    _engine: tauri::State<'_, SnmpEngineState>,
+    engine_state: tauri::State<'_, SnmpEngineState>,
     params: SnmpCommandParams,
 ) -> Result<snmp::ResultSet, String> {
     let target = build_target(&params);
     let oids: Vec<String> = vec!["1.3.6.1.2.1.1.9.1.5.0".to_string()];
 
-    // Run on a dedicated OS thread with normal 8MB stack to avoid tokio worker
+    // Run on the app-owned runtime (8MB worker stacks) to avoid tokio worker
     // stack overflow inside snmp2's connection code (which can recurse deeply).
-    let target_clone = target.clone();
-    let oids_clone = oids.clone();
-    let handle = std::thread::Builder::new()
-        .stack_size(8 * 1024 * 1024) // 8MB — default OS thread stack
-        .spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| format!("Failed to create runtime: {}", e))?;
-            rt.block_on(snmp::SnmpEngine::do_get(&target_clone, &oids_clone))
-        })
-        .map_err(|e| format!("Failed to spawn thread: {}", e))?;
+    let engine = engine_state
+        .inner
+        .read()
+        .map_err(|e| e.to_string())?
+        .clone();
+    let runtime = engine_state.runtime_arc();
+    let join_handle =
+        tokio::task::spawn_blocking(move || runtime.block_on(engine.get(&target, &oids)));
 
-    // Await the thread completion with a timeout.
-    let join_handle = tokio::task::spawn_blocking(move || handle.join());
-
+    // Await completion with a timeout.
     match tokio::time::timeout(std::time::Duration::from_secs(10), join_handle).await {
-        Ok(Ok(Ok(Ok(rs)))) => Ok(rs),
-        Ok(Ok(Ok(Err(e)))) => Err(e),
-        Ok(Ok(Err(_join_err))) => Err("Connection thread panicked".to_string()),
+        Ok(Ok(rs)) => rs,
         Ok(Err(join_err)) => Err(format!("Task panicked: {}", join_err)),
         Err(_timeout) => Err("Connection timed out (10s)".to_string()),
     }
@@ -316,25 +364,33 @@ async fn snmp_connect(
 /// Executes a Get operation for the given OIDs.
 #[tauri::command]
 fn snmp_get(
-    engine: tauri::State<SnmpEngineState>,
+    engine_state: tauri::State<SnmpEngineState>,
     params: SnmpCommandParams,
     oids: Vec<String>,
 ) -> Result<snmp::ResultSet, String> {
     let target = build_target(&params);
-    let engine = engine.inner.read().map_err(|e| e.to_string())?;
-    engine.get(&target, &oids)
+    let engine = engine_state
+        .inner
+        .read()
+        .map_err(|e| e.to_string())?
+        .clone();
+    engine_state.block_on(engine.get(&target, &oids))
 }
 
 /// Executes a GetNext operation for the given OIDs.
 #[tauri::command]
 fn snmp_get_next(
-    engine: tauri::State<SnmpEngineState>,
+    engine_state: tauri::State<SnmpEngineState>,
     params: SnmpCommandParams,
     oids: Vec<String>,
 ) -> Result<snmp::ResultSet, String> {
     let target = build_target(&params);
-    let engine = engine.inner.read().map_err(|e| e.to_string())?;
-    engine.get_next(&target, &oids)
+    let engine = engine_state
+        .inner
+        .read()
+        .map_err(|e| e.to_string())?
+        .clone();
+    engine_state.block_on(engine.get_next(&target, &oids))
 }
 
 /// Executes a Walk operation from the given root OID (streaming via channels).
@@ -355,13 +411,17 @@ async fn snmp_walk_streaming(
         .map_err(|e| e.to_string())?
         .clone();
     let cancel = (*cancel_token).inner();
+    let sender = Arc::new(ChannelWalkSender {
+        batch: batch_channel,
+        complete: complete_channel,
+    });
     let handle = engine.walk_streaming(
+        &engine_state.runtime_handle(),
         &target,
         &root_oid,
-        Some(batch_channel),
-        Some(complete_channel),
+        sender,
         Some(cancel),
-    )?;
+    );
     cancel_token.set_handle(handle);
     Ok(())
 }
@@ -387,13 +447,17 @@ async fn snmp_bulk_walk_streaming(
         .map_err(|e| e.to_string())?
         .clone();
     let cancel = (*cancel_token).inner();
+    let sender = Arc::new(ChannelWalkSender {
+        batch: batch_channel,
+        complete: complete_channel,
+    });
     let handle = engine.bulk_walk_streaming(
+        &engine_state.runtime_handle(),
         &target,
         &root_oid,
-        Some(batch_channel),
-        Some(complete_channel),
+        sender,
         Some(cancel),
-    )?;
+    );
     cancel_token.set_handle(handle);
     Ok(())
 }
@@ -407,7 +471,7 @@ fn snmp_cancel_walk(cancel_token: tauri::State<'_, WalkCancelToken>) {
 /// Executes a Set operation to write a value at the given OID.
 #[tauri::command]
 fn snmp_set(
-    engine: tauri::State<SnmpEngineState>,
+    engine_state: tauri::State<SnmpEngineState>,
     params: SnmpCommandParams,
     oid: String,
     value_type: String,
@@ -415,21 +479,29 @@ fn snmp_set(
 ) -> Result<snmp::ResultSet, String> {
     let target = build_target(&params);
     let set_value = parse_set_value(&value_type, &value)?;
-    let engine = engine.inner.read().map_err(|e| e.to_string())?;
-    engine.set(&target, &oid, set_value)
+    let engine = engine_state
+        .inner
+        .read()
+        .map_err(|e| e.to_string())?
+        .clone();
+    engine_state.block_on(engine.set(&target, &oid, set_value))
 }
 
 /// Walks all columns of a table and returns results as a pivoted grid.
 #[tauri::command]
 fn snmp_walk_table(
-    engine: tauri::State<SnmpEngineState>,
+    engine_state: tauri::State<SnmpEngineState>,
     params: SnmpCommandParams,
     table_oid: String,
     column_oids: Vec<String>,
 ) -> Result<snmp::TableResult, String> {
     let target = build_target(&params);
-    let engine = engine.inner.read().map_err(|e| e.to_string())?;
-    engine.walk_table(&target, &table_oid, &column_oids)
+    let engine = engine_state
+        .inner
+        .read()
+        .map_err(|e| e.to_string())?
+        .clone();
+    engine_state.block_on(engine.walk_table(&target, &table_oid, &column_oids))
 }
 
 // ── File System Commands ─────────────────────────────────────────────────────
