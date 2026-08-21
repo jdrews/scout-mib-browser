@@ -1,13 +1,31 @@
 //! Mock SNMP server for testing without real network devices.
 //!
-//! Implements a minimal UDP-based SNMP responder that handles Get, GetNext,
-//! and Set requests with configurable responses. Useful for unit tests
-//! that need to verify the engine's behavior end-to-end.
+//! Implements a minimal UDP-based SNMPv2c responder that handles Get,
+//! GetNext, GetBulk, and Set requests. Requests are parsed with a proper
+//! BER TLV walk (multi-byte lengths, variable-width INTEGERs) so the mock
+//! interoperates with real client encodings; responses echo the request ID
+//! exactly as sent.
 
 use std::collections::HashMap;
 use std::net::{SocketAddr, UdpSocket};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
+
+// PDU tags (RFC 3416 §3, constructed APPLICATION class):
+// get-request [0], get-next-request [1], response [2], set-request [3],
+// [4] obsolete, get-bulk-request [5].
+const TAG_GET_REQUEST: u8 = 0xA0;
+const TAG_GET_NEXT_REQUEST: u8 = 0xA1;
+const TAG_RESPONSE: u8 = 0xA2;
+const TAG_SET_REQUEST: u8 = 0xA3;
+const TAG_GET_BULK_REQUEST: u8 = 0xA5;
+
+// Exception value tags (RFC 3416 §3, primitive APPLICATION class):
+// noSuchObject [0], noSuchInstance [1], endOfMibView [2].
+const TAG_NO_SUCH_INSTANCE: u8 = 0x81;
+const TAG_END_OF_MIB_VIEW: u8 = 0x82;
 
 /// Mock SNMP server that listens on a UDP port and responds to requests.
 pub struct MockSnmpServer {
@@ -24,26 +42,35 @@ struct MockServerInner {
     community: Vec<u8>,
     /// Number of requests received.
     request_count: u64,
+    /// Set on drop so the serve loop exits promptly.
+    stop: AtomicBool,
 }
 
 impl MockSnmpServer {
     /// Starts a mock SNMP server on the given port with default data.
+    /// Port 0 binds to an ephemeral port; see [`MockSnmpServer::addr`].
     pub fn new(port: u16) -> Self {
         let socket = UdpSocket::bind(format!("127.0.0.1:{}", port))
             .expect("Failed to bind UDP socket for mock server");
-        socket.set_nonblocking(false).ok();
+        socket
+            .set_read_timeout(Some(Duration::from_millis(100)))
+            .ok();
 
         let addr = socket.local_addr().unwrap();
         let inner = Arc::new(Mutex::new(MockServerInner {
             data: Self::default_mib_data(),
             community: b"public".to_vec(),
             request_count: 0,
+            stop: AtomicBool::new(false),
         }));
 
         // Spawn a background thread to handle requests.
+        let serve_socket = socket
+            .try_clone()
+            .expect("Failed to clone UDP socket for mock server");
         let inner_clone = Arc::clone(&inner);
         thread::spawn(move || {
-            Self::serve(socket, inner_clone);
+            Self::serve(serve_socket, inner_clone);
         });
 
         Self { addr, inner }
@@ -96,7 +123,7 @@ impl MockSnmpServer {
             Self::ber_octet_string(b"test-router"),
         );
 
-        // ifNumber (1.3.6.1.2.1.1.2.0) = 4 interfaces
+        // ifNumber (1.3.6.1.2.1.2.1.0) = 4 interfaces
         data.insert("1.3.6.1.2.1.2.1.0".to_string(), Self::ber_integer(4));
 
         // ifDescr entries for walk testing
@@ -131,71 +158,69 @@ impl MockSnmpServer {
     fn serve(socket: UdpSocket, inner: Arc<Mutex<MockServerInner>>) {
         let mut buf = [0u8; 65536];
         loop {
+            if inner.lock().unwrap().stop.load(Ordering::Acquire) {
+                break;
+            }
             match socket.recv_from(&mut buf) {
                 Ok((len, client_addr)) => {
                     let response = Self::handle_request(&buf[..len], &inner);
                     let _ = socket.send_to(&response, client_addr);
                 }
-                Err(e) => {
-                    // Non-fatal — server may be dropped.
-                    if e.kind() != std::io::ErrorKind::WouldBlock {
-                        break;
-                    }
-                }
+                Err(e) => match e.kind() {
+                    // Read timeout — loop back and re-check the stop flag.
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut => continue,
+                    // Socket closed or other fatal error — exit.
+                    _ => break,
+                },
             }
         }
     }
 
-    /// Handles an incoming SNMP request and returns a response PDU.
+    /// Handles an incoming SNMP request and returns a response message.
     fn handle_request(request: &[u8], inner: &Arc<Mutex<MockServerInner>>) -> Vec<u8> {
         let mut state = inner.lock().unwrap();
         state.request_count += 1;
 
-        // Parse the community string from the request (simplified).
-        if !Self::community_matches(request, &state.community) {
-            return Self::build_error_response(request);
-        }
-
-        // Extract OIDs from the request varbinds.
-        let oids = Self::extract_request_oids(request);
-        if oids.is_empty() {
-            return Self::build_error_response(request);
-        }
-
-        // Determine message type (Get, GetNext, Set).
-        let msg_type = Self::extract_message_type(request);
-
-        match msg_type {
-            MessageType::Get => Self::build_get_response(request, &oids, &state.data),
-            MessageType::GetNext | MessageType::GetBulk => {
-                Self::build_getnext_response(request, &oids, &state.data)
-            }
-            MessageType::Set => Self::build_set_response(request, &oids, &mut state.data),
-            _ => Self::build_error_response(request),
+        match Self::parse_request(request) {
+            Some(parsed) => match parsed.msg_type {
+                MessageType::Get => Self::build_get_response(&parsed, &state.data),
+                MessageType::GetNext | MessageType::GetBulk => {
+                    Self::build_getnext_response(&parsed, &state.data)
+                }
+                MessageType::Set => Self::build_set_response(&parsed, &mut state.data),
+            },
+            None => Self::build_error_response(request),
         }
     }
 
     // ── BER helpers ────────────────────────────────────────────────────────
 
-    /// Encodes a value as BER INTEGER.
-    fn ber_integer(val: i32) -> Vec<u8> {
-        let mut result = vec![0x02, 0x04]; // tag, length
-        result.push(((val >> 24) & 0xFF) as u8);
-        result.push(((val >> 16) & 0xFF) as u8);
-        result.push(((val >> 8) & 0xFF) as u8);
-        result.push((val & 0xFF) as u8);
+    /// Encodes a value as BER INTEGER (minimal two's-complement form).
+    pub fn ber_integer(val: i32) -> Vec<u8> {
+        let mut bytes = val.to_be_bytes().to_vec();
+        while bytes.len() > 1 {
+            // Strip redundant sign-extension bytes (keep one).
+            let redundant = (bytes[0] == 0 && (bytes[1] & 0x80) == 0)
+                || (bytes[0] == 0xFF && (bytes[1] & 0x80) != 0);
+            if !redundant {
+                break;
+            }
+            bytes.remove(0);
+        }
+        let mut result = vec![0x02, bytes.len() as u8];
+        result.extend_from_slice(&bytes);
         result
     }
 
     /// Encodes a value as BER OCTET STRING.
-    fn ber_octet_string(data: &[u8]) -> Vec<u8> {
+    pub fn ber_octet_string(data: &[u8]) -> Vec<u8> {
         let mut result = vec![0x04, data.len() as u8]; // tag, length
         result.extend_from_slice(data);
         result
     }
 
     /// Encodes a value as BER OBJECT IDENTIFIER.
-    fn ber_oid(components: &[u64]) -> Vec<u8> {
+    pub fn ber_oid(components: &[u64]) -> Vec<u8> {
         let mut encoded = Vec::new();
         if components.len() >= 2 {
             encoded.push((components[0] * 40 + components[1]) as u8);
@@ -221,7 +246,7 @@ impl MockSnmpServer {
     }
 
     /// Encodes a value as BER TIMETICKS.
-    fn ber_timeticks(val: u32) -> Vec<u8> {
+    pub fn ber_timeticks(val: u32) -> Vec<u8> {
         let mut result = vec![0x43, 0x04]; // tag, length
         result.push(((val >> 24) & 0xFF) as u8);
         result.push(((val >> 16) & 0xFF) as u8);
@@ -230,93 +255,134 @@ impl MockSnmpServer {
         result
     }
 
-    // ── SNMP message parsing (simplified) ──────────────────────────────────
-
-    /// Checks if the community string in the request matches.
-    fn community_matches(_request: &[u8], _community: &[u8]) -> bool {
-        // Simplified — always accept for testing.
-        true
+    /// Encodes a BER length (single- or multi-byte form).
+    fn ber_length(len: usize) -> Vec<u8> {
+        if len < 0x80 {
+            return vec![len as u8];
+        }
+        let mut bytes = Vec::new();
+        let mut v = len;
+        while v > 0 {
+            bytes.push((v & 0xFF) as u8);
+            v >>= 8;
+        }
+        bytes.reverse();
+        let mut result = vec![0x80 | bytes.len() as u8];
+        result.extend_from_slice(&bytes);
+        result
     }
 
-    /// Extracts OIDs from a request's varbind list.
-    fn extract_request_oids(request: &[u8]) -> Vec<String> {
-        let mut oids = Vec::new();
+    // ── Request parsing ────────────────────────────────────────────────────
 
-        // Find the varbind sequence (look for 0x30 after PDU header).
-        if let Some(start) = Self::find_varbind_start(request) {
-            let mut pos = start;
-            while pos + 4 < request.len() {
-                // Each varbind is a SEQUENCE (0x30).
-                if request[pos] != 0x30 {
-                    break;
-                }
-                let vb_len = request[pos + 1] as usize;
-                pos += 2;
+    /// Parses an SNMPv2c request message via a proper BER TLV walk.
+    fn parse_request(request: &[u8]) -> Option<ParsedRequest> {
+        let mut ber = Ber::new(request);
 
-                // Inside the varbind, find the OID (0x06).
-                while pos < start + vb_len && pos < request.len() {
-                    if request[pos] == 0x06 {
-                        let oid_len = request[pos + 1] as usize;
-                        let oid_bytes = &request[pos + 2..pos + 2 + oid_len];
-                        oids.push(Self::decode_oid_string(oid_bytes));
-                        break;
-                    }
-                    pos += 1;
-                }
+        // Outer SEQUENCE — cursor now points at its contents.
+        let (tag, _start, end) = ber.tlv()?;
+        if tag != 0x30 || end != request.len() {
+            return None;
+        }
 
-                pos += vb_len;
+        // version INTEGER.
+        let (tag, _, v_end) = ber.tlv()?;
+        if tag != 0x02 {
+            return None;
+        }
+        ber.seek(v_end);
+
+        // community OCTET STRING.
+        let (tag, c_start, c_end) = ber.tlv()?;
+        if tag != 0x04 {
+            return None;
+        }
+        let community = request[c_start..c_end].to_vec();
+        ber.seek(c_end);
+
+        // PDU (constructed APPLICATION).
+        let (pdu_tag, pdu_start, pdu_end) = ber.tlv()?;
+        let msg_type = match pdu_tag {
+            TAG_GET_REQUEST => MessageType::Get,
+            TAG_GET_NEXT_REQUEST => MessageType::GetNext,
+            TAG_SET_REQUEST => MessageType::Set,
+            TAG_GET_BULK_REQUEST => MessageType::GetBulk,
+            _ => return None,
+        };
+
+        let pdu = &request[pdu_start..pdu_end];
+        let mut inner = Ber::new(pdu);
+
+        // request-id INTEGER — keep the full TLV for echoing.
+        let id_pos = inner.pos;
+        let (tag, _, id_end) = inner.tlv()?;
+        if tag != 0x02 {
+            return None;
+        }
+        let request_id = pdu[id_pos..id_end].to_vec();
+        inner.seek(id_end);
+
+        // BulkPDU is { request-id, non-repeaters, max-repetitions, varbinds };
+        // every other PDU is { request-id, error-status, error-index, varbinds }.
+        for _ in 0..2 {
+            let (tag, _, e) = inner.tlv()?;
+            if tag != 0x02 {
+                return None;
             }
+            inner.seek(e);
         }
 
-        oids
-    }
+        // varbind list: SEQUENCE OF.
+        let (tag, vb_start, vb_end) = inner.tlv()?;
+        if tag != 0x30 {
+            return None;
+        }
+        let vb_list = &pdu[vb_start..vb_end];
+        let mut vbs = Ber::new(vb_list);
 
-    /// Finds the start of the varbind list in a request.
-    fn find_varbind_start(request: &[u8]) -> Option<usize> {
-        // SNMP PDU structure: version(3) + community(varies) + PDU type + req_id(5) + err_status(3) + err_index(3) + varbinds
-        if request.len() < 10 {
+        let mut oids = Vec::new();
+        while vbs.pos < vbs.bytes.len() {
+            let (tag, s, e) = vbs.tlv()?;
+            if tag != 0x30 {
+                return None;
+            }
+            let vb = &vbs.bytes[s..e];
+            let mut vb_ber = Ber::new(vb);
+
+            // OID.
+            let (tag, o_start, o_end) = vb_ber.tlv()?;
+            if tag != 0x06 {
+                return None;
+            }
+            let oid = Self::decode_oid_string(&vb[o_start..o_end]);
+
+            // Value TLV — present only in Set requests.
+            let value = if msg_type == MessageType::Set {
+                vb_ber.seek(o_end);
+                let value_pos = vb_ber.pos;
+                let (_, _, v_end) = vb_ber.tlv()?;
+                Some(vb[value_pos..v_end].to_vec())
+            } else {
+                None
+            };
+
+            oids.push((oid, value));
+            vbs.seek(e);
+        }
+
+        if oids.is_empty() {
             return None;
         }
 
-        // Skip version (3 bytes).
-        let mut pos = 3;
-
-        // Skip community string.
-        if pos >= request.len() {
-            return None;
-        }
-        let comm_len = request[pos + 1] as usize;
-        pos += 2 + comm_len;
-
-        // PDU type byte (0xA0=Get, 0xA1=GetNext, 0xA3=Set).
-        if pos >= request.len() {
-            return None;
-        }
-        pos += 1;
-
-        // Skip PDU length.
-        if pos >= request.len() {
-            return None;
-        }
-        let _pdu_len = request[pos] as usize;
-        pos += 1;
-
-        // Skip req_id (5 bytes: tag + len + 4 bytes).
-        pos += 5;
-        // Skip err_status (3 bytes).
-        pos += 3;
-        // Skip err_index (3 bytes).
-        pos += 3;
-
-        if pos < request.len() {
-            Some(pos)
-        } else {
-            None
-        }
+        Some(ParsedRequest {
+            msg_type,
+            request_id,
+            community,
+            oids,
+        })
     }
 
     /// Decodes BER OID bytes to dotted-decimal string.
-    fn decode_oid_string(bytes: &[u8]) -> String {
+    pub fn decode_oid_string(bytes: &[u8]) -> String {
         if bytes.is_empty() {
             return "0.0".to_string();
         }
@@ -343,160 +409,110 @@ impl MockSnmpServer {
         parts.join(".")
     }
 
-    /// Extracts the SNMP message type from a request.
-    fn extract_message_type(request: &[u8]) -> MessageType {
-        // Find PDU type byte (after version + community).
-        if request.len() < 5 {
-            return MessageType::Unknown;
-        }
-
-        let mut pos = 3; // Skip version.
-        if pos >= request.len() {
-            return MessageType::Unknown;
-        }
-        let comm_len = request[pos + 1] as usize;
-        pos += 2 + comm_len;
-
-        if pos >= request.len() {
-            return MessageType::Unknown;
-        }
-
-        match request[pos] {
-            0xA0 => MessageType::Get,
-            0xA1 => MessageType::GetNext,
-            0xA3 => MessageType::Set,
-            0xA4 => MessageType::GetBulk,
-            _ => MessageType::Unknown,
-        }
-    }
-
     // ── Response builders ──────────────────────────────────────────────────
 
     /// Builds a Get response with values from the data store.
-    fn build_get_response(
-        request: &[u8],
-        oids: &[String],
-        data: &HashMap<String, Vec<u8>>,
-    ) -> Vec<u8> {
+    fn build_get_response(parsed: &ParsedRequest, data: &HashMap<String, Vec<u8>>) -> Vec<u8> {
         let mut varbinds = Vec::new();
 
-        for oid in oids {
-            if let Some(value) = data.get(oid) {
-                // Build varbind: SEQUENCE + OID + value.
-                let oid_ber = Self::ber_oid_from_string(oid);
-                let vb_data = [&oid_ber[..], value.as_slice()].concat();
-                varbinds.push(vec![0x30, vb_data.len() as u8]);
-                varbinds.push(vb_data);
-            } else {
-                // NoSuchInstance.
-                varbinds.push(vec![0x30, 0x09]);
-                let oid_ber = Self::ber_oid_from_string(oid);
-                varbinds.push(oid_ber);
-                varbinds.push(vec![0x81, 0x00]); // NoSuchInstance
+        for (oid, _) in &parsed.oids {
+            match data.get(oid) {
+                Some(value) => {
+                    let oid_ber = Self::ber_oid_from_string(oid);
+                    let vb_data = [&oid_ber[..], value.as_slice()].concat();
+                    varbinds.push(Self::tlv(0x30, &vb_data));
+                }
+                None => {
+                    // NoSuchInstance.
+                    let oid_ber = Self::ber_oid_from_string(oid);
+                    let vb_data = [&oid_ber[..], &[TAG_NO_SUCH_INSTANCE, 0x00]].concat();
+                    varbinds.push(Self::tlv(0x30, &vb_data));
+                }
             }
         }
 
-        let vb_list: Vec<u8> = varbinds.concat();
-        Self::build_response_pdu(request, &vb_list)
+        Self::build_response_pdu(parsed, &varbinds.concat())
     }
 
-    /// Builds a GetNext response with the next OID after each requested OID.
-    fn build_getnext_response(
-        request: &[u8],
-        oids: &[String],
-        data: &HashMap<String, Vec<u8>>,
-    ) -> Vec<u8> {
+    /// Builds a GetNext/GetBulk response with the next OID after each requested OID.
+    fn build_getnext_response(parsed: &ParsedRequest, data: &HashMap<String, Vec<u8>>) -> Vec<u8> {
         let mut varbinds = Vec::new();
 
-        for oid in oids {
-            // Find the next OID after the requested one.
-            if let Some(next) = Self::find_next_oid(oid, data) {
-                let (next_oid, value) = next;
-                let oid_ber = Self::ber_oid_from_string(&next_oid);
-                let vb_data = [&oid_ber[..], value.as_slice()].concat();
-                varbinds.push(vec![0x30, vb_data.len() as u8]);
-                varbinds.push(vb_data);
-            } else {
-                // EndOfMibView.
-                varbinds.push(vec![0x30, 0x09]);
-                let oid_ber = Self::ber_oid_from_string(oid);
-                varbinds.push(oid_ber);
-                varbinds.push(vec![0x80, 0x00]); // EndOfMibView
+        for (oid, _) in &parsed.oids {
+            match Self::find_next_oid(oid, data) {
+                Some((next_oid, value)) => {
+                    let oid_ber = Self::ber_oid_from_string(&next_oid);
+                    let vb_data = [&oid_ber[..], value.as_slice()].concat();
+                    varbinds.push(Self::tlv(0x30, &vb_data));
+                }
+                None => {
+                    // EndOfMibView.
+                    let oid_ber = Self::ber_oid_from_string(oid);
+                    let vb_data = [&oid_ber[..], &[TAG_END_OF_MIB_VIEW, 0x00]].concat();
+                    varbinds.push(Self::tlv(0x30, &vb_data));
+                }
             }
         }
 
-        let vb_list: Vec<u8> = varbinds.concat();
-        Self::build_response_pdu(request, &vb_list)
+        Self::build_response_pdu(parsed, &varbinds.concat())
     }
 
     /// Builds a Set response echoing back the set values.
-    fn build_set_response(
-        request: &[u8],
-        oids: &[String],
-        data: &mut HashMap<String, Vec<u8>>,
-    ) -> Vec<u8> {
+    fn build_set_response(parsed: &ParsedRequest, data: &mut HashMap<String, Vec<u8>>) -> Vec<u8> {
         let mut varbinds = Vec::new();
 
-        for oid in oids {
-            // For Set, we'd extract the value from the request and store it.
-            // Simplified: just echo back with success.
-            let value = data
-                .get(oid)
-                .cloned()
-                .unwrap_or_else(|| Self::ber_integer(0));
+        for (oid, value) in &parsed.oids {
+            // Store the raw value so subsequent Gets return it.
+            if let Some(v) = value {
+                data.insert(oid.clone(), v.clone());
+            }
+            let echoed = value.clone().unwrap_or_else(|| Self::ber_integer(0));
             let oid_ber = Self::ber_oid_from_string(oid);
-            let vb_data = [&oid_ber[..], value.as_slice()].concat();
-            varbinds.push(vec![0x30, vb_data.len() as u8]);
-            varbinds.push(vb_data);
+            let vb_data = [&oid_ber[..], echoed.as_slice()].concat();
+            varbinds.push(Self::tlv(0x30, &vb_data));
         }
 
-        let vb_list: Vec<u8> = varbinds.concat();
-        Self::build_response_pdu(request, &vb_list)
+        Self::build_response_pdu(parsed, &varbinds.concat())
     }
 
-    /// Builds an error response.
+    /// Builds an error response (noError status, empty varbind list).
     fn build_error_response(request: &[u8]) -> Vec<u8> {
-        // Return empty varbind list with error status.
-        let vb_list = vec![0x30, 0x00]; // Empty SEQUENCE
-        Self::build_response_pdu(request, &vb_list)
+        // Best effort: echo what we can from a malformed request.
+        let parsed = Self::parse_request(request);
+        match parsed {
+            Some(p) => Self::build_response_pdu(&p, b""),
+            None => Vec::new(),
+        }
     }
 
-    /// Builds the response PDU wrapper around varbind data.
-    fn build_response_pdu(_request: &[u8], vb_list: &[u8]) -> Vec<u8> {
+    /// Builds the response message wrapper around a varbind list.
+    fn build_response_pdu(parsed: &ParsedRequest, vb_list: &[u8]) -> Vec<u8> {
         let mut pdu = Vec::new();
+        pdu.extend_from_slice(&parsed.request_id); // echo request-id verbatim
+        pdu.extend_from_slice(&[0x02, 0x01, 0x00]); // error status = noError
+        pdu.extend_from_slice(&[0x02, 0x01, 0x00]); // error index = 0
+        pdu.extend_from_slice(&Self::tlv(0x30, vb_list)); // VarBindList SEQUENCE
 
-        // SNMPv2c version.
-        pdu.extend_from_slice(&[0x02, 0x01, 0x01]); // INTEGER, len=1, value=1 (V2C)
+        let mut message = Vec::new();
+        message.extend_from_slice(&[0x02, 0x01, 0x01]); // version = v2c
+        message.push(0x04); // community OCTET STRING
+        message.extend_from_slice(&Self::ber_length(parsed.community.len()));
+        message.extend_from_slice(&parsed.community);
+        message.push(TAG_RESPONSE);
+        message.extend_from_slice(&Self::ber_length(pdu.len()));
+        message.extend_from_slice(&pdu);
 
-        // Community string "public".
-        pdu.push(0x04); // OCTET STRING tag
-        pdu.push(b"public".len() as u8);
-        pdu.extend_from_slice(b"public");
+        let mut result = vec![0x30];
+        result.extend_from_slice(&Self::ber_length(message.len()));
+        result.extend_from_slice(&message);
+        result
+    }
 
-        // Response PDU type.
-        pdu.push(0xA1); // Response
-
-        // PDU length (req_id + err_status + err_index + varbinds).
-        let pdu_len = 5 + 3 + 3 + vb_list.len();
-        pdu.push(pdu_len as u8);
-
-        // Request ID (echo from request, simplified to fixed value).
-        pdu.extend_from_slice(&[0x02, 0x04, 0x00, 0x00, 0xDE, 0xAD]);
-
-        // Error status = 0 (noError).
-        pdu.extend_from_slice(&[0x02, 0x01, 0x00]);
-
-        // Error index = 0.
-        pdu.extend_from_slice(&[0x02, 0x01, 0x00]);
-
-        // Varbind list.
-        pdu.extend_from_slice(vb_list);
-
-        // Wrap in outer SEQUENCE.
-        let inner_len = pdu.len();
-        let mut result = vec![0x30, inner_len as u8];
-        result.extend_from_slice(&pdu);
-
+    /// Wraps content bytes in a TLV with the given tag.
+    fn tlv(tag: u8, content: &[u8]) -> Vec<u8> {
+        let mut result = vec![tag];
+        result.extend_from_slice(&Self::ber_length(content.len()));
+        result.extend_from_slice(content);
         result
     }
 
@@ -507,7 +523,7 @@ impl MockSnmpServer {
     }
 
     /// Finds the next OID in sorted order after the given OID.
-    fn find_next_oid<'a>(
+    pub fn find_next_oid<'a>(
         current: &str,
         data: &'a HashMap<String, Vec<u8>>,
     ) -> Option<(String, &'a Vec<u8>)> {
@@ -522,6 +538,70 @@ impl MockSnmpServer {
     }
 }
 
+/// A parsed SNMP request.
+struct ParsedRequest {
+    msg_type: MessageType,
+    /// Raw BER INTEGER TLV from the request, echoed verbatim in the response.
+    request_id: Vec<u8>,
+    /// Community string bytes from the request, echoed in the response.
+    community: Vec<u8>,
+    /// Requested OIDs; for Set, also carries the raw value TLV per varbind.
+    oids: Vec<(String, Option<Vec<u8>>)>,
+}
+
+/// Minimal BER TLV cursor over a byte slice.
+struct Ber<'a> {
+    bytes: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> Ber<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, pos: 0 }
+    }
+
+    /// Reads one TLV's tag and length, leaving the cursor at the start of
+    /// the content (so container contents can be walked). Returns
+    /// (tag, content_start, content_end).
+    fn tlv(&mut self) -> Option<(u8, usize, usize)> {
+        if self.pos + 1 > self.bytes.len() {
+            return None;
+        }
+        let tag = self.bytes[self.pos];
+        self.pos += 1;
+        let len = self.read_length()?;
+        let start = self.pos;
+        if start.checked_add(len)? > self.bytes.len() {
+            return None;
+        }
+        Some((tag, start, start + len))
+    }
+
+    /// Moves the cursor to an absolute position.
+    fn seek(&mut self, pos: usize) {
+        self.pos = pos;
+    }
+
+    /// Reads a BER length (single- or multi-byte form), advancing past it.
+    fn read_length(&mut self) -> Option<usize> {
+        let first = *self.bytes.get(self.pos)?;
+        self.pos += 1;
+        if first < 0x80 {
+            return Some(first as usize);
+        }
+        let count = (first & 0x7F) as usize;
+        if count == 0 || count > 4 {
+            return None;
+        }
+        let mut len: usize = 0;
+        for _ in 0..count {
+            len = (len << 8) | (*self.bytes.get(self.pos)? as usize);
+            self.pos += 1;
+        }
+        Some(len)
+    }
+}
+
 /// SNMP message type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MessageType {
@@ -529,12 +609,16 @@ enum MessageType {
     GetNext,
     GetBulk,
     Set,
-    Unknown,
 }
 
 impl Drop for MockSnmpServer {
     fn drop(&mut self) {
-        // The background thread will exit when the socket is dropped.
+        // Signal the serve loop to exit; it wakes within its read timeout.
+        self.inner
+            .lock()
+            .unwrap()
+            .stop
+            .store(true, Ordering::Release);
     }
 }
 
@@ -544,8 +628,10 @@ mod tests {
 
     #[test]
     fn ber_integer_encoding() {
-        let encoded = MockSnmpServer::ber_integer(42);
-        assert_eq!(encoded, vec![0x02, 0x04, 0x00, 0x00, 0x00, 42]);
+        assert_eq!(MockSnmpServer::ber_integer(42), vec![0x02, 0x01, 42]);
+        assert_eq!(MockSnmpServer::ber_integer(0), vec![0x02, 0x01, 0]);
+        // Negative values keep a leading zero sign byte.
+        assert_eq!(MockSnmpServer::ber_integer(-1), vec![0x02, 0x01, 0xFF]);
     }
 
     #[test]
@@ -559,6 +645,13 @@ mod tests {
         let encoded = MockSnmpServer::ber_oid(&[1, 3, 6, 1, 2, 1]);
         assert_eq!(encoded[0], 0x06); // OID tag
         assert_eq!(encoded[1], 5); // length
+    }
+
+    #[test]
+    fn ber_length_encoding() {
+        assert_eq!(MockSnmpServer::ber_length(0x7F), vec![0x7F]);
+        assert_eq!(MockSnmpServer::ber_length(0x80), vec![0x81, 0x80]);
+        assert_eq!(MockSnmpServer::ber_length(300), vec![0x82, 0x01, 0x2C]);
     }
 
     #[test]
@@ -593,6 +686,93 @@ mod tests {
 
         let next = MockSnmpServer::find_next_oid("9.9.9.9", &data);
         assert!(next.is_none());
+    }
+
+    /// Builds a minimal SNMPv2c GetRequest message for parser tests.
+    fn build_get_request(req_id: &[u8], oid: &str) -> Vec<u8> {
+        let oid_ber = MockSnmpServer::ber_oid_from_string(oid);
+        let vb = MockSnmpServer::tlv(0x30, &oid_ber);
+        let vb_list = MockSnmpServer::tlv(0x30, &vb);
+        let mut pdu = Vec::new();
+        pdu.extend_from_slice(req_id);
+        pdu.extend_from_slice(&[0x02, 0x01, 0x00]);
+        pdu.extend_from_slice(&[0x02, 0x01, 0x00]);
+        pdu.extend_from_slice(&vb_list);
+
+        let mut message = Vec::new();
+        message.extend_from_slice(&[0x02, 0x01, 0x01]);
+        message.extend_from_slice(&[0x04, b"public".len() as u8]);
+        message.extend_from_slice(b"public");
+        message.push(TAG_GET_REQUEST);
+        message.extend_from_slice(&MockSnmpServer::ber_length(pdu.len()));
+        message.extend_from_slice(&pdu);
+
+        let mut result = vec![0x30];
+        result.extend_from_slice(&MockSnmpServer::ber_length(message.len()));
+        result.extend_from_slice(&message);
+        result
+    }
+
+    #[test]
+    fn parse_get_request() {
+        // 1-byte request-id INTEGER (minimal BER).
+        let req = build_get_request(&[0x02, 0x01, 0x2A], "1.3.6.1.2.1.1.1.0");
+        let parsed = MockSnmpServer::parse_request(&req).expect("should parse");
+        assert_eq!(parsed.msg_type, MessageType::Get);
+        assert_eq!(parsed.request_id, vec![0x02, 0x01, 0x2A]);
+        assert_eq!(parsed.community, b"public");
+        assert_eq!(parsed.oids.len(), 1);
+        assert_eq!(parsed.oids[0].0, "1.3.6.1.2.1.1.1.0");
+        assert!(parsed.oids[0].1.is_none());
+    }
+
+    #[test]
+    fn parse_real_snmp2_getbulk_request() {
+        // Exact datagram captured from a real snmp2 client GetBulk request.
+        // BulkPDU layout: request-id, non-repeaters, max-repetitions, varbinds.
+        let h =
+            "302702010104067075626c6963a51a020100020100020132300f300d06092b06010201020201020500";
+        let req: Vec<u8> = (0..h.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap())
+            .collect();
+        let parsed = MockSnmpServer::parse_request(&req).expect("should parse");
+        assert_eq!(parsed.msg_type, MessageType::GetBulk);
+        assert_eq!(parsed.request_id, vec![0x02, 0x01, 0x00]);
+        assert_eq!(parsed.oids[0].0, "1.3.6.1.2.1.2.2.1.2");
+    }
+
+    #[test]
+    fn parse_real_snmp2_set_request() {
+        // Exact datagram captured from a real snmp2 client Set request.
+        let h = "302d02010104067075626c6963a3200201000201000201003015301306082b06010201010500040772656e616d6564";
+        let req: Vec<u8> = (0..h.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap())
+            .collect();
+        let parsed = MockSnmpServer::parse_request(&req).expect("should parse");
+        assert_eq!(parsed.msg_type, MessageType::Set);
+        assert_eq!(parsed.oids[0].0, "1.3.6.1.2.1.1.5.0");
+        // The captured value must be the full OCTET STRING TLV.
+        let mut expected = vec![0x04, 0x07];
+        expected.extend_from_slice(b"renamed");
+        assert_eq!(parsed.oids[0].1, Some(expected));
+    }
+
+    #[test]
+    fn parse_real_snmp2_get_request() {
+        // Exact datagram captured from a real snmp2 client Get request.
+        let h = "302602010104067075626c6963a019020100020100020100300e300c06082b060102010101000500";
+        let req: Vec<u8> = (0..h.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap())
+            .collect();
+        let parsed = MockSnmpServer::parse_request(&req).expect("should parse");
+        assert_eq!(parsed.msg_type, MessageType::Get);
+        // Full request-id TLV must be captured for echoing.
+        assert_eq!(parsed.request_id, vec![0x02, 0x01, 0x00]);
+        assert_eq!(parsed.community, b"public");
+        assert_eq!(parsed.oids[0].0, "1.3.6.1.2.1.1.1.0");
     }
 
     #[test]
