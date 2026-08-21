@@ -104,17 +104,7 @@ impl SnmpEngineState {
         })
     }
 
-    /// Runs a future on the app-owned 8MB-stack runtime.
-    pub fn block_on<F: std::future::Future>(&self, fut: F) -> F::Output {
-        self.runtime.block_on(fut)
-    }
-
-    /// Owned handle to the app runtime for use inside spawned tasks.
-    pub fn runtime_arc(&self) -> Arc<tokio::runtime::Runtime> {
-        self.runtime.clone()
-    }
-
-    /// Handle for spawning long-running work (streaming walks) on the app runtime.
+    /// Handle for spawning work on the app-owned 8MB-stack runtime.
     pub fn runtime_handle(&self) -> tokio::runtime::Handle {
         self.runtime.handle().clone()
     }
@@ -349,9 +339,8 @@ async fn snmp_connect(
         .read()
         .map_err(|e| e.to_string())?
         .clone();
-    let runtime = engine_state.runtime_arc();
-    let join_handle =
-        tokio::task::spawn_blocking(move || runtime.block_on(engine.get(&target, &oids)));
+    let handle = engine_state.runtime_handle();
+    let join_handle = handle.spawn(async move { engine.get(&target, &oids).await });
 
     // Await completion with a timeout.
     match tokio::time::timeout(std::time::Duration::from_secs(10), join_handle).await {
@@ -363,8 +352,8 @@ async fn snmp_connect(
 
 /// Executes a Get operation for the given OIDs.
 #[tauri::command]
-fn snmp_get(
-    engine_state: tauri::State<SnmpEngineState>,
+async fn snmp_get(
+    engine_state: tauri::State<'_, SnmpEngineState>,
     params: SnmpCommandParams,
     oids: Vec<String>,
 ) -> Result<snmp::ResultSet, String> {
@@ -374,13 +363,17 @@ fn snmp_get(
         .read()
         .map_err(|e| e.to_string())?
         .clone();
-    engine_state.block_on(engine.get(&target, &oids))
+    let handle = engine_state.runtime_handle();
+    handle
+        .spawn(async move { engine.get(&target, &oids).await })
+        .await
+        .map_err(|e| format!("Get task failed: {}", e))?
 }
 
 /// Executes a GetNext operation for the given OIDs.
 #[tauri::command]
-fn snmp_get_next(
-    engine_state: tauri::State<SnmpEngineState>,
+async fn snmp_get_next(
+    engine_state: tauri::State<'_, SnmpEngineState>,
     params: SnmpCommandParams,
     oids: Vec<String>,
 ) -> Result<snmp::ResultSet, String> {
@@ -390,7 +383,11 @@ fn snmp_get_next(
         .read()
         .map_err(|e| e.to_string())?
         .clone();
-    engine_state.block_on(engine.get_next(&target, &oids))
+    let handle = engine_state.runtime_handle();
+    handle
+        .spawn(async move { engine.get_next(&target, &oids).await })
+        .await
+        .map_err(|e| format!("GetNext task failed: {}", e))?
 }
 
 /// Executes a Walk operation from the given root OID (streaming via channels).
@@ -470,8 +467,8 @@ fn snmp_cancel_walk(cancel_token: tauri::State<'_, WalkCancelToken>) {
 
 /// Executes a Set operation to write a value at the given OID.
 #[tauri::command]
-fn snmp_set(
-    engine_state: tauri::State<SnmpEngineState>,
+async fn snmp_set(
+    engine_state: tauri::State<'_, SnmpEngineState>,
     params: SnmpCommandParams,
     oid: String,
     value_type: String,
@@ -484,13 +481,17 @@ fn snmp_set(
         .read()
         .map_err(|e| e.to_string())?
         .clone();
-    engine_state.block_on(engine.set(&target, &oid, set_value))
+    let handle = engine_state.runtime_handle();
+    handle
+        .spawn(async move { engine.set(&target, &oid, set_value).await })
+        .await
+        .map_err(|e| format!("Set task failed: {}", e))?
 }
 
 /// Walks all columns of a table and returns results as a pivoted grid.
 #[tauri::command]
-fn snmp_walk_table(
-    engine_state: tauri::State<SnmpEngineState>,
+async fn snmp_walk_table(
+    engine_state: tauri::State<'_, SnmpEngineState>,
     params: SnmpCommandParams,
     table_oid: String,
     column_oids: Vec<String>,
@@ -501,7 +502,11 @@ fn snmp_walk_table(
         .read()
         .map_err(|e| e.to_string())?
         .clone();
-    engine_state.block_on(engine.walk_table(&target, &table_oid, &column_oids))
+    let handle = engine_state.runtime_handle();
+    handle
+        .spawn(async move { engine.walk_table(&target, &table_oid, &column_oids).await })
+        .await
+        .map_err(|e| format!("WalkTable task failed: {}", e))?
 }
 
 // ── File System Commands ─────────────────────────────────────────────────────

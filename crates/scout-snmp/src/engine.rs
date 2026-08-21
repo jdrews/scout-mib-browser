@@ -41,7 +41,7 @@ pub trait WalkBatchSender: Send + Sync {
 /// Core SNMP engine that executes operations against a Target with error tolerance.
 ///
 /// The engine is stateless; the tokio runtime it runs on is owned by the app crate.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct SnmpEngine;
 
 impl SnmpEngine {
@@ -662,7 +662,6 @@ mod tests {
 
     #[test]
     fn engine_new_succeeds() {
-        let engine = SnmpEngine::new();
-        drop(engine);
+        let _engine = SnmpEngine::new();
     }
 }
