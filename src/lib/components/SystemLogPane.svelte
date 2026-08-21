@@ -14,6 +14,8 @@
   let intervalId: ReturnType<typeof setInterval> | null = null;
   let logContainer: HTMLDivElement;
 
+  const maxEntries = 200;
+
   let height = $derived(S.systemLogHeight);
   let filteredEntries = $derived(S.logEntries.filter((entry: LogEntry) => {
     const filter = S.logLevelFilter;
@@ -54,7 +56,7 @@
     try {
       const entries = await logRead();
       S.logEntries.length = 0;
-      S.logEntries.push(...entries);
+      S.logEntries.push(...entries.slice(-maxEntries));
       scrollToBottom();
     } catch (err) {
       console.error("Failed to read logs:", err);
