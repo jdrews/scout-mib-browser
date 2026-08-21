@@ -3431,7 +3431,6 @@ dependencies = [
  "scout-snmp",
  "serde",
  "serde_json",
- "snmp2",
  "tauri",
  "tauri-build",
  "tauri-plugin-wdio",
