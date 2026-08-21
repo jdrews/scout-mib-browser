@@ -1,7 +1,13 @@
 # Backend Crate Workspace Split
 
 **Date:** 2026-08-20
-**Status:** Approved (2026-08-21) — implementing on branch `crate-workspace-split` from `main`
+**Status:** Implemented (2026-08-21) on branch `crate-workspace-split` from `main`
+
+## Implementation Notes (2026-08-21)
+
+- **MockSnmpServer needed a protocol rewrite, not just wiring.** Its hand-rolled BER handling could never interoperate with a real snmp2 client: response PDU tag was 0xA1 (GetNextRequest) instead of 0xA2 (Response), the request-id was hardcoded instead of echoed, the v2c tag table was wrong (Set is 0xA3, GetBulk 0xA5), and fixed-offset parsing broke on BulkPDU (which has no error-status/error-index fields) and variable-width INTEGERs. It now walks proper TLVs per RFC 3416, with parser unit tests driven by datagrams captured from a real snmp2 client.
+- **The stack-size concern is confirmed empirically:** the new engine integration tests overflow the default 2MB test-thread stack when run directly, and pass only when spawned on an 8MB-stack runtime — exactly the failure mode `main.rs:289` documented. Tests mirror the app's runtime configuration for this reason.
+- **Remaining verification (needs a GUI host):** e2e (`npm run test:e2e`) and a manual `npm run dev` walk of the streaming path. Everything else in the pre-commit checklist passes.
 
 ## Context / Why This Shape
 
