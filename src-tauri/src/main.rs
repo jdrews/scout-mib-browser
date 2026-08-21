@@ -1,7 +1,8 @@
 mod config;
 mod log;
-mod mib;
 mod snmp;
+
+use scout_mib as mib;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
