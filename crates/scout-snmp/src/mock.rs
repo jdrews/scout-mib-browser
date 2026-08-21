@@ -1,4 +1,4 @@
-//! Mock SNMP server for testing without real network devices.
+//! In-process mock of an SNMP Target for testing without a real network.
 //!
 //! Implements a minimal UDP-based SNMPv2c responder that handles Get,
 //! GetNext, GetBulk, and Set requests. Requests are parsed with a proper
@@ -38,10 +38,6 @@ pub struct MockSnmpServer {
 struct MockServerInner {
     /// Mapped OIDs to their values (as raw BER-encoded bytes).
     data: HashMap<String, Vec<u8>>,
-    /// Community string the server accepts.
-    community: Vec<u8>,
-    /// Number of requests received.
-    request_count: u64,
     /// Set on drop so the serve loop exits promptly.
     stop: AtomicBool,
 }
@@ -59,8 +55,6 @@ impl MockSnmpServer {
         let addr = socket.local_addr().unwrap();
         let inner = Arc::new(Mutex::new(MockServerInner {
             data: Self::default_mib_data(),
-            community: b"public".to_vec(),
-            request_count: 0,
             stop: AtomicBool::new(false),
         }));
 
@@ -76,11 +70,6 @@ impl MockSnmpServer {
         Self { addr, inner }
     }
 
-    /// Sets the community string the server accepts.
-    pub fn set_community(&self, community: &str) {
-        self.inner.lock().unwrap().community = community.as_bytes().to_vec();
-    }
-
     /// Adds or updates a value at the given OID.
     pub fn set_value(&self, oid: &str, ber_bytes: Vec<u8>) {
         self.inner
@@ -90,12 +79,7 @@ impl MockSnmpServer {
             .insert(oid.to_string(), ber_bytes);
     }
 
-    /// Returns the number of requests received so far.
-    pub fn request_count(&self) -> u64 {
-        self.inner.lock().unwrap().request_count
-    }
-
-    /// Default MIB data for testing — simulates a basic SNMP device.
+    /// Default MIB data for testing — simulates a basic SNMP Target.
     fn default_mib_data() -> HashMap<String, Vec<u8>> {
         let mut data = HashMap::new();
 
@@ -179,7 +163,6 @@ impl MockSnmpServer {
     /// Handles an incoming SNMP request and returns a response message.
     fn handle_request(request: &[u8], inner: &Arc<Mutex<MockServerInner>>) -> Vec<u8> {
         let mut state = inner.lock().unwrap();
-        state.request_count += 1;
 
         match Self::parse_request(request) {
             Some(parsed) => match parsed.msg_type {

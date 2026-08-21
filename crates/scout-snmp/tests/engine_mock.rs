@@ -100,7 +100,7 @@ fn engine_walk_streams_bindings() {
     let (_server, target) = start_server();
 
     let sender = Arc::new(TestSender::default());
-    let sender_done = sender.clone();
+    let sender_for_task = sender.clone();
     rt.block_on(rt.spawn(async move {
         let engine = SnmpEngine::new();
         let handle = tokio::runtime::Handle::current();
@@ -110,7 +110,7 @@ fn engine_walk_streams_bindings() {
             &handle,
             &target,
             "1.3.6.1.2.1.2.2.1.2",
-            sender_done.clone(),
+            sender_for_task,
             None,
         );
         tokio::time::timeout(Duration::from_secs(10), join)
@@ -140,7 +140,7 @@ fn engine_bulk_walk_streams_bindings() {
     let (_server, target) = start_server();
 
     let sender = Arc::new(TestSender::default());
-    let sender_done = sender.clone();
+    let sender_for_task = sender.clone();
     rt.block_on(rt.spawn(async move {
         let engine = SnmpEngine::new();
         let handle = tokio::runtime::Handle::current();
@@ -149,7 +149,7 @@ fn engine_bulk_walk_streams_bindings() {
             &handle,
             &target,
             "1.3.6.1.2.1.2.2.1.2",
-            sender_done.clone(),
+            sender_for_task,
             None,
         );
         tokio::time::timeout(Duration::from_secs(10), join)

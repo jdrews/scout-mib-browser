@@ -7,6 +7,7 @@
 
 - **MockSnmpServer needed a protocol rewrite, not just wiring.** Its hand-rolled BER handling could never interoperate with a real snmp2 client: response PDU tag was 0xA1 (GetNextRequest) instead of 0xA2 (Response), the request-id was hardcoded instead of echoed, the v2c tag table was wrong (Set is 0xA3, GetBulk 0xA5), and fixed-offset parsing broke on BulkPDU (which has no error-status/error-index fields) and variable-width INTEGERs. It now walks proper TLVs per RFC 3416, with parser unit tests driven by datagrams captured from a real snmp2 client.
 - **The stack-size concern is confirmed empirically:** the new engine integration tests overflow the default 2MB test-thread stack when run directly, and pass only when spawned on an 8MB-stack runtime — exactly the failure mode `main.rs:289` documented. Tests mirror the app's runtime configuration for this reason.
+- **AGENTS.md checklist uses `cargo test --workspace --all-features`, not the spec's `--workspace --lib`.** The lib-only form would skip the new integration tests under `crates/scout-snmp/tests/`; `--all-features` matches what CI runs, so the local and CI checklists stay identical.
 - **Remaining verification (needs a GUI host):** e2e (`npm run test:e2e`) and a manual `npm run dev` walk of the streaming path. Everything else in the pre-commit checklist passes.
 
 ## Context / Why This Shape
@@ -40,16 +41,18 @@ src-tauri/            # app crate: main.rs commands, config.rs, log.rs — depen
 
 1. **`WalkBatchSender` trait** (in `scout-snmp`) replaces `Option<tauri::ipc::Channel>`:
 
-   ```rust
-   pub trait WalkBatchSender: Send + Sync {
-       fn send_binding(&self, binding: &VariableBinding);
-       fn send_complete(&self, result: &ResultSet);
-   }
-   ```
+    ```rust
+    pub trait WalkBatchSender: Send + Sync {
+        fn send_binding(&self, binding: &VariableBinding) -> bool;
+        fn send_complete(&self, result: &ResultSet);
+    }
+    ```
 
-   Typed values (serde) instead of pre-serialized strings. The app-side adapter does `serde_json::to_string` + `Channel::send`, which also eliminates the silent `unwrap_or_default()` serialization failure (code-review item 6).
+    Typed values (serde) instead of pre-serialized strings. The app-side adapter does `serde_json::to_string` + `Channel::send`, which also eliminates the silent `unwrap_or_default()` serialization failure (code-review item 6).
 
-   *Approved deviation:* per-binding `send_binding` rather than a `Vec`-based `WalkBatch`. The frontend receives one `VariableBinding` per channel message (`src/lib/tauriCommands.ts:158`); serializing a batch as an array would change the wire format and force frontend changes. Per-binding sends keep the wire byte-identical while still gaining typed values and surfaced serialization errors.
+    *Approved deviation:* per-binding `send_binding` rather than a `Vec`-based `WalkBatch`. The frontend receives one `VariableBinding` per channel message (`src/lib/tauriCommands.ts:158`); serializing a batch as an array would change the wire format and force frontend changes. Per-binding sends keep the wire byte-identical while still gaining typed values and surfaced serialization errors.
+
+    *Approved deviation:* `send_binding` returns `bool` (the sketch above originally showed void). Returning `false` signals "client gone" (channel closed or serialization failed) so the engine stops walking — preserving the old channel-based code's `break`-on-send-failure behavior instead of walking into a dead channel.
 
 2. **Engine becomes a pure async API**: `SnmpEngine` methods become `pub async fn`s; streaming fns take `&tokio::runtime::Handle` + `Arc<dyn WalkBatchSender>` and return `tokio::task::JoinHandle<()>`. The runtime itself moves to app-crate state (`SnmpEngineState` → holds `Arc<Runtime>` with 8MB worker stacks).
 
@@ -58,6 +61,8 @@ src-tauri/            # app crate: main.rs commands, config.rs, log.rs — depen
    *Approved deviation:* they do not `.await` engine calls directly on Tauri's runtime. They spawn the engine work onto the app-owned 8MB-stack runtime (`handle.spawn(...).await`). Tauri's own workers run with default 2MB stacks, so direct awaits would reintroduce exactly the snmp2 recursion overflow the comment at `main.rs:289` warns about (see decision 2's rationale).
 
 4. **`MockSnmpServer`** moves into `scout-snmp` (stays public) and gets wired into real engine integration tests (code-review item 2).
+
+   *Approved deviation:* the existing mock could not interoperate with snmp2 at all, so step 4 required a protocol rewrite rather than mere wiring — see Implementation Notes. This supersedes the contingency below ("defer step 4 to a follow-up"): the rewrite landed with the rest of the split.
 
 5. **Vestigial `lib.rs`** (`pub mod mib; pub mod snmp;`) is deleted once the modules move.
 

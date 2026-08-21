@@ -199,26 +199,14 @@ impl SnmpEngine {
         sender: Arc<dyn WalkBatchSender>,
         cancel_token: Option<Arc<AtomicBool>>,
     ) -> tokio::task::JoinHandle<()> {
-        let target = target.clone();
-        let root_oid = root_oid.to_string();
-
-        runtime.spawn(async move {
-            let result = Self::do_walk_loop(
-                WalkMode::GetNext,
-                &target,
-                &root_oid,
-                Some(sender.as_ref()),
-                cancel_token.as_deref(),
-            )
-            .await;
-            match result {
-                Ok(rs) => sender.send_complete(&rs),
-                Err(e) => {
-                    warn!("Walk streaming error: {}", e);
-                    sender.send_complete(&Self::error_result_set(e));
-                }
-            }
-        })
+        self.spawn_walk(
+            runtime,
+            WalkMode::GetNext,
+            target,
+            root_oid,
+            sender,
+            cancel_token,
+        )
     }
 
     /// Executes a streaming BulkWalk operation with cancellation support. Returns the JoinHandle for aborting.
@@ -230,12 +218,33 @@ impl SnmpEngine {
         sender: Arc<dyn WalkBatchSender>,
         cancel_token: Option<Arc<AtomicBool>>,
     ) -> tokio::task::JoinHandle<()> {
+        self.spawn_walk(
+            runtime,
+            WalkMode::GetBulk,
+            target,
+            root_oid,
+            sender,
+            cancel_token,
+        )
+    }
+
+    /// Spawns a streaming walk of the given mode onto the provided runtime.
+    fn spawn_walk(
+        &self,
+        runtime: &tokio::runtime::Handle,
+        mode: WalkMode,
+        target: &Target,
+        root_oid: &str,
+        sender: Arc<dyn WalkBatchSender>,
+        cancel_token: Option<Arc<AtomicBool>>,
+    ) -> tokio::task::JoinHandle<()> {
+        let op_name = mode.label();
         let target = target.clone();
         let root_oid = root_oid.to_string();
 
         runtime.spawn(async move {
             let result = Self::do_walk_loop(
-                WalkMode::GetBulk,
+                mode,
                 &target,
                 &root_oid,
                 Some(sender.as_ref()),
@@ -245,7 +254,7 @@ impl SnmpEngine {
             match result {
                 Ok(rs) => sender.send_complete(&rs),
                 Err(e) => {
-                    warn!("BulkWalk streaming error: {}", e);
+                    warn!("{} streaming error: {}", op_name, e);
                     sender.send_complete(&Self::error_result_set(e));
                 }
             }

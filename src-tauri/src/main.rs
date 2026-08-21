@@ -80,10 +80,10 @@ impl MibResolverState {
     }
 }
 
-/// Thread-safe handle to the SNMP engine and its dedicated runtime, stored in Tauri app state.
+/// Handle to the SNMP engine and its dedicated runtime, stored in Tauri app state.
 #[derive(Clone)]
 pub struct SnmpEngineState {
-    inner: Arc<RwLock<snmp::SnmpEngine>>,
+    engine: snmp::SnmpEngine,
     runtime: Arc<tokio::runtime::Runtime>,
 }
 
@@ -99,7 +99,7 @@ impl SnmpEngineState {
             .map_err(|e| format!("Failed to create tokio runtime: {}", e))?;
 
         Ok(Self {
-            inner: Arc::new(RwLock::new(snmp::SnmpEngine::new())),
+            engine: snmp::SnmpEngine::new(),
             runtime: Arc::new(runtime),
         })
     }
@@ -107,6 +107,18 @@ impl SnmpEngineState {
     /// Handle for spawning work on the app-owned 8MB-stack runtime.
     pub fn runtime_handle(&self) -> tokio::runtime::Handle {
         self.runtime.handle().clone()
+    }
+
+    /// Spawns an engine operation onto the app-owned 8MB-stack runtime and awaits its result.
+    pub async fn run<T, F>(&self, label: &str, op: F) -> Result<T, String>
+    where
+        F: std::future::Future<Output = T> + Send + 'static,
+        T: Send + 'static,
+    {
+        self.runtime
+            .spawn(op)
+            .await
+            .map_err(|e| format!("{} task failed: {}", label, e))
     }
 }
 
@@ -334,13 +346,10 @@ async fn snmp_connect(
 
     // Run on the app-owned runtime (8MB worker stacks) to avoid tokio worker
     // stack overflow inside snmp2's connection code (which can recurse deeply).
-    let engine = engine_state
-        .inner
-        .read()
-        .map_err(|e| e.to_string())?
-        .clone();
-    let handle = engine_state.runtime_handle();
-    let join_handle = handle.spawn(async move { engine.get(&target, &oids).await });
+    let engine = engine_state.engine.clone();
+    let join_handle = engine_state
+        .runtime_handle()
+        .spawn(async move { engine.get(&target, &oids).await });
 
     // Await completion with a timeout.
     match tokio::time::timeout(std::time::Duration::from_secs(10), join_handle).await {
@@ -358,16 +367,10 @@ async fn snmp_get(
     oids: Vec<String>,
 ) -> Result<snmp::ResultSet, String> {
     let target = build_target(&params);
-    let engine = engine_state
-        .inner
-        .read()
-        .map_err(|e| e.to_string())?
-        .clone();
-    let handle = engine_state.runtime_handle();
-    handle
-        .spawn(async move { engine.get(&target, &oids).await })
-        .await
-        .map_err(|e| format!("Get task failed: {}", e))?
+    let engine = engine_state.engine.clone();
+    engine_state
+        .run("Get", async move { engine.get(&target, &oids).await })
+        .await?
 }
 
 /// Executes a GetNext operation for the given OIDs.
@@ -378,16 +381,13 @@ async fn snmp_get_next(
     oids: Vec<String>,
 ) -> Result<snmp::ResultSet, String> {
     let target = build_target(&params);
-    let engine = engine_state
-        .inner
-        .read()
-        .map_err(|e| e.to_string())?
-        .clone();
-    let handle = engine_state.runtime_handle();
-    handle
-        .spawn(async move { engine.get_next(&target, &oids).await })
-        .await
-        .map_err(|e| format!("GetNext task failed: {}", e))?
+    let engine = engine_state.engine.clone();
+    engine_state
+        .run(
+            "GetNext",
+            async move { engine.get_next(&target, &oids).await },
+        )
+        .await?
 }
 
 /// Executes a Walk operation from the given root OID (streaming via channels).
@@ -402,11 +402,7 @@ async fn snmp_walk_streaming(
 ) -> Result<(), String> {
     cancel_token.reset();
     let target = build_target(&params);
-    let engine = engine_state
-        .inner
-        .read()
-        .map_err(|e| e.to_string())?
-        .clone();
+    let engine = engine_state.engine.clone();
     let cancel = (*cancel_token).inner();
     let sender = Arc::new(ChannelWalkSender {
         batch: batch_channel,
@@ -438,11 +434,7 @@ async fn snmp_bulk_walk_streaming(
     if matches!(target.version, snmp::Version::V1) {
         return Err("BulkWalk is not supported in SNMPv1 — use Walk instead".to_string());
     }
-    let engine = engine_state
-        .inner
-        .read()
-        .map_err(|e| e.to_string())?
-        .clone();
+    let engine = engine_state.engine.clone();
     let cancel = (*cancel_token).inner();
     let sender = Arc::new(ChannelWalkSender {
         batch: batch_channel,
@@ -476,16 +468,13 @@ async fn snmp_set(
 ) -> Result<snmp::ResultSet, String> {
     let target = build_target(&params);
     let set_value = parse_set_value(&value_type, &value)?;
-    let engine = engine_state
-        .inner
-        .read()
-        .map_err(|e| e.to_string())?
-        .clone();
-    let handle = engine_state.runtime_handle();
-    handle
-        .spawn(async move { engine.set(&target, &oid, set_value).await })
-        .await
-        .map_err(|e| format!("Set task failed: {}", e))?
+    let engine = engine_state.engine.clone();
+    engine_state
+        .run(
+            "Set",
+            async move { engine.set(&target, &oid, set_value).await },
+        )
+        .await?
 }
 
 /// Walks all columns of a table and returns results as a pivoted grid.
@@ -497,16 +486,12 @@ async fn snmp_walk_table(
     column_oids: Vec<String>,
 ) -> Result<snmp::TableResult, String> {
     let target = build_target(&params);
-    let engine = engine_state
-        .inner
-        .read()
-        .map_err(|e| e.to_string())?
-        .clone();
-    let handle = engine_state.runtime_handle();
-    handle
-        .spawn(async move { engine.walk_table(&target, &table_oid, &column_oids).await })
-        .await
-        .map_err(|e| format!("WalkTable task failed: {}", e))?
+    let engine = engine_state.engine.clone();
+    engine_state
+        .run("WalkTable", async move {
+            engine.walk_table(&target, &table_oid, &column_oids).await
+        })
+        .await?
 }
 
 // ── File System Commands ─────────────────────────────────────────────────────
