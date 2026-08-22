@@ -17,7 +17,7 @@
 </script>
 
 <aside class="flex flex-col bg-base-200 border-r border-base-300 flex-shrink-0" style="width: {width}px">
-  <div class="px-4 py-3 text-sm font-semibold uppercase tracking-wide text-base-content/60 bg-base-100 border-b border-base-300">
+  <div data-testid="mib-panel-header" class="px-4 py-3 text-sm font-semibold uppercase tracking-wide text-base-content/60 bg-base-100 border-b border-base-300">
     MIB Browser
   </div>
 
@@ -34,9 +34,9 @@
   </div>
 
   {#if showFallback}
-    <div role="alert" class="alert alert-warning px-3 py-2 text-xs">
+    <div data-testid="fallback-banner" role="alert" class="alert alert-warning px-3 py-2 text-xs">
       <span class="cursor-pointer hover:text-base-content underline">{S.fallbackMibs.length} MIB(s) loaded via regex fallback</span>
-      <button class="btn btn-sm btn-ghost ml-auto" onclick={toggleSystemLog}>
+      <button data-testid="fallback-syslog-btn" class="btn btn-sm btn-ghost ml-auto" onclick={toggleSystemLog}>
         System Log
       </button>
     </div>

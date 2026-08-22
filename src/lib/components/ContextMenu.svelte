@@ -56,7 +56,7 @@
     class="fixed menu p-2 bg-base-100 rounded-box w-40 shadow-lg z-[2000]"
     style="left: {posX}px; top: {posY}px;"
   >
-    <li><a onclick={() => handleAction("copy-oid")}>Copy OID</a></li>
-    <li><a onclick={() => handleAction("copy-name")}>Copy Name</a></li>
+    <li><a data-testid="ctx-copy-oid" onclick={() => handleAction("copy-oid")}>Copy OID</a></li>
+    <li><a data-testid="ctx-copy-name" onclick={() => handleAction("copy-name")}>Copy Name</a></li>
   </ul>
 {/if}

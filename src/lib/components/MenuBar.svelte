@@ -97,22 +97,22 @@
 
 <nav class="flex items-center bg-base-200 border-b border-base-300 px-3 h-[36px] flex-shrink-0 select-none relative" onclick={closeAllMenus}>
   <div class="relative">
-    <button tabindex="0" role="button" class="btn btn-ghost btn-sm" onclick={toggleFileMenu}>File</button>
+    <button data-testid="menu-file" tabindex="0" role="button" class="btn btn-ghost btn-sm" onclick={toggleFileMenu}>File</button>
     {#if S.fileMenuOpen}
       <ul class="absolute top-full left-0 menu bg-base-100 rounded-box w-52 p-2 shadow-lg z-[1000] mt-1">
-        <li><a onclick={() => handleAction("add-mib-directory")}>Add MIB Directory...</a></li>
+        <li><a data-testid="menu-add-mib-dir" onclick={() => handleAction("add-mib-directory")}>Add MIB Directory...</a></li>
         <div class="divider divider-my-1"></div>
-        <li><a onclick={() => handleAction("manage-mibs")}>Manage MIBs...</a></li>
+        <li><a data-testid="menu-manage-mibs" onclick={() => handleAction("manage-mibs")}>Manage MIBs...</a></li>
       </ul>
     {/if}
   </div>
 
   <div class="relative">
-    <button tabindex="0" role="button" class="btn btn-ghost btn-sm" onclick={toggleViewMenu}>View</button>
+    <button data-testid="menu-view" tabindex="0" role="button" class="btn btn-ghost btn-sm" onclick={toggleViewMenu}>View</button>
     {#if S.viewMenuOpen}
       <ul class="absolute top-full left-0 menu bg-base-100 rounded-box w-52 p-2 shadow-lg z-[1000] mt-1">
         <li>
-          <a onclick={(e) => { e.preventDefault(); e.stopPropagation(); S.systemLogOpen = !S.systemLogOpen; }}>
+          <a data-testid="menu-system-log" onclick={(e) => { e.preventDefault(); e.stopPropagation(); S.systemLogOpen = !S.systemLogOpen; }}>
             <span class="flex items-center gap-2">
               {#if S.systemLogOpen}
                 <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
@@ -126,19 +126,19 @@
   </div>
 
   <div class="relative">
-    <button tabindex="0" role="button" class="btn btn-ghost btn-sm" onclick={toggleSettingsMenu}>Settings</button>
+    <button data-testid="menu-settings" tabindex="0" role="button" class="btn btn-ghost btn-sm" onclick={toggleSettingsMenu}>Settings</button>
     {#if S.settingsMenuOpen}
       <ul class="absolute top-full left-0 menu bg-base-100 rounded-box w-52 p-2 shadow-lg z-[1000] mt-1">
-        <li><a onclick={() => handleAction("connection")}>Connection...</a></li>
+        <li><a data-testid="menu-connection" onclick={() => handleAction("connection")}>Connection...</a></li>
         <div class="divider divider-my-1"></div>
         <li>
           <details open>
             <summary>System Log Level</summary>
             <ul class="menu menu-vertical w-full p-0">
-              <li><a class={S.logLevelFilter === "all" ? "active" : ""} onclick={() => { S.logLevelFilter = "all"; }}>{S.logLevelFilter === "all" ? "✓" : ""} All</a></li>
-              <li><a class={S.logLevelFilter === "info" ? "active" : ""} onclick={() => { S.logLevelFilter = "info"; }}>{S.logLevelFilter === "info" ? "✓" : ""} Info+</a></li>
-              <li><a class={S.logLevelFilter === "warn" ? "active" : ""} onclick={() => { S.logLevelFilter = "warn"; }}>{S.logLevelFilter === "warn" ? "✓" : ""} Warning+</a></li>
-              <li><a class={S.logLevelFilter === "error" ? "active" : ""} onclick={() => { S.logLevelFilter = "error"; }}>{S.logLevelFilter === "error" ? "✓" : ""} Error</a></li>
+              <li><a data-testid="log-level-all" class={S.logLevelFilter === "all" ? "active" : ""} onclick={() => { S.logLevelFilter = "all"; }}>{S.logLevelFilter === "all" ? "✓" : ""} All</a></li>
+              <li><a data-testid="log-level-info" class={S.logLevelFilter === "info" ? "active" : ""} onclick={() => { S.logLevelFilter = "info"; }}>{S.logLevelFilter === "info" ? "✓" : ""} Info+</a></li>
+              <li><a data-testid="log-level-warn" class={S.logLevelFilter === "warn" ? "active" : ""} onclick={() => { S.logLevelFilter = "warn"; }}>{S.logLevelFilter === "warn" ? "✓" : ""} Warning+</a></li>
+              <li><a data-testid="log-level-error" class={S.logLevelFilter === "error" ? "active" : ""} onclick={() => { S.logLevelFilter = "error"; }}>{S.logLevelFilter === "error" ? "✓" : ""} Error</a></li>
             </ul>
           </details>
         </li>
