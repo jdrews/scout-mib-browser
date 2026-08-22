@@ -363,14 +363,42 @@ async fn snmp_connect(
 #[tauri::command]
 async fn snmp_get(
     engine_state: tauri::State<'_, SnmpEngineState>,
+    resolver: tauri::State<'_, MibResolverState>,
     params: SnmpCommandParams,
     oids: Vec<String>,
 ) -> Result<snmp::ResultSet, String> {
     let target = build_target(&params);
+    // Scalar MIB nodes are queried at their `.0` instance; subtree, table and
+    // row nodes (and OIDs that already carry an instance suffix) pass through.
+    let oids: Vec<String> = oids
+        .iter()
+        .map(|o| scalar_instance_oid(&resolver.inner, o))
+        .collect();
     let engine = engine_state.engine.clone();
     engine_state
         .run("Get", async move { engine.get(&target, &oids).await })
         .await?
+}
+
+/// Returns the OID to query for a Get: appends `.0` when the OID exactly
+/// matches a scalar MIB node (e.g. `sysDescr` -> `1.3.6.1.2.1.1.1.0`).
+fn scalar_instance_oid(resolver: &RwLock<mib::Resolver>, oid: &str) -> String {
+    let Ok(guard) = resolver.read() else {
+        return oid.to_string();
+    };
+    if let Some(node) = guard.resolve(oid) {
+        if node.oid == oid
+            && !matches!(
+                node.syntax_type,
+                mib::SyntaxType::ObjectIdentifier
+                    | mib::SyntaxType::Table
+                    | mib::SyntaxType::TableRow
+            )
+        {
+            return format!("{oid}.0");
+        }
+    }
+    oid.to_string()
 }
 
 /// Executes a GetNext operation for the given OIDs.

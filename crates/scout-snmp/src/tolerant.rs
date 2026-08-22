@@ -40,9 +40,10 @@ pub fn value_to_snmp_value(v: snmp2::Value<'_>) -> (SnmpValue, bool) {
         }
         snmp2::Value::Null => (SnmpValue::Null, false),
         snmp2::Value::Boolean(b) => (SnmpValue::TruthValue(b), false),
-        // These are special sentinel values — not actual data.
+        // These are special sentinel values — not actual data. They mark the
+        // binding as warned so the UI can flag the row and surface a warning.
         snmp2::Value::EndOfMibView | snmp2::Value::NoSuchObject | snmp2::Value::NoSuchInstance => {
-            (SnmpValue::Null, false)
+            (SnmpValue::Null, true)
         }
         // PDU-level constructs that shouldn't appear in varbind values.
         snmp2::Value::Sequence(_) | snmp2::Value::Set(_) | snmp2::Value::Constructed(_, _) => {
@@ -61,6 +62,29 @@ pub fn value_to_snmp_value(v: snmp2::Value<'_>) -> (SnmpValue, bool) {
             warn!("Received PDU-level value in varbind — this is unexpected");
             (SnmpValue::Null, true)
         }
+    }
+}
+
+/// Returns a warning when an SNMP response value is an exception indicating
+/// the Target has no data at the requested OID (Get tolerance handling).
+pub fn value_warning(v: &snmp2::Value<'_>) -> Option<SnmpWarning> {
+    match v {
+        snmp2::Value::NoSuchObject => Some(SnmpWarning {
+            kind: "no-such-object".to_string(),
+            message: "No such object exists at this OID on the Target".to_string(),
+            oid: None,
+        }),
+        snmp2::Value::NoSuchInstance => Some(SnmpWarning {
+            kind: "no-such-instance".to_string(),
+            message: "No such instance currently exists at this OID on the Target".to_string(),
+            oid: None,
+        }),
+        snmp2::Value::EndOfMibView => Some(SnmpWarning {
+            kind: "end-of-mib-view".to_string(),
+            message: "The OID is beyond the end of the MIB view on the Target".to_string(),
+            oid: None,
+        }),
+        _ => None,
     }
 }
 
@@ -439,8 +463,25 @@ mod tests {
     #[test]
     fn value_to_snmp_value_end_of_mib_view() {
         let (v, w) = value_to_snmp_value(snmp2::Value::EndOfMibView);
-        assert!(!w);
+        assert!(w);
         assert_eq!(v, SnmpValue::Null);
+    }
+
+    #[test]
+    fn value_warning_exception_values() {
+        assert_eq!(
+            value_warning(&snmp2::Value::NoSuchInstance).unwrap().kind,
+            "no-such-instance"
+        );
+        assert_eq!(
+            value_warning(&snmp2::Value::NoSuchObject).unwrap().kind,
+            "no-such-object"
+        );
+        assert_eq!(
+            value_warning(&snmp2::Value::EndOfMibView).unwrap().kind,
+            "end-of-mib-view"
+        );
+        assert!(value_warning(&snmp2::Value::Integer(1)).is_none());
     }
 
     #[test]
