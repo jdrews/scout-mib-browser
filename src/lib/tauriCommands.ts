@@ -50,7 +50,7 @@ export async function mibSearch(query: string): Promise<MibSearchResult[]> {
 }
 
 /** Resolves a dotted-decimal OID to its MIB node. */
-export async function mibResolveOid(oid: string): Promise<{ oid: string; name: string; syntax_type?: string; mib_name: string } | null> {
+export async function mibResolveOid(oid: string): Promise<{ oid: string; name: string; syntaxType?: string; mibName: string } | null> {
   return invoke("mib_resolve_oid", { oid });
 }
 

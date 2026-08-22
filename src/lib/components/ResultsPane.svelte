@@ -111,6 +111,8 @@
   }
 
   function valueDisplay(v: SnmpValue): string {
+    if (v === "Null") return "NULL";
+    if (typeof v !== "object" || v === null) return String(v);
     if ("Integer" in v) return String(v.Integer);
     if ("Unsigned" in v) return String(v.Unsigned);
     if ("Counter32" in v) return `${v.Counter32} (counter32)`;
@@ -127,7 +129,6 @@
     if ("IpAddress" in v) return v.IpAddress;
     if ("TimeTicks" in v) return `${v.TimeTicks} (timeticks)`;
     if ("TruthValue" in v) return v.TruthValue ? "true" : "false";
-    if ("Null" in v) return "NULL";
     if ("Raw" in v) {
       const r = v.Raw;
       return `<raw type=0x${r.type_code.toString(16).padStart(2, "0")} data=0x${r.data.map(b => b.toString(16).padStart(2, "0")).join("")}>`;
@@ -136,6 +137,8 @@
   }
 
   function typeLabel(v: SnmpValue): string {
+    if (v === "Null") return "NULL";
+    if (typeof v !== "object" || v === null) return "UNKNOWN";
     if ("Integer" in v) return "INTEGER";
     if ("Unsigned" in v) return "UNSIGNED32";
     if ("Counter32" in v) return "COUNTER32";
@@ -145,7 +148,6 @@
     if ("IpAddress" in v) return "IPADDRESS";
     if ("TimeTicks" in v) return "TIMETICKS";
     if ("TruthValue" in v) return "TRUTHVALUE";
-    if ("Null" in v) return "NULL";
     if ("Raw" in v) return "RAW";
     return "UNKNOWN";
   }
@@ -162,13 +164,17 @@
     };
   }));
 
+  // The needle must be lowercased too — the haystacks are, so a mixed-case
+  // query like "sysDescr" would otherwise never match.
+  let filterLower = $derived(filterText.toLowerCase());
+
   let filteredRows = $derived(filterText
     ? rows.filter((r: typeof rows[number]) =>
-        r.oid.toLowerCase().includes(filterText) ||
-        r.displayName.toLowerCase().includes(filterText) ||
-        r.fullPath.toLowerCase().includes(filterText) ||
-        r.type.toLowerCase().includes(filterText) ||
-        r.value.toLowerCase().includes(filterText),
+        r.oid.toLowerCase().includes(filterLower) ||
+        r.displayName.toLowerCase().includes(filterLower) ||
+        r.fullPath.toLowerCase().includes(filterLower) ||
+        r.type.toLowerCase().includes(filterLower) ||
+        r.value.toLowerCase().includes(filterLower),
       )
     : rows);
 
@@ -197,6 +203,8 @@
   let isPartial = $derived(results?.partial || false);
 
   let isGridView = $derived(!!tableResult);
+  // A table result always starts in grid view; the user can still toggle it off.
+  $effect(() => { if (tableResult) gridView = true; });
   let gridColumns = $derived(tableResult?.columns || []);
   let gridRows = $derived(tableResult?.rows || []);
   let gridMissingCells = $derived(tableResult?.missing_cells || 0);
@@ -208,10 +216,10 @@
 
   let filteredGridRows = $derived(filterText
     ? gridRows.filter((r: TableRowData) => {
-        const instMatch = r.instance_id.toLowerCase().includes(filterText);
+        const instMatch = r.instance_id.toLowerCase().includes(filterLower);
         if (instMatch) return true;
         for (const cell of Object.values(r.cells)) {
-          if (cell.value && valueDisplay(cell.value.value).toLowerCase().includes(filterText)) {
+          if (cell.value && valueDisplay(cell.value.value).toLowerCase().includes(filterLower)) {
             return true;
           }
         }
@@ -289,18 +297,18 @@
 </script>
 
 <div class="flex flex-col flex-1 overflow-hidden">
-  <div class="px-4 py-3 text-sm font-semibold uppercase tracking-wide text-base-content/60 bg-base-100 border-b border-base-300 flex items-center justify-between gap-3" onclick={(e) => { if (e.target === e.currentTarget) hideExportOnOutsideClick(e); }}>
+  <div data-testid="results-header" class="px-4 py-3 text-sm font-semibold uppercase tracking-wide text-base-content/60 bg-base-100 border-b border-base-300 flex items-center justify-between gap-3" onclick={(e) => { if (e.target === e.currentTarget) hideExportOnOutsideClick(e); }}>
     <span>Results</span>
     <div class="flex items-center gap-2">
       {#if progress}
         <span class="text-xs text-primary font-mono">{progress}</span>
       {/if}
       {#if isPartial}
-        <span class="text-xs text-accent">⚠ partial results</span>
+        <span data-testid="partial-badge" class="text-xs text-accent">⚠ partial results</span>
       {/if}
       {#if bindings.length > 0 || isGridView}
         <div data-export-menu class="dropdown dropdown-end relative">
-          <button class="btn btn-sm" onclick={toggleExportMenu}>Save Results</button>
+          <button data-testid="save-btn" class="btn btn-sm" onclick={toggleExportMenu}>Save Results</button>
           {#if exportMenuOpen}
             <ul class="absolute top-full right-0 menu menu-sm bg-base-100 rounded-box w-40 p-2 shadow-lg z-[1000] mt-1">
               <li><a onclick={() => handleExport("tsv")}>Save as TSV</a></li>
@@ -309,18 +317,18 @@
             </ul>
           {/if}
         </div>
-        <button class="btn btn-sm btn-ghost" title="Clear results" onclick={clearAll}>🗑️</button>
+        <button data-testid="clear-btn" class="btn btn-sm btn-ghost" title="Clear results" onclick={clearAll}>🗑️</button>
         {#if !isGridView}
-          <button class="btn btn-sm {showResolvedNames ? 'btn-primary' : 'btn-ghost'}" onclick={() => showResolvedNames = !showResolvedNames}>{showResolvedNames ? "MIB Names" : "Raw OIDs"}</button>
-          <button class="btn btn-sm {wrapValue ? 'btn-primary' : 'btn-ghost'}" onclick={() => wrapValue = !wrapValue}>↳ Wrap</button>
+          <button data-testid="names-toggle" class="btn btn-sm {showResolvedNames ? 'btn-primary' : 'btn-ghost'}" onclick={() => showResolvedNames = !showResolvedNames}>{showResolvedNames ? "MIB Names" : "Raw OIDs"}</button>
+          <button data-testid="wrap-toggle" class="btn btn-sm {wrapValue ? 'btn-primary' : 'btn-ghost'}" onclick={() => wrapValue = !wrapValue}>↳ Wrap</button>
         {/if}
       {/if}
-      <input type="text" placeholder="Filter..." class="input input-bordered input-sm w-40 font-mono" bind:value={filterText} />
+      <input data-testid="filter-input" type="text" placeholder="Filter..." class="input input-bordered input-sm w-40 font-mono" bind:value={filterText} />
     </div>
   </div>
 
   {#if hasWarnings && results?.warnings}
-    <div role="alert" class="alert alert-warning px-4 py-2 text-xs max-h-24 overflow-y-auto">
+    <div data-testid="warnings-banner" role="alert" class="alert alert-warning px-4 py-2 text-xs max-h-24 overflow-y-auto">
       {#each results.warnings as w}
         <div class="flex gap-1">
           <span>⚠</span>
@@ -332,16 +340,16 @@
     </div>
   {/if}
 
-  {#if isGridView && bindings.length > 0}
+  {#if isGridView}
     <div class="px-4 py-1 flex items-center gap-2 border-b border-base-300">
       <label class="cursor-pointer flex items-center gap-2 text-xs">
-        <input type="checkbox" class="toggle toggle-sm toggle-primary" bind:value={gridView} />
+        <input type="checkbox" class="toggle toggle-sm toggle-primary" bind:checked={gridView} />
         Grid view
       </label>
     </div>
   {/if}
 
-  <div class="flex-1 overflow-auto">
+  <div data-testid="results-body" class="flex-1 overflow-auto">
     {#if isGridView && gridView}
       {#if filteredGridRows.length === 0 && gridRows.length === 0}
         <p class="text-base-content/60 text-sm text-center mt-12">No table data returned.</p>
@@ -349,7 +357,7 @@
         <p class="text-base-content/60 text-sm text-center mt-8">No results match filter.</p>
       {:else}
         <div class="overflow-x-auto">
-          <table class="table table-zebra table-sm">
+          <table data-testid="grid-table" class="table table-zebra table-sm">
             <thead>
               <tr>
                 <th>#</th>
@@ -382,8 +390,10 @@
           </table>
         </div>
       {/if}
+    {:else if isGridView}
+      <p class="text-base-content/60 text-sm text-center mt-12">Grid view is disabled — enable it above to display the table.</p>
     {:else if sortedRows.length === 0 && bindings.length === 0}
-      <p class="text-base-content/60 text-sm text-center mt-12">Select a MIB node and click Go to query the Target.</p>
+      <p data-testid="results-placeholder" class="text-base-content/60 text-sm text-center mt-12">Select a MIB node and click Go to query the Target.</p>
     {:else if sortedRows.length === 0}
       <p class="text-base-content/60 text-sm text-center mt-8">No results match filter.</p>
     {:else}
@@ -393,13 +403,13 @@
         <div class="resize-divider absolute top-0 bottom-0 w-[5px] z-20 hover:bg-primary/50 transition-colors" style="left: {divider2Left};" onmousedown={onDivider2MouseDown}></div>
 
         <div class="flex bg-base-200 border-b-2 border-base-content/30 sticky top-0 z-10 text-xs font-semibold uppercase tracking-wider" style="min-width: max-content;">
-          <div class="cursor-pointer px-2 py-1.5 truncate select-none" style="width: {colOid}px; min-width: {COL_MIN_OID}px; max-width: {COL_MAX_OID}px;" onclick={() => toggleSort("oid")}>OID {sortIcon("oid")}</div>
-          <div class="flex-1 min-w-[120px] cursor-pointer px-2 py-1.5 truncate select-none" onclick={() => toggleSort("value")}>Value {sortIcon("value")}</div>
-          <div class="cursor-pointer px-2 py-1.5 truncate select-none" style="width: {colType}px; min-width: {COL_MIN_TYPE}px; max-width: {COL_MAX_TYPE}px;" onclick={() => toggleSort("type")}>Type {sortIcon("type")}</div>
+          <div data-testid="sort-oid" class="cursor-pointer px-2 py-1.5 truncate select-none" style="width: {colOid}px; min-width: {COL_MIN_OID}px; max-width: {COL_MAX_OID}px;" onclick={() => toggleSort("oid")}>OID {sortIcon("oid")}</div>
+          <div data-testid="sort-value" class="flex-1 min-w-[120px] cursor-pointer px-2 py-1.5 truncate select-none" onclick={() => toggleSort("value")}>Value {sortIcon("value")}</div>
+          <div data-testid="sort-type" class="cursor-pointer px-2 py-1.5 truncate select-none" style="width: {colType}px; min-width: {COL_MIN_TYPE}px; max-width: {COL_MAX_TYPE}px;" onclick={() => toggleSort("type")}>Type {sortIcon("type")}</div>
         </div>
 
         {#each sortedRows as row (row.oid)}
-          <div class="flex border-b border-base-300 {row.warning ? 'text-accent' : ''}" style="min-width: max-content;">
+          <div data-testid="result-row" class="flex border-b border-base-300 {row.warning ? 'text-accent' : ''}" style="min-width: max-content;">
             <div class="px-2 py-1 truncate font-mono text-[13px] relative" style="width: {colOid}px; min-width: {COL_MIN_OID}px; max-width: {COL_MAX_OID}px;" title="{row.fullPath}\n{row.oid}">
               {showResolvedNames ? row.displayName : row.oid}
             </div>
@@ -415,14 +425,14 @@
   </div>
 
   {#if isGridView && tableResult}
-    <div class="px-4 py-2 text-xs text-base-content/60 border-t border-base-300 bg-base-100 flex justify-between">
+    <div data-testid="grid-footer" class="px-4 py-2 text-xs text-base-content/60 border-t border-base-300 bg-base-100 flex justify-between">
       <span>{filteredGridRows.length} of {tableResult.total_rows} rows</span>
       {#if gridMissingCells > 0}
-        <span class="text-accent">{gridMissingCells} missing cell(s)</span>
+        <span class="text-accent">{gridMissingCells} missing cell(s)}</span>
       {/if}
     </div>
   {:else if bindings.length > 0}
-    <div class="px-4 py-2 text-xs text-base-content/60 border-t border-base-300 bg-base-100 flex justify-between">
+    <div data-testid="results-footer" class="px-4 py-2 text-xs text-base-content/60 border-t border-base-300 bg-base-100 flex justify-between">
       <span>{sortedRows.length} of {bindings.length} bindings</span>
       {#if results?.retries && results.retries > 0}
         <span>{results.retries} retries</span>

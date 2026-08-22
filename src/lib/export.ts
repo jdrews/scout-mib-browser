@@ -25,6 +25,8 @@ export interface JsonExportEnvelope {
 
 /** Display string for a SnmpValue (matches ResultsPane logic). */
 export function valueDisplay(v: SnmpValue): string {
+  if (v === "Null") return "NULL";
+  if (typeof v !== "object" || v === null) return String(v);
   if ("Integer" in v) return String(v.Integer);
   if ("Unsigned" in v) return String(v.Unsigned);
   if ("Counter32" in v) return `${v.Counter32} (counter32)`;
@@ -41,7 +43,6 @@ export function valueDisplay(v: SnmpValue): string {
   if ("IpAddress" in v) return v.IpAddress;
   if ("TimeTicks" in v) return `${v.TimeTicks} (timeticks)`;
   if ("TruthValue" in v) return v.TruthValue ? "true" : "false";
-  if ("Null" in v) return "NULL";
   if ("Raw" in v) {
     const r = v.Raw;
     return `<raw type=0x${r.type_code.toString(16).padStart(2, "0")} data=0x${r.data.map(b => b.toString(16).padStart(2, "0")).join("")}>`;
@@ -51,6 +52,8 @@ export function valueDisplay(v: SnmpValue): string {
 
 /** Type label for a SnmpValue (matches ResultsPane logic). */
 export function typeLabel(v: SnmpValue): string {
+  if (v === "Null") return "NULL";
+  if (typeof v !== "object" || v === null) return "UNKNOWN";
   if ("Integer" in v) return "INTEGER";
   if ("Unsigned" in v) return "UNSIGNED32";
   if ("Counter32" in v) return "COUNTER32";
@@ -60,7 +63,6 @@ export function typeLabel(v: SnmpValue): string {
   if ("IpAddress" in v) return "IPADDRESS";
   if ("TimeTicks" in v) return "TIMETICKS";
   if ("TruthValue" in v) return "TRUTHVALUE";
-  if ("Null" in v) return "NULL";
   if ("Raw" in v) return "RAW";
   return "UNKNOWN";
 }
