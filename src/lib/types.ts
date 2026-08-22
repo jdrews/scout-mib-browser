@@ -1,10 +1,11 @@
-/** Single node in the hierarchical MIB tree for UI rendering. */
+/** Single node in the hierarchical MIB tree for UI rendering.
+ * Field names are camelCase to match the backend's serde(rename_all = "camelCase"). */
 export interface TreeNode {
   oid: string;
   name: string;
-  syntax_type?: string;
-  mib_name: string;
-  is_table?: boolean;
+  syntaxType?: string;
+  mibName: string;
+  isTable?: boolean;
   hasChildren?: boolean;
   children?: TreeNode[];
 }
@@ -13,8 +14,8 @@ export interface TreeNode {
 export interface MibSearchResult {
   oid: string;
   name: string;
-  syntax_type: string;
-  mib_name: string;
+  syntaxType: string;
+  mibName: string;
 }
 
 /** Metadata about a loaded MIB file for the Manage MIBs dialog. */
@@ -73,7 +74,8 @@ export interface AppConfig {
 /** SNMP operation mode. */
 export type SnmpOperation = "get" | "getNext" | "walk" | "bulkWalk" | "set";
 
-/** A single SNMP data value from the backend (tagged union matching Rust enum). */
+/** A single SNMP data value from the backend (tagged union matching Rust enum).
+ * Note: serde serializes unit variants as their name string, so Null arrives as "Null". */
 export type SnmpValue =
   | { Integer: number }
   | { Unsigned: number }
@@ -84,7 +86,7 @@ export type SnmpValue =
   | { IpAddress: string }
   | { TimeTicks: number }
   | { TruthValue: boolean }
-  | { Null: null }
+  | "Null"
   | { Raw: { type_code: number; data: number[] } };
 
 /** An OID paired with its live value returned from a Target. */

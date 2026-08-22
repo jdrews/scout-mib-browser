@@ -844,6 +844,13 @@ mod tests {
 
     #[test]
     fn env_var_override_cascade() {
+        // Hermetic (Linux): point the config dir at an empty temp location so a
+        // real ~/.config/scout/config.toml cannot shadow the env vars.
+        let tmp = std::env::temp_dir().join("scout_env_override_test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        env::set_var("XDG_CONFIG_HOME", &tmp);
+
         // Set env vars that override defaults.
         env::set_var("SCOUT_TARGET__HOST", "10.0.0.1");
         env::set_var("SCOUT_TARGET__PORT", "2161");
@@ -856,6 +863,7 @@ mod tests {
         assert!((cfg.ui.splitter_horizontal - 0.75).abs() < f64::EPSILON);
 
         // Unset to avoid polluting other tests.
+        env::remove_var("XDG_CONFIG_HOME");
         env::remove_var("SCOUT_TARGET__HOST");
         env::remove_var("SCOUT_TARGET__PORT");
         env::remove_var("SCOUT_UI__SPLITTER_HORIZONTAL");

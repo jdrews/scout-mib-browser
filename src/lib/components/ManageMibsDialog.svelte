@@ -61,7 +61,7 @@
 
 {#if S.manageMibsOpen}
   <dialog class="modal modal-open" onclick={close}>
-    <div class="modal-box max-w-[560px] max-h-[70vh] flex flex-col" onclick={(e) => e.stopPropagation()}>
+    <div data-testid="manage-mibs-dialog" class="modal-box max-w-[560px] max-h-[70vh] flex flex-col" onclick={(e) => e.stopPropagation()}>
       <form method="dialog">
         <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2 hover:text-error">✕</button>
       </form>
@@ -74,7 +74,7 @@
           <p class="text-base-content/60 text-sm text-center mt-12">No MIBs currently loaded.</p>
         {:else}
           {#each mibs as mib (mib.mibName)}
-            <div class="flex items-center px-4 py-2.5 rounded gap-3 hover:bg-base-200">
+            <div data-testid="mib-row" class="flex items-center px-4 py-2.5 rounded gap-3 hover:bg-base-200">
               <span class="flex-1 text-sm">{mib.mibName}</span>
               <span class="text-xs text-base-content/60 font-mono max-w-[240px] overflow-hidden text-ellipsis whitespace-nowrap" title="{mib.filePath}">
                 {mib.filePath}
@@ -85,7 +85,7 @@
                 {/if}
                 <span>{mib.nodeCount} nodes</span>
               </div>
-              <button class="btn btn-error btn-xs" onclick={() => unloadMib(mib.mibName)}>
+              <button data-testid="unload-btn" class="btn btn-error btn-xs" onclick={() => unloadMib(mib.mibName)}>
                 Unload
               </button>
             </div>
@@ -94,7 +94,7 @@
       </div>
 
       <div class="modal-action">
-        <button class="btn btn-primary" onclick={close}>
+        <button data-testid="manage-mibs-close" class="btn btn-primary" onclick={close}>
           Close
         </button>
       </div>

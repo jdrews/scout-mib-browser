@@ -181,7 +181,8 @@
     }
 
     const targetNode = S.selectedNode;
-    const isTableNode = targetNode?.is_table === true;
+    // Backend serializes camelCase (serde rename_all) — the key is "isTable".
+    const isTableNode = targetNode?.isTable === true;
 
     S.isExecuting = true;
     S.executionBindings.length = 0;
@@ -267,7 +268,7 @@
             isWalkActive = false;
             S.executionResults = result;
             S.walkProgress = "";
-            S.statusText = `${op} complete: ${result.bindings.length} binding(s)`;
+            S.statusText = `${op} complete: ${count} binding(s)`;
           }
         );
       }
@@ -322,7 +323,7 @@
     }
 
     const node = S.selectedNode;
-    const syntaxType = node?.syntax_type || "OctetString";
+    const syntaxType = node?.syntaxType || "OctetString";
     const proposedValue = prompt(`Set value for ${oid} (${syntaxType}):`);
     if (proposedValue === null) return;
 
@@ -396,6 +397,7 @@
 
   <div class="join">
     <input
+      data-testid="host-input"
       type="text"
       placeholder="Host or IP"
       value={cfg.host}
@@ -406,6 +408,7 @@
     <span class="text-base-content/40 text-sm flex items-center join-item">:</span>
 
     <input
+      data-testid="port-input"
       type="text"
       placeholder="Port"
       value={cfg.port}
@@ -415,6 +418,7 @@
   </div>
 
   <button
+    data-testid="conn-gear"
     title="Connection settings"
     onclick={openConnectionPanel}
     class="btn btn-ghost btn-circle btn-sm"
@@ -426,6 +430,7 @@
   </button>
 
   <input
+    data-testid="oid-input"
     type="text"
     placeholder="Enter OID or MIB name (e.g., sysDescr)"
     autocomplete="off"
@@ -436,6 +441,7 @@
   />
 
   <select
+    data-testid="op-select"
     class="select select-bordered select-sm w-[90px]"
     bind:value={S.snmpOperation}
   >
@@ -446,6 +452,7 @@
 
   {#if isWalkActive}
     <button
+      data-testid="stop-btn"
       class="btn btn-error btn-sm"
       onclick={handleStop}
     >
@@ -453,6 +460,7 @@
     </button>
   {:else}
     <button
+      data-testid="go-btn"
       class="btn btn-primary btn-sm"
       onclick={handleGo}
       disabled={executing || !inputValue.trim()}
@@ -462,7 +470,7 @@
   {/if}
 
   {#if results.length > 0}
-    <div class="absolute top-full left-4 right-[200px] bg-base-100 border border-base-300 rounded-box max-h-[240px] overflow-y-auto z-[500] shadow-lg">
+    <div data-testid="autocomplete-list" class="absolute top-full left-4 right-[200px] bg-base-100 border border-base-300 rounded-box max-h-[240px] overflow-y-auto z-[500] shadow-lg">
       {#each results as item, i (item.oid)}
         <div
           class="px-3 py-2 text-sm cursor-pointer flex justify-between items-center hover:bg-base-200"

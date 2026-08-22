@@ -16,9 +16,19 @@ fn module_name_re() -> &'static regex::Regex {
 }
 
 pub fn detect_module_name(content: &str) -> String {
+    detect_module_name_original(content).to_uppercase()
+}
+
+/// Detects the MIB module name from file content, preserving the original
+/// case as written in the `DEFINITIONS` header.
+///
+/// Use this (rather than [`detect_module_name`]) when the name is passed to
+/// mib-rs, which matches module names case-sensitively against the parsed
+/// source.
+pub fn detect_module_name_original(content: &str) -> String {
     if let Some(captures) = module_name_re().captures(content) {
         if let Some(name_match) = captures.get(1) {
-            return name_match.as_str().to_uppercase();
+            return name_match.as_str().to_string();
         }
     }
     String::new()
@@ -96,6 +106,8 @@ pub struct LoadResult {
     pub nodes: Vec<MibNode>,
     /// Whether the primary (mib-rs) loader succeeded.
     pub primary_success: bool,
+    /// MIB module name the file was loaded as (may be empty when undetermined).
+    pub module_name: String,
 }
 
 /// Single node in the hierarchical MIB tree for UI rendering.
@@ -203,11 +215,13 @@ impl Resolver {
                 match mib_rs.load_file(file) {
                     Ok(result) => {
                         if result.primary_success {
-                            // Track file -> MIB name from the first node's mib_name.
-                            if let Some(first_node) = result.nodes.first() {
+                            // Track file -> MIB name so modules that contribute
+                            // no queryable nodes (e.g. pure TEXTUAL-CONVENTION
+                            // MIBs) still show up in Manage MIBs.
+                            if !result.module_name.is_empty() {
                                 file_mib_map.insert(
                                     file.to_string_lossy().to_string(),
-                                    first_node.mib_name.clone(),
+                                    result.module_name.clone(),
                                 );
                             }
                             primary_nodes.extend(result.nodes);
@@ -237,6 +251,7 @@ impl Resolver {
                                 file_mib_map
                                     .insert(file.to_string_lossy().to_string(), mib_name.clone());
                                 all_nodes.push(LoadResult {
+                                    module_name: mib_name.clone(),
                                     nodes,
                                     primary_success: false,
                                 });
@@ -635,6 +650,8 @@ impl Resolver {
     /// Returns column OIDs for a TABLE node by finding all leaf objects under its subtree.
     ///
     /// Excludes the table itself, row entry, and any intermediate OBJECT IDENTIFIER subtrees.
+    /// An OID-syntax node is only excluded when it actually has indexed descendants —
+    /// a leaf object whose SYNTAX is OBJECT IDENTIFIER (e.g. ifSpecific) is a column.
     pub fn get_table_columns(&self, table_oid: &str) -> Vec<String> {
         let mut columns = Vec::new();
         for node in self.oid_index.values() {
@@ -646,9 +663,18 @@ impl Resolver {
             if matches!(node.syntax_type, SyntaxType::Table | SyntaxType::TableRow) {
                 continue;
             }
-            // Only leaf objects are columns (not intermediate OBJECT IDENTIFIER subtrees)
+            // Intermediate OBJECT IDENTIFIER subtrees are not queryable columns.
+            // A subtree is an OID-syntax node that has indexed descendants; a leaf
+            // OID-syntax object (e.g. ifSpecific) is a regular column.
             if node.syntax_type == SyntaxType::ObjectIdentifier {
-                continue;
+                let prefix = format!("{}.", node.oid);
+                let is_subtree = self
+                    .oid_index
+                    .keys()
+                    .any(|k| k.as_str() != node.oid && k.starts_with(&prefix));
+                if is_subtree {
+                    continue;
+                }
             }
             columns.push(node.oid.clone());
         }
@@ -1160,7 +1186,7 @@ mod tests {
             },
         );
 
-        // Intermediate subtree (should be excluded).
+        // Intermediate subtree (should be excluded — it has a descendant).
         resolver.oid_index.insert(
             "1.3.6.1.2.1.2.2.1.99".to_string(),
             MibNode {
@@ -1171,12 +1197,58 @@ mod tests {
                 is_table: false,
             },
         );
+        resolver.oid_index.insert(
+            "1.3.6.1.2.1.2.2.1.99.1".to_string(),
+            MibNode {
+                oid: "1.3.6.1.2.1.2.2.1.99.1".to_string(),
+                name: "ifSubtreeLeaf".to_string(),
+                syntax_type: SyntaxType::Integer32,
+                mib_name: "IF-MIB".to_string(),
+                is_table: false,
+            },
+        );
 
         let columns = resolver.get_table_columns("1.3.6.1.2.1.2.2.1");
-        assert_eq!(columns.len(), 3);
+        // ifSubtree itself is excluded (it's a subtree); its leaf descendant
+        // is a regular column like any other leaf object under the table.
+        assert_eq!(columns.len(), 4);
         assert_eq!(columns[0], "1.3.6.1.2.1.2.2.1.1"); // ifIndex
         assert_eq!(columns[1], "1.3.6.1.2.1.2.2.1.2"); // ifDescr
         assert_eq!(columns[2], "1.3.6.1.2.1.2.2.1.3"); // ifType
+        assert_eq!(columns[3], "1.3.6.1.2.1.2.2.1.99.1"); // ifSubtreeLeaf
+    }
+
+    #[test]
+    fn get_table_columns_includes_oid_typed_leaf_objects() {
+        let mut resolver = Resolver::default();
+
+        resolver.oid_index.insert(
+            "1.3.6.1.2.1.2.2.1".to_string(),
+            MibNode {
+                oid: "1.3.6.1.2.1.2.2.1".to_string(),
+                name: "ifEntry".to_string(),
+                syntax_type: SyntaxType::TableRow,
+                mib_name: "IF-MIB".to_string(),
+                is_table: false,
+            },
+        );
+
+        // A column whose SYNTAX is OBJECT IDENTIFIER (e.g. ifSpecific) — must be
+        // included even though its syntax matches the subtree-node type.
+        resolver.oid_index.insert(
+            "1.3.6.1.2.1.2.2.1.22".to_string(),
+            MibNode {
+                oid: "1.3.6.1.2.1.2.2.1.22".to_string(),
+                name: "ifSpecific".to_string(),
+                syntax_type: SyntaxType::ObjectIdentifier,
+                mib_name: "IF-MIB".to_string(),
+                is_table: false,
+            },
+        );
+
+        let columns = resolver.get_table_columns("1.3.6.1.2.1.2.2.1");
+        assert_eq!(columns.len(), 1);
+        assert_eq!(columns[0], "1.3.6.1.2.1.2.2.1.22"); // ifSpecific
     }
 
     #[test]

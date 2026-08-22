@@ -72,7 +72,7 @@ impl SnmpEngine {
         for attempt in 0..=MAX_RETRIES {
             let t = target.clone();
             let oids: Vec<Arc<snmp2::Oid<'static>>> = snmp_oids.clone();
-            let result: Result<Vec<VariableBinding>, snmp2::Error> = (async {
+            let result: Result<(Vec<VariableBinding>, Vec<SnmpWarning>), snmp2::Error> = (async {
                 let mut session = Self::connect(&t).await.map_err(|_| snmp2::Error::Receive)?;
 
                 let pdu = if oids.len() == 1 {
@@ -87,7 +87,7 @@ impl SnmpEngine {
             .await;
 
             match result {
-                Ok(bindings) => {
+                Ok((bindings, warnings)) => {
                     info!(
                         "Get completed on {}: {} binding(s)",
                         target.addr(),
@@ -96,6 +96,10 @@ impl SnmpEngine {
                     let mut rs = ResultSet::new();
                     rs.retries = attempt;
                     rs.bindings = bindings;
+                    if !warnings.is_empty() {
+                        rs.partial = true;
+                    }
+                    rs.warnings = warnings;
                     return Ok(rs);
                 }
                 Err(e) => {
@@ -139,18 +143,24 @@ impl SnmpEngine {
             for attempt in 0..=MAX_RETRIES {
                 let t = target.clone();
                 let o = oid.clone();
-                let result: Result<Vec<VariableBinding>, snmp2::Error> = (async {
-                    let mut session = Self::connect(&t).await.map_err(|_| snmp2::Error::Receive)?;
-                    let parsed: snmp2::Oid = o.parse().map_err(|_| snmp2::Error::AsnParse)?;
-                    let pdu = session.getnext(&parsed).await?;
-                    Ok(Self::extract_bindings(pdu))
-                })
-                .await;
+                let result: Result<(Vec<VariableBinding>, Vec<SnmpWarning>), snmp2::Error> =
+                    (async {
+                        let mut session =
+                            Self::connect(&t).await.map_err(|_| snmp2::Error::Receive)?;
+                        let parsed: snmp2::Oid = o.parse().map_err(|_| snmp2::Error::AsnParse)?;
+                        let pdu = session.getnext(&parsed).await?;
+                        Ok(Self::extract_bindings(pdu))
+                    })
+                    .await;
 
                 match result {
-                    Ok(bindings) => {
+                    Ok((bindings, warnings)) => {
                         rs.retries = rs.retries.max(attempt);
                         rs.bindings.extend(bindings);
+                        if !warnings.is_empty() {
+                            rs.partial = true;
+                            rs.warnings.extend(warnings);
+                        }
                         break;
                     }
                     Err(e) => {
@@ -285,7 +295,7 @@ impl SnmpEngine {
             let t = target.clone();
             let o = Arc::clone(&parsed_oid);
             let v = value_owned.clone();
-            let result: Result<Vec<VariableBinding>, snmp2::Error> = (async {
+            let result: Result<(Vec<VariableBinding>, Vec<SnmpWarning>), snmp2::Error> = (async {
                 let mut session = Self::connect(&t).await.map_err(|_| snmp2::Error::Receive)?;
                 let snmp_value = Self::set_value_to_snmp(v);
                 let pdu = session.set(&[(&o, snmp_value)]).await?;
@@ -294,7 +304,7 @@ impl SnmpEngine {
             .await;
 
             match result {
-                Ok(bindings) => {
+                Ok((bindings, warnings)) => {
                     info!(
                         "Set completed on {}: {} binding(s)",
                         target.addr(),
@@ -303,6 +313,10 @@ impl SnmpEngine {
                     let mut rs = ResultSet::new();
                     rs.retries = attempt;
                     rs.bindings = bindings;
+                    if !warnings.is_empty() {
+                        rs.partial = true;
+                    }
+                    rs.warnings = warnings;
                     return Ok(rs);
                 }
                 Err(e) => {
@@ -398,11 +412,25 @@ impl SnmpEngine {
 
     // ── Async implementations ────────────────────────────────────────────────
 
-    /// Extracts owned VariableBindings from a Pdu (consumes the iterator).
-    fn extract_bindings(pdu: snmp2::Pdu<'_>) -> Vec<VariableBinding> {
-        pdu.varbinds
-            .map(|(o, v)| binding_from_snmp(o.to_string(), v))
-            .collect()
+    /// Extracts owned VariableBindings and exception warnings from a Pdu
+    /// (consumes the iterator).
+    fn extract_bindings(pdu: snmp2::Pdu<'_>) -> (Vec<VariableBinding>, Vec<SnmpWarning>) {
+        let varbinds: Vec<(String, snmp2::Value)> =
+            pdu.varbinds.map(|(o, v)| (o.to_string(), v)).collect();
+        let warnings = varbinds
+            .iter()
+            .filter_map(|(o, v)| {
+                value_warning(v).map(|mut w| {
+                    w.oid = Some(o.clone());
+                    w
+                })
+            })
+            .collect();
+        let bindings = varbinds
+            .into_iter()
+            .map(|(o, v)| binding_from_snmp(o, v))
+            .collect();
+        (bindings, warnings)
     }
 
     /// Shared walk loop used by both Walk and BulkWalk.

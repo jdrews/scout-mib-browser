@@ -84,7 +84,7 @@
   });
 </script>
 
-<div class="flex flex-col flex-shrink-0 border-t border-base-300 bg-base-100" style="height: {height}px">
+<div data-testid="syslog-pane" class="flex flex-col flex-shrink-0 border-t border-base-300 bg-base-100" style="height: {height}px">
   <div
     class="resize-handle-v h-[6px] cursor-row-resize flex-shrink-0 bg-base-200 hover:bg-primary/30 transition-colors"
     onmousedown={onResizeStart}

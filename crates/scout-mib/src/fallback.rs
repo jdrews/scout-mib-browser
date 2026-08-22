@@ -59,8 +59,10 @@ impl FallbackExtractor {
 
     /// Extracts MIB nodes from a file using regex-based parsing.
     pub fn extract_from_file(&mut self, path: &Path) -> Result<Vec<MibNode>, String> {
-        let content = std::fs::read_to_string(path)
+        let raw = std::fs::read_to_string(path)
             .map_err(|e| format!("Cannot read {}: {}", path.display(), e))?;
+        // Strip comment lines so regexes don't match keywords inside `--` comments.
+        let content = Self::strip_comments(&raw);
 
         // Detect module name.
         let mib_name = Self::detect_module_name(&content);
@@ -96,6 +98,16 @@ impl FallbackExtractor {
     /// Detects the MIB module name from file content.
     fn detect_module_name(content: &str) -> String {
         super::detect_module_name(content)
+    }
+
+    /// Removes MIB comment lines (`--` through end of line). Without this,
+    /// a comment mentioning e.g. "OBJECT-TYPE" produces a garbage node.
+    fn strip_comments(content: &str) -> String {
+        content
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("--"))
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     /// Extracts OBJECT-TYPE definitions using regex.
@@ -385,6 +397,36 @@ END
         );
 
         let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn comments_do_not_produce_nodes() {
+        let content = r#"COMMENT-MIB DEFINITIONS ::= BEGIN
+
+-- This module documents the OBJECT-TYPE blocks below.
+realObject OBJECT-TYPE
+    SYNTAX Integer32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "Real."
+    ::= { commentRoot 1 }
+
+END
+"#;
+
+        let nodes = FallbackExtractor::extract_object_types(content, "COMMENT-MIB");
+        let names: Vec<_> = nodes.iter().map(|n| &n.name).collect();
+        assert!(names.contains(&&"realObject".to_string()));
+        assert!(
+            !names.contains(&&"This".to_string()),
+            "comment keyword leaked into nodes"
+        );
+    }
+
+    #[test]
+    fn strip_comments_removes_dash_lines() {
+        let stripped = FallbackExtractor::strip_comments("-- a\nkeep -- inline\n  -- b\n");
+        assert_eq!(stripped, "keep -- inline");
     }
 
     #[test]

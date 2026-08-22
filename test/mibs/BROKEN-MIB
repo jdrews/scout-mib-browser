@@ -1,0 +1,25 @@
+-- BROKEN-MIB
+--
+-- Intentionally malformed MIB module used by the e2e suite to exercise the
+-- regex-fallback loading path (crates/scout-mib/src/fallback.rs).
+--
+-- A stray numeric literal precedes the module header (as seen in some vendor
+-- exports), which mib-rs's strict parser rejects: it fails to produce the
+-- module and the resolver falls back to the regex extractor. The OBJECT-TYPE
+-- blocks below are kept well-formed so the fallback still recovers them.
+
+123
+BROKEN-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, Integer32, OCTET STRING
+        FROM SNMPv2-SMI
+
+brokenMibObjects OBJECT IDENTIFIER ::= { brokenMib 1 }
+
+brokenThing OBJECT-TYPE
+    SYNTAX Integer32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "A well-formed object inside a malformed module."
+    ::= { brokenMibObjects 1 }

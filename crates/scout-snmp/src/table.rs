@@ -15,20 +15,21 @@ pub struct TableCell {
     pub missing: bool,
 }
 
+// NOTE: these structs intentionally serialize snake_case (no rename_all) to
+// match the frontend's TableRowData/TableResult contract in src/lib/types.ts.
+// `cells` must NOT be flattened — the frontend reads row.cells[colOid].
+
 /// A single row in a table grid, keyed by its instance suffix.
 #[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct TableRow {
     /// The instance suffix that identifies this row (e.g., "1" or "192.168.1.1.1").
     pub instance_id: String,
     /// Column OID -> cell data mapping.
-    #[serde(flatten)]
     pub cells: BTreeMap<String, TableCell>,
 }
 
 /// Result of a table retrieval operation — pivoted grid of rows and columns.
 #[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct TableResult {
     /// The table's root OID.
     pub table_oid: String,
