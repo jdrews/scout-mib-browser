@@ -56,20 +56,27 @@ npm run check:rust   # Rust compilation check (no linking, fast)
 
 End-to-end tests use [WebdriverIO](https://webdriver.io/) with the embedded Tauri WebDriver provider. The test runner starts a Vite dev server, launches the app headless via Xvfb, and drives the UI through WebDriver.
 
+The WebDriver server is embedded in the app binary itself (cargo feature
+`scout-mib-browser/wdio`, built by `test:e2e:build`), so no external driver
+package is required — in particular `webkit2gtk-driver` is NOT needed (it is
+not packaged on Fedora 44). The WebKitGTK library from Prerequisites
+(`webkit2gtk4.1`) is sufficient; verified working on Fedora 44 with
+`webkit2gtk4.1-2.52.5`.
+
 ### System Dependencies
 
 Install these before running E2E tests:
 
 **Ubuntu/Debian:**
 ```bash
-sudo apt install xvfb webkit2gtk-driver libgbm1 libasound2-data \
+sudo apt install xvfb libgbm1 libasound2-data \
   libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 \
   libxcomposite1 libxdamage1 libxrandr2
 ```
 
 **Fedora:**
 ```bash
-sudo dnf install xorg-x11-server-Xvfb webkit2gtk-driver mesa-libgbm \
+sudo dnf install xorg-x11-server-Xvfb mesa-libgbm \
   alsa-lib atkmm cups-libs libdrm libxkbcommon \
   libXcomposite libXdamage libXrandr
 ```
