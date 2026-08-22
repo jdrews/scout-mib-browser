@@ -41,3 +41,6 @@ scout-backend-logs
 
 # Scratch docs (local notes, never committed)
 docs/scratch/
+
+# UX assessment run artifacts (screenshots + JSON, regenerated per run)
+docs/ux/
