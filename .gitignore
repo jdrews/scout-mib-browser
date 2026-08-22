@@ -38,3 +38,6 @@ src/dist/
 # WDIO test logs
 logs/
 scout-backend-logs
+
+# Scratch docs (local notes, never committed)
+docs/scratch/
