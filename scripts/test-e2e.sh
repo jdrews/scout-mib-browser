@@ -1,7 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-# E2E test harness.
+# E2E test harness (shared by the feature suite and the UX assessment suite).
+#
+# Usage: scripts/test-e2e.sh [wdio-config]   (default: wdio.conf.mjs)
 #
 # Lifecycle (everything torn down via trap on exit, success or failure):
 #   1. Prepare a temp XDG_CONFIG_HOME with a pre-seeded scout/config.toml
@@ -12,6 +14,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
+WDIO_CONFIG="${1:-wdio.conf.mjs}"
 AGENT_PORT="${E2E_AGENT_PORT:-11611}"
 VITE_PORT=5173
 
@@ -102,9 +105,15 @@ for i in $(seq 1 30); do
 done
 
 # ── WDIO under Xvfb ──────────────────────────────────────────────────────────
-echo "Running E2E tests (config: $XDG_CONFIG_HOME)..."
+echo "Running E2E tests (wdio config: $WDIO_CONFIG, app config: $XDG_CONFIG_HOME)..."
 set +e
-xvfb-run --auto-servernum npx wdio run wdio.conf.mjs
+# Optional larger Xvfb screen (set by the UX suite so full-window screenshot
+# captures via `import` aren't clipped; feature suite keeps the default size).
+XVFB_ARGS=(--auto-servernum)
+if [ -n "${E2E_XVFB_SCREEN:-}" ]; then
+  XVFB_ARGS+=(-s "-screen 0 ${E2E_XVFB_SCREEN}x24")
+fi
+xvfb-run "${XVFB_ARGS[@]}" npx wdio run "$WDIO_CONFIG"
 RESULT=$?
 set -e
 
