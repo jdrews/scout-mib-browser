@@ -1,7 +1,7 @@
 # E2E Feature Coverage
 
 **Date:** 2026-08-21  
-**Status:** Proposed
+**Status:** Phase 1 implemented (2026-08-22, merged to main via PR #49 — 9/9 specs passing); Phase 2 partial — `ci.yml` has checks jobs only, no e2e job yet
 
 ## Purpose
 

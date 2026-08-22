@@ -1,7 +1,7 @@
 # Menu and Settings Reorganization
 
 **Date:** 2026-08-09  
-**Status:** Proposed
+**Status:** Implemented (2026-08-09) — File/View/Settings menus per Option 4; deviations: gear icon and footer theme toggle retained as quick-access paths
 
 ## Problem
 
