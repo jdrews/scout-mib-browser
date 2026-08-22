@@ -43,6 +43,7 @@ impl MibRsLoader {
             return Ok(LoadResult {
                 nodes: Vec::new(),
                 primary_success: false,
+                module_name: String::new(),
             });
         }
 
@@ -139,6 +140,7 @@ impl MibRsLoader {
                 Ok(LoadResult {
                     nodes,
                     primary_success: true,
+                    module_name: module_name.clone(),
                 })
             }
             Err(e) => {
@@ -151,6 +153,7 @@ impl MibRsLoader {
                 Ok(LoadResult {
                     nodes: Vec::new(),
                     primary_success: false,
+                    module_name: module_name.clone(),
                 })
             }
         }
@@ -174,15 +177,14 @@ impl MibRsLoader {
         }
     }
 
-    /// Detects the MIB module name from file content by finding the
-    /// `MODULE-NAME DEFINITIONS ::= BEGIN` pattern.
-    fn detect_module_name(content: &str) -> String {
-        super::detect_module_name(content)
-    }
-
     /// Detects the MIB module name, falling back to filename without extension.
+    ///
+    /// Uses the original case from the `DEFINITIONS` header: mib-rs matches
+    /// requested module names case-sensitively against the parsed source, so
+    /// normalizing to uppercase here would make mixed-case modules (e.g.
+    /// `SNMPv2-SMI`) unloadable and force them onto the regex fallback.
     fn detect_module_name_or_filename(&self, content: &str, path: &Path) -> String {
-        let name = Self::detect_module_name(content);
+        let name = super::detect_module_name_original(content);
         if !name.is_empty() {
             return name;
         }
@@ -202,7 +204,7 @@ mod tests {
         let content = r#"MY-TEST-MIB DEFINITIONS ::= BEGIN
 END
 "#;
-        assert_eq!(MibRsLoader::detect_module_name(content), "MY-TEST-MIB");
+        assert_eq!(crate::detect_module_name(content), "MY-TEST-MIB");
     }
 
     #[test]
@@ -210,13 +212,13 @@ END
         let content = r#"my-test-mib definitions ::= begin
 end
 "#;
-        assert_eq!(MibRsLoader::detect_module_name(content), "MY-TEST-MIB");
+        assert_eq!(crate::detect_module_name(content), "MY-TEST-MIB");
     }
 
     #[test]
     fn detect_module_name_no_match() {
         let content = "this is not a valid MIB file";
-        assert_eq!(MibRsLoader::detect_module_name(content), "");
+        assert_eq!(crate::detect_module_name(content), "");
     }
 
     #[test]
@@ -231,6 +233,70 @@ end
         let loader = MibRsLoader::new();
         let name = loader.detect_module_name_or_filename("no module definition here", &mib_path);
         assert_eq!(name, "MY-CUSTOM-MIB");
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn detect_module_name_preserves_original_case() {
+        let content = r#"SNMPv2-SMI DEFINITIONS ::= BEGIN
+END
+"#;
+        let loader = MibRsLoader::new();
+        assert_eq!(
+            loader.detect_module_name_or_filename(content, Path::new("SNMPv2-SMI")),
+            "SNMPv2-SMI"
+        );
+    }
+
+    #[test]
+    fn load_mixed_case_module_via_primary_parser() {
+        // mib-rs matches requested module names case-sensitively against the
+        // parsed source. Mixed-case headers must be requested with their
+        // original case or the file is forced onto the regex fallback.
+        let tmp_dir = std::env::temp_dir().join("scout_loader_mixedcase_test");
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        std::fs::create_dir_all(&tmp_dir).unwrap();
+
+        let mib_content = r#"Mixed-Case-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, Integer32, enterprises
+        FROM SNMPv2-SMI;
+
+mixedMib MODULE-IDENTITY
+    LAST-UPDATED "202601010000Z"
+    ORGANIZATION "Test"
+    CONTACT-INFO "test@test.com"
+    DESCRIPTION "A mixed-case test module."
+    ::= { enterprises 99997 }
+
+mixedThings OBJECT IDENTIFIER ::= { mixedMib 1 }
+
+mixedThing OBJECT-TYPE
+    SYNTAX Integer32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "An object in a mixed-case module."
+    ::= { mixedThings 1 }
+
+END
+"#;
+
+        let mib_path = tmp_dir.join("Mixed-Case-MIB");
+        std::fs::write(&mib_path, mib_content).unwrap();
+
+        let mut loader = MibRsLoader::new();
+        let result = loader.load_file(&mib_path).expect("should load");
+
+        assert!(
+            result.primary_success,
+            "mixed-case module must load via mib-rs"
+        );
+        assert!(
+            result.nodes.iter().any(|n| n.name == "mixedThing"),
+            "expected mixedThing in nodes: {:?}",
+            result.nodes.iter().map(|n| &n.name).collect::<Vec<_>>()
+        );
 
         let _ = std::fs::remove_dir_all(&tmp_dir);
     }
