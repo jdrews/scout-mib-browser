@@ -321,7 +321,7 @@
           </button>
         {/if}
       {/if}
-      <input data-testid="filter-input" type="text" placeholder="Filter..." class="input input-bordered input-sm w-40 font-mono" bind:value={filterText} />
+      <input data-testid="filter-input" aria-label="Filter results" type="text" placeholder="Filter..." class="input input-bordered input-sm w-40 font-mono" bind:value={filterText} />
     </div>
   </div>
 

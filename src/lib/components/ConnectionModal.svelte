@@ -87,11 +87,12 @@
       <h3 class="text-lg font-bold">Target Connection</h3>
 
       <div class="space-y-4 mt-4">
-        <div>
-          <label class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60 mb-1.5 block">SNMP Version</label>
+        <div role="group" aria-labelledby="label-snmp-version">
+          <label id="label-snmp-version" class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60 mb-1.5 block">SNMP Version</label>
           <div class="flex gap-1">
             {#each ["v1", "v2c", "v3"] as ver}
               <button
+                aria-pressed={cfg.version === ver}
                 class="btn btn-sm {cfg.version === ver ? 'btn-primary' : ''}"
                 onclick={() => updateField("version", ver)}
               >
@@ -103,8 +104,9 @@
 
         {#if !isV3}
           <div class="form-control">
-            <label class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Community String</span></label>
+            <label for="community-input" class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Community String</span></label>
             <input
+              id="community-input"
               type="text"
               value={cfg.community}
               oninput={onCommunityInput}
@@ -115,8 +117,9 @@
 
         {#if isV3}
           <div class="form-control">
-            <label class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Username</span></label>
+            <label for="v3-username-input" class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Username</span></label>
             <input
+              id="v3-username-input"
               type="text"
               value={cfg.v3_username}
               oninput={onV3UsernameInput}
@@ -126,8 +129,9 @@
 
           <div class="grid grid-cols-2 gap-3">
             <div class="form-control">
-              <label class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Auth Protocol</span></label>
+              <label for="v3-auth-protocol-select" class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Auth Protocol</span></label>
               <select
+                id="v3-auth-protocol-select"
                 value={cfg.v3_auth_protocol}
                 onchange={onV3AuthProtocolChange}
                 class="select select-bordered w-full"
@@ -138,8 +142,9 @@
               </select>
             </div>
             <div class="form-control">
-              <label class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Auth Passphrase</span></label>
+              <label for="v3-auth-passphrase-input" class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Auth Passphrase</span></label>
               <input
+                id="v3-auth-passphrase-input"
                 type="password"
                 value={cfg.v3_auth_passphrase}
                 oninput={onV3AuthPassphraseInput}
@@ -150,8 +155,9 @@
 
           <div class="grid grid-cols-2 gap-3">
             <div class="form-control">
-              <label class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Priv Protocol</span></label>
+              <label for="v3-priv-protocol-select" class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Priv Protocol</span></label>
               <select
+                id="v3-priv-protocol-select"
                 value={cfg.v3_priv_protocol}
                 onchange={onV3PrivProtocolChange}
                 class="select select-bordered w-full"
@@ -162,8 +168,9 @@
               </select>
             </div>
             <div class="form-control">
-              <label class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Priv Passphrase</span></label>
+              <label for="v3-priv-passphrase-input" class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Priv Passphrase</span></label>
               <input
+                id="v3-priv-passphrase-input"
                 type="password"
                 value={cfg.v3_priv_passphrase}
                 oninput={onV3PrivPassphraseInput}

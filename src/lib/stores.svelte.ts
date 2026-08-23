@@ -32,7 +32,7 @@ const raw = $state({
   } as TargetConfig,
   connectionPanelOpen: false,
   saveCredentials: true,
-  connectionState: "disconnected" as ConnectionState,
+  connectionState: "unknown" as ConnectionState,
   snmpOperation: "get" as SnmpOperation,
   isExecuting: false,
   executionBindings: [] as VariableBinding[],

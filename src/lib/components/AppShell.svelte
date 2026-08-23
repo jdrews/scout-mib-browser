@@ -101,8 +101,9 @@
       </button>
 
       <span data-testid="conn-indicator" class="flex items-center gap-1.5">
-        <span class="w-2 h-2 rounded-full inline-block" class:bg-success={connState === "connected"} class:bg-warning={connState === "connecting"} class:bg-error={connState !== "connected" && connState !== "connecting"}></span>
-        {connState === "connected" ? "Connected" : connState === "connecting" ? "Connecting..." : "Disconnected"}
+        <!-- Neutral until an attempt is made; red only after a real failure (UX-12). -->
+        <span class="w-2 h-2 rounded-full inline-block {connState === 'connected' ? 'bg-success' : connState === 'connecting' ? 'bg-warning' : connState === 'disconnected' ? 'bg-error' : 'bg-base-content/30'}"></span>
+        {connState === "connected" ? "Connected" : connState === "connecting" ? "Connecting..." : connState === "disconnected" ? "Disconnected" : "Not connected"}
       </span>
       <span data-testid="node-count">{S.nodeCount ? `${pluralize(S.nodeCount, "node")} loaded` : ""}</span>
     </aside>

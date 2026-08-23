@@ -32,9 +32,10 @@ describe("App shell (launch and layout)", () => {
     await expect(await findTreeNode("mib-2")).toBeExisting();
   });
 
-  it("shows disconnected state before any test connection", async () => {
+  it("shows a neutral indicator before any connection attempt", async () => {
+    // UX-12: the indicator is neutral at startup; red only after a real failure.
     const text = (await (await $("[data-testid='conn-indicator']").getText())) ?? "";
-    expect(text).toContain("Disconnected");
+    expect(text).toContain("Not connected");
   });
 
   it("placeholder results prompt", async () => {

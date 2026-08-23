@@ -99,6 +99,7 @@
     <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">System Log</span>
     <div class="flex items-center gap-2">
       <select
+        aria-label="Minimum log level"
         class="select select-bordered select-sm text-xs"
         bind:value={S.logLevelFilter}
       >

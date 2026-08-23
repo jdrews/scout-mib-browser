@@ -62,6 +62,10 @@
     const val = target.value.trim();
     inputValue = target.value;
 
+    // UX-07: a manual edit makes the typed value authoritative — drop the tree
+    // selection so the two can't silently diverge at Go time.
+    if (S.selectedNode) S.selectedNode = null;
+
     if (val.length < 1) {
       S.autocompleteResults.length = 0;
       return;
@@ -144,15 +148,39 @@
     return parts[0].trim();
   }
 
-  async function handleGo() {
-    const val = inputValue.trim();
-    if (!val || executing) return;
-
+  /** Resolves the typed value to an unambiguous OID: numeric OIDs pass
+   *  through; MIB names must match exactly (case-insensitive). */
+  async function resolveEffectiveOid(val: string): Promise<string | null> {
     let oid = extractOid(val);
     if (!oid) oid = val.trim();
+    if (!oid) return S.selectedNode?.oid ?? null;
 
-    const targetNode = S.selectedNode;
-    const effectiveOid = targetNode?.oid || oid;
+    if (/^\d+(\.\d+)*$/.test(oid)) return oid;
+
+    const res = await mibSearch(oid);
+    const exact = res.find((r) => r.name.toLowerCase() === oid.toLowerCase());
+    return exact?.oid ?? null;
+  }
+
+  async function handleGo() {
+    const val = inputValue.trim();
+    if (executing) return;
+
+    // UX-07: the typed value is authoritative; a tree selection only fills in
+    // when the bar is untouched. The effective OID must be unambiguous.
+    let effectiveOid = "";
+    try {
+      effectiveOid = (await resolveEffectiveOid(val)) ?? "";
+    } catch (err) {
+      console.error("OID resolution failed:", err);
+    }
+
+    if (!effectiveOid) {
+      S.statusText = val.trim()
+        ? `No MIB object named "${extractOid(val) || val.trim()}" — type a full name or OID`
+        : "Enter an OID or select a tree node";
+      return;
+    }
 
     if (operation === "set") {
       handleSet(effectiveOid);
@@ -394,10 +422,11 @@
 </script>
 
 <div data-address-bar class="flex items-center gap-2 px-4 py-2 bg-base-200 border-b border-base-300 flex-shrink-0 relative" onclick={(e) => { if (e.target === e.currentTarget) hideOnOutsideClick(e); }}>
-  <label class="text-xs font-semibold uppercase tracking-wide text-base-content/60 whitespace-nowrap">Target</label>
+  <label for="target-host" class="text-xs font-semibold uppercase tracking-wide text-base-content/60 whitespace-nowrap">Target</label>
 
   <div class="join">
     <input
+      id="target-host"
       data-testid="host-input"
       type="text"
       placeholder="Host or IP"
@@ -410,6 +439,7 @@
 
     <input
       data-testid="port-input"
+      aria-label="Port"
       type="text"
       placeholder="Port"
       value={cfg.port}
@@ -429,7 +459,9 @@
   </button>
 
   <input
+    id="oid-input"
     data-testid="oid-input"
+    aria-label="OID or MIB name"
     type="text"
     placeholder="Enter OID or MIB name (e.g., sysDescr)"
     autocomplete="off"
@@ -441,6 +473,7 @@
 
   <select
     data-testid="op-select"
+    aria-label="SNMP operation"
     class="select select-bordered select-sm w-[90px]"
     bind:value={S.snmpOperation}
   >
