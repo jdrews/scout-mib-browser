@@ -184,13 +184,16 @@ describe("UX A3 — keyboard-only core flow (zero mouse)", function () {
     const reach = await browser.execute(() => {
       const norm = (s: string | null) => (s ?? "").replace(/\s+/g, " ").trim();
       const out: Record<string, unknown> = {};
-      // Tree leaf nodes are <a> WITHOUT href -> not focusable, mouse-only.
-      const leaves = Array.from(document.querySelectorAll("a[data-tree-node]"));
-      out.treeLeafAnchorsWithoutHref = leaves.length;
-      out.treeLeafExample = leaves[0] ? norm(leaves[0].getAttribute("title")) : null;
-      // Menu items are <a onclick> WITHOUT href -> not focusable.
-      const menuLinks = Array.from(document.querySelectorAll("nav a, .menu a"));
-      out.menuAnchorsWithoutHref = menuLinks.filter((a) => !a.getAttribute("href")).length;
+      // Tree nodes are role=treeitem with a roving tabindex; exactly one should
+      // be tabbable at a time.
+      const treeitems = Array.from(document.querySelectorAll("[role='treeitem']"));
+      out.treeItems = treeitems.length;
+      out.treeItemTabstops = treeitems.filter((el) => el.getAttribute("tabindex") === "0").length;
+      out.treeLeafExample = treeitems[0] ? norm(treeitems[0].getAttribute("title")) : null;
+      // Menu items are role=menuitem (focusable via arrow keys when open).
+      out.menuItems = document.querySelectorAll("[role='menuitem']").length;
+      const menuTriggers = Array.from(document.querySelectorAll("nav button[aria-haspopup='menu']"));
+      out.menuTriggersWithHaspopup = menuTriggers.length;
       // Sort headers are plain <div onclick> -> not focusable.
       out.sortHeaderDivs = document.querySelectorAll("[data-testid^='sort-']").length;
       return out;

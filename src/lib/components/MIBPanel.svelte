@@ -6,6 +6,23 @@
   let showFallback = $derived(S.fallbackMibs.length > 0);
   let width = $derived(S.mibPanelWidth);
 
+  // Keep the roving tabindex target valid: exactly one rendered treeitem must
+  // hold tabindex=0. If the focused oid is gone (tree replaced, MIB unloaded)
+  // or nothing is focused yet, fall back to the first root.
+  $effect(() => {
+    const focus = S.treeFocusOid;
+    void S.treeData.length;
+    if (S.treeData.length === 0) return;
+    let found = false;
+    for (const el of document.querySelectorAll("[role='treeitem']")) {
+      if (el.getAttribute("data-oid") === focus) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) S.treeFocusOid = S.treeData[0].oid;
+  });
+
   function toggleSystemLog() {
     S.systemLogOpen = !S.systemLogOpen;
   }
@@ -25,7 +42,7 @@
     {#if !hasTree}
       <p class="text-base-content/60 text-sm text-center mt-12">No MIBs loaded.<br/>Use File → Add MIB Directory to get started.</p>
     {:else}
-      <ul class="menu menu-xs bg-base-200 rounded-box w-full p-0">
+      <ul role="tree" aria-label="MIB tree" class="w-full p-0 list-none">
         {#each S.treeData as node (node.oid)}
           <TreeNode {node} />
         {/each}

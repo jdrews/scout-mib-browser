@@ -160,13 +160,13 @@ export async function selectTreeNode(name: string): Promise<void> {
 export async function expandTo(names: string[]): Promise<void> {
   for (const name of names) {
     const node = await waitForTreeNode(name);
-    // Branch nodes are <summary data-tree-node> inside a <details>; the tree
-    // state persists across spec files, so only click when collapsed — clicking
-    // an open summary would collapse it.
-    const open = await browser.execute((el: Element) => {
-      const d = el.closest("details");
-      return d ? d.open : true;
-    }, node);
+    // Branch nodes are role=treeitem divs with aria-expanded; the tree state
+    // persists across spec files, so only click when collapsed — clicking an
+    // expanded branch would collapse it.
+    const open = await browser.execute(
+      (el: Element) => el.getAttribute("aria-expanded") === "true",
+      node
+    );
     if (!open) await node.click();
   }
 }

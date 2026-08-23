@@ -1,4 +1,4 @@
-import { expandTo, findTreeNode, oidInputValue, selectTreeNode, waitForAppReady } from "../support/helpers";
+import { expandTo, findTreeNode, oidInputValue, selectTreeNode, waitForAppReady, waitForTreeNode } from "../support/helpers";
 
 describe("MIB tree (browsing and selection)", () => {
   before(async () => {
@@ -33,7 +33,82 @@ describe("MIB tree (browsing and selection)", () => {
     expect(await oidInputValue()).toBe("1.3.6.1.2.1.1.1  sysDescr");
   });
 
+  it("keyboard-only selection: arrows move focus, Enter selects", async () => {
+    // Fresh collapsed tree so the visible item list is deterministic (roots only).
+    await browser.url("http://localhost:5173");
+    await waitForAppReady();
+
+    const first = await browser.execute(() => {
+      const items = Array.from(document.querySelectorAll("[role='treeitem']"));
+      if (!items.length) throw new Error("no treeitems rendered");
+      (items[0] as HTMLElement).focus();
+      return { oid: items[0].getAttribute("data-oid"), title: items[0].getAttribute("title") };
+    });
+
+    // Roving tabindex: exactly one treeitem is in the tab order.
+    expect(
+      await browser.execute(() =>
+        Array.from(document.querySelectorAll("[role='treeitem']")).filter(
+          (el) => el.getAttribute("tabindex") === "0"
+        ).length
+      )
+    ).toBe(1);
+
+    // ArrowDown moves focus to the next visible node.
+    await browser.keys(["ArrowDown"]);
+    const second = await browser.execute(() => {
+      const el = document.activeElement as HTMLElement | null;
+      return el ? { oid: el.getAttribute("data-oid"), title: el.getAttribute("title") } : null;
+    });
+    expect(second?.oid).not.toBe(first.oid);
+
+    // ArrowRight expands the focused branch (children load lazily).
+    await browser.keys(["ArrowRight"]);
+    await browser.pause(500);
+    expect(
+      await browser.execute(() => {
+        const el = document.activeElement as HTMLElement | null;
+        return el?.getAttribute("aria-expanded") === "true";
+      })
+    ).toBe(true);
+
+    // ArrowRight again moves into the first child.
+    await browser.keys(["ArrowRight"]);
+    await browser.pause(300);
+    const child = await browser.execute(() => {
+      const el = document.activeElement as HTMLElement | null;
+      return el ? el.getAttribute("data-oid") : null;
+    });
+    expect(child).not.toBe(second?.oid);
+
+    // Enter selects the focused node: aria-selected and the address bar agree.
+    await browser.keys(["Enter"]);
+    await browser.pause(300);
+    expect(
+      await browser.execute(() => {
+        const el = document.activeElement as HTMLElement | null;
+        return el?.getAttribute("aria-selected") === "true";
+      })
+    ).toBe(true);
+    const bar = (await oidInputValue()) ?? "";
+    expect(bar.length).toBeGreaterThan(0);
+
+    // ArrowLeft on the child moves focus back to its parent branch.
+    await browser.keys(["ArrowLeft"]);
+    await browser.pause(200);
+    const backOnParent = await browser.execute(() => {
+      const el = document.activeElement as HTMLElement | null;
+      return el ? el.getAttribute("data-oid") : null;
+    });
+    expect(backOnParent).toBe(second?.oid);
+  });
+
   it("context menu offers copy actions", async () => {
+    // Self-contained: earlier tests may have reloaded the page and collapsed
+    // the tree, so expand down to sysDescr explicitly (children load lazily).
+    await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2", "system"]);
+    await waitForTreeNode("sysDescr");
+
     // element.dispatchEvent() is not part of this WDIO build — dispatch the
     // contextmenu event directly in page context (locating the node there too,
     // to avoid cross-context element argument serialization).

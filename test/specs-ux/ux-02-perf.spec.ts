@@ -32,10 +32,10 @@ describe("UX A2 — perceived-performance probes (N=5)", function () {
     const times: number[] = [];
     for (let i = 0; i < CHAIN.length - 1; i++) {
       const parent = await waitForTreeNode(CHAIN[i]);
-      const open = await browser.execute((el: Element) => {
-        const d = el.closest("details");
-        return d ? d.open : true;
-      }, parent);
+      const open = await browser.execute(
+        (el: Element) => el.getAttribute("aria-expanded") === "true",
+        parent
+      );
       const t0 = Date.now();
       if (!open) await parent.click();
       await waitForTreeNode(CHAIN[i + 1]);
