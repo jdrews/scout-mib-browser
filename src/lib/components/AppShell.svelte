@@ -76,6 +76,7 @@
 </script>
 
 <div class="flex flex-col h-screen bg-base-100 text-base-content overflow-hidden" data-theme={S.currentTheme}>
+  <h1 class="visually-hidden">Scout MIB Browser</h1>
   <MenuBar />
   <TargetBar />
   <div class="flex flex-col flex-1 overflow-hidden min-h-0">
@@ -88,10 +89,10 @@
   <ManageMibsDialog />
   <ConnectionModal />
   <footer class="footer footer-horizontal items-center bg-base-200 border-t border-base-300 text-base-content/60 text-xs flex-shrink-0 px-4 py-2">
-    <aside class="flex items-center gap-3">
+    <div class="flex items-center gap-3">
       <span data-testid="status-text">{S.statusText}</span>
-    </aside>
-    <aside class="flex items-center gap-3 ml-auto">
+    </div>
+    <div class="flex items-center gap-3 ml-auto">
       <button data-testid="theme-toggle" aria-label={S.currentTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"} class="btn btn-ghost btn-circle btn-sm" onclick={() => S.currentTheme = S.currentTheme === "dark" ? "light" : "dark"} title={S.currentTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
         {#if S.currentTheme === "dark"}
           <Sun class="w-4 h-4" />
@@ -106,6 +107,6 @@
         {connState === "connected" ? "Connected" : connState === "connecting" ? "Connecting..." : connState === "disconnected" ? "Disconnected" : "Not connected"}
       </span>
       <span data-testid="node-count">{S.nodeCount ? `${pluralize(S.nodeCount, "node")} loaded` : ""}</span>
-    </aside>
+    </div>
   </footer>
 </div>

@@ -347,14 +347,19 @@
     </div>
   {/if}
 
-  <div data-testid="results-body" class="flex-1 overflow-auto">
+  <div
+    data-testid="results-body"
+    tabindex="0"
+    aria-label="Results"
+    class="flex-1 overflow-auto focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+  >
     {#if isGridView && gridView}
       {#if filteredGridRows.length === 0 && gridRows.length === 0}
         <p class="text-base-content/60 text-sm text-center mt-12">No table data returned.</p>
       {:else if filteredGridRows.length === 0}
         <p class="text-base-content/60 text-sm text-center mt-8">No results match filter.</p>
       {:else}
-        <div class="overflow-x-auto">
+        <div tabindex="0" aria-label="Table data" class="overflow-x-auto focus:outline-none focus-visible:ring-2 focus-visible:ring-primary">
           <table data-testid="grid-table" class="table table-zebra table-sm">
             <thead>
               <tr>

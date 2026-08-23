@@ -42,7 +42,7 @@
   }
 </script>
 
-<aside class="flex flex-col bg-base-200 border-r border-base-300 flex-shrink-0" style="width: {width}px">
+<nav aria-label="MIB tree" class="flex flex-col bg-base-200 border-r border-base-300 flex-shrink-0" style="width: {width}px">
   <div data-testid="mib-panel-header" class="px-4 py-3 text-sm font-semibold uppercase tracking-wide text-base-content/60 bg-base-100 border-b border-base-300 flex items-center">
     MIB Browser
     {#if S.fallbackMibs.length > 0 && S.fallbackBannerDismissed}
@@ -87,4 +87,4 @@
       </button>
     </div>
   {/if}
-</aside>
+</nav>

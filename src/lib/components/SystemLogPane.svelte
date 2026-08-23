@@ -84,7 +84,7 @@
   });
 </script>
 
-<div data-testid="syslog-pane" class="flex flex-col flex-shrink-0 border-t border-base-300 bg-base-100" style="height: {height}px">
+<aside aria-label="System log" data-testid="syslog-pane" class="flex flex-col flex-shrink-0 border-t border-base-300 bg-base-100" style="height: {height}px">
   <div
     class="resize-handle-v h-[6px] cursor-row-resize flex-shrink-0 bg-base-200 hover:bg-primary/30 transition-colors"
     onmousedown={onResizeStart}
@@ -119,7 +119,9 @@
 
   <div
     bind:this={logContainer}
-    class="flex-1 overflow-y-auto font-mono text-[13px] py-2"
+    tabindex="0"
+    aria-label="System log entries"
+    class="flex-1 overflow-y-auto font-mono text-[13px] py-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
   >
     {#each filteredEntries as entry, i (i)}
       <div class="flex gap-2 px-4 py-1.5 hover:bg-base-200">
@@ -146,7 +148,7 @@
       Scroll to bottom
     </button>
   </div>
-</div>
+</aside>
 
 <style>
 .muted-level {

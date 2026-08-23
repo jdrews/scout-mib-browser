@@ -41,4 +41,20 @@ describe("App shell (launch and layout)", () => {
   it("placeholder results prompt", async () => {
     await expect(await $("[data-testid='results-placeholder']")).toBeExisting();
   });
+
+  it("document structure: single h1, landmarks, focusable scroll regions", async () => {
+    const structure = await browser.execute(() => {
+      const out: Record<string, unknown> = {};
+      out.h1Count = document.querySelectorAll("h1").length;
+      out.treeIsNav = !!document.querySelector('nav[aria-label="MIB tree"] [role="tree"]');
+      out.resultsInMain = !!document.querySelector("main [data-testid='results-body']");
+      const body = document.querySelector("[data-testid='results-body']") as HTMLElement | null;
+      out.resultsBodyFocusable = body?.getAttribute("tabindex") === "0";
+      return out;
+    });
+    expect(structure.h1Count).toBe(1);
+    expect(structure.treeIsNav).toBe(true);
+    expect(structure.resultsInMain).toBe(true);
+    expect(structure.resultsBodyFocusable).toBe(true);
+  });
 });
