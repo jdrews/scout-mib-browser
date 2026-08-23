@@ -435,7 +435,8 @@
       class="input input-bordered input-sm w-[160px] font-mono join-item"
     />
 
-    <span class="text-base-content/40 text-sm flex items-center join-item">:</span>
+    <!-- /60 (not /40): 4.5:1 AA on base-200 in the light theme. -->
+    <span class="text-base-content/60 text-sm flex items-center join-item">:</span>
 
     <input
       data-testid="port-input"
