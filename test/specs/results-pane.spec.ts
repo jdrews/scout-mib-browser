@@ -34,9 +34,10 @@ describe("Results pane (result set manipulation)", () => {
     const valueHeader = $("[data-testid='sort-value']");
     const oidHeader = $("[data-testid='sort-oid']");
 
-    // Default is OID ascending; switch to Value.
+    // Default is OID ascending; switch to Value. Sort direction shows as a
+    // Lucide arrow icon in the header.
     await (await valueHeader).click();
-    expect(((await valueHeader.getText()) ?? "")).toContain("\u2191"); // ↑
+    expect((await valueHeader.$$("svg.lucide-arrow-up")).length).toBe(1);
 
     // Values are sorted ascending.
     let rows = await $$("[data-testid='result-row']");
@@ -48,7 +49,7 @@ describe("Results pane (result set manipulation)", () => {
 
     // Click again — descending.
     await (await valueHeader).click();
-    expect(((await valueHeader.getText()) ?? "")).toContain("\u2193"); // ↓
+    expect((await valueHeader.$$("svg.lucide-arrow-down")).length).toBe(1);
     rows = await $$("[data-testid='result-row']");
     const desc: string[] = [];
     for (const r of rows) desc.push((await ((await r.$$("div"))[1]).getText()) ?? "");
@@ -58,8 +59,8 @@ describe("Results pane (result set manipulation)", () => {
 
     // Clicking the OID header switches the sort column.
     await (await oidHeader).click();
-    expect(((await oidHeader.getText()) ?? "")).toContain("\u2191");
-    expect(((await valueHeader.getText()) ?? "")).toContain("\u2195");
+    expect((await oidHeader.$$("svg.lucide-arrow-up")).length).toBe(1);
+    expect((await valueHeader.$$("svg.lucide-arrow-up-down")).length).toBe(1);
   });
 
   it("MIB Names / Raw OIDs toggle", async () => {

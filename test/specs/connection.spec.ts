@@ -101,7 +101,7 @@ describe("Connection (target configuration)", () => {
       },
       { timeout: 45000, interval: 500, timeoutMsg: "Test Connection never finished" }
     );
-    expect((await btn.getText()) ?? "").toContain("✓ Connected");
+    expect((await btn.getText()) ?? "").toContain("Connected");
 
     const indicator = (await (await $("[data-testid='conn-indicator']").getText())) ?? "";
     expect(indicator).toContain("Connected");

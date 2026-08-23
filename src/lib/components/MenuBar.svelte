@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Check } from "lucide-svelte";
   import { S } from "$lib/stores.svelte";
   import { configRead, configWrite, mibLoadDirectories, openDirectory, mibTree, mibOidNameMap } from "$lib/tauriCommands";
 
@@ -115,7 +116,7 @@
           <a data-testid="menu-system-log" onclick={(e) => { e.preventDefault(); e.stopPropagation(); S.systemLogOpen = !S.systemLogOpen; }}>
             <span class="flex items-center gap-2">
               {#if S.systemLogOpen}
-                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+                <Check class="w-4 h-4 shrink-0" />
               {/if}
               <span class={S.systemLogOpen ? "text-primary" : ""}>System Log</span>
             </span>
@@ -135,10 +136,10 @@
           <details open>
             <summary>System Log Level</summary>
             <ul class="menu menu-vertical w-full p-0">
-              <li><a data-testid="log-level-all" class={S.logLevelFilter === "all" ? "active" : ""} onclick={() => { S.logLevelFilter = "all"; }}>{S.logLevelFilter === "all" ? "✓" : ""} All</a></li>
-              <li><a data-testid="log-level-info" class={S.logLevelFilter === "info" ? "active" : ""} onclick={() => { S.logLevelFilter = "info"; }}>{S.logLevelFilter === "info" ? "✓" : ""} Info+</a></li>
-              <li><a data-testid="log-level-warn" class={S.logLevelFilter === "warn" ? "active" : ""} onclick={() => { S.logLevelFilter = "warn"; }}>{S.logLevelFilter === "warn" ? "✓" : ""} Warning+</a></li>
-              <li><a data-testid="log-level-error" class={S.logLevelFilter === "error" ? "active" : ""} onclick={() => { S.logLevelFilter = "error"; }}>{S.logLevelFilter === "error" ? "✓" : ""} Error</a></li>
+              <li><a data-testid="log-level-all" class={S.logLevelFilter === "all" ? "active" : ""} onclick={() => { S.logLevelFilter = "all"; }}><span class="flex items-center gap-2">{#if S.logLevelFilter === "all"}<Check class="w-3.5 h-3.5 shrink-0" />{/if}<span>All</span></span></a></li>
+              <li><a data-testid="log-level-info" class={S.logLevelFilter === "info" ? "active" : ""} onclick={() => { S.logLevelFilter = "info"; }}><span class="flex items-center gap-2">{#if S.logLevelFilter === "info"}<Check class="w-3.5 h-3.5 shrink-0" />{/if}<span>Info+</span></span></a></li>
+              <li><a data-testid="log-level-warn" class={S.logLevelFilter === "warn" ? "active" : ""} onclick={() => { S.logLevelFilter = "warn"; }}><span class="flex items-center gap-2">{#if S.logLevelFilter === "warn"}<Check class="w-3.5 h-3.5 shrink-0" />{/if}<span>Warning+</span></span></a></li>
+              <li><a data-testid="log-level-error" class={S.logLevelFilter === "error" ? "active" : ""} onclick={() => { S.logLevelFilter = "error"; }}><span class="flex items-center gap-2">{#if S.logLevelFilter === "error"}<Check class="w-3.5 h-3.5 shrink-0" />{/if}<span>Error</span></span></a></li>
             </ul>
           </details>
         </li>

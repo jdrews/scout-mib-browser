@@ -203,11 +203,11 @@ export async function oidInputValue(): Promise<string> {
   return (await (await $('[data-testid="oid-input"]').getValue())) ?? "";
 }
 
-/** Parses "N nodes loaded" from the footer node count element. */
+/** Parses "N node(s) loaded" from the footer node count element. */
 export async function nodeCount(): Promise<number> {
   const text = (await (await $('[data-testid="node-count"]').getText())) ?? "";
-  const m = text.match(/(\d+) nodes loaded/);
-  if (!m) throw new Error(`node-count did not match "N nodes loaded": "${text}"`);
+  const m = text.match(/(\d+) nodes? loaded/);
+  if (!m) throw new Error(`node-count did not match "N node(s) loaded": "${text}"`);
   return Number(m[1]);
 }
 

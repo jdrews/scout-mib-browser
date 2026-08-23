@@ -1,6 +1,8 @@
 <script lang="ts">
+  import { X } from "lucide-svelte";
   import { S } from "$lib/stores.svelte";
   import { mibLoadedList, mibUnload, mibTree } from "$lib/tauriCommands";
+  import { pluralize } from "$lib/format";
   import type { LoadedMib } from "$lib/types";
 
   let mibs: LoadedMib[] = $state([]);
@@ -63,7 +65,7 @@
   <dialog class="modal modal-open" onclick={close}>
     <div data-testid="manage-mibs-dialog" class="modal-box max-w-[560px] max-h-[70vh] flex flex-col" onclick={(e) => e.stopPropagation()}>
       <form method="dialog">
-        <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2 hover:text-error">✕</button>
+        <button aria-label="Close Manage MIBs dialog" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2 hover:text-error"><X class="w-4 h-4" /></button>
       </form>
       <h3 class="text-lg font-bold">Manage MIBs</h3>
 
@@ -83,7 +85,7 @@
                 {#if mib.isFallback}
                   <span class="badge badge-warning badge-sm">FALLBACK</span>
                 {/if}
-                <span>{mib.nodeCount} nodes</span>
+                <span data-testid="mib-node-count">{pluralize(mib.nodeCount, "node")}</span>
               </div>
               <button data-testid="unload-btn" class="btn btn-error btn-xs" onclick={() => unloadMib(mib.mibName)}>
                 Unload

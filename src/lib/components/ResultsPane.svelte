@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { ArrowDown, ArrowUp, ArrowUpDown, Trash2, TriangleAlert, WrapText } from "lucide-svelte";
   import { S, clearResults } from "$lib/stores.svelte";
   import type { VariableBinding, SnmpValue, ResultSet, TreeNode, TableResult, TableRowData, TableCell } from "$lib/types";
   import type { ExportFormat } from "$lib/export";
@@ -194,11 +195,6 @@
     }
   }
 
-  function sortIcon(col: string): string {
-    if (sortColumn !== col) return "\u2195";
-    return sortAsc ? "\u2191" : "\u2193";
-  }
-
   let hasWarnings = $derived(results?.warnings && results.warnings.length > 0);
   let isPartial = $derived(results?.partial || false);
 
@@ -304,7 +300,7 @@
         <span class="text-xs text-primary font-mono">{progress}</span>
       {/if}
       {#if isPartial}
-        <span data-testid="partial-badge" class="text-xs text-accent">⚠ partial results</span>
+        <span data-testid="partial-badge" class="badge badge-warning badge-sm gap-1"><TriangleAlert class="w-3 h-3" /> partial results</span>
       {/if}
       {#if bindings.length > 0 || isGridView}
         <div data-export-menu class="dropdown dropdown-end relative">
@@ -317,10 +313,12 @@
             </ul>
           {/if}
         </div>
-        <button data-testid="clear-btn" class="btn btn-sm btn-ghost" title="Clear results" onclick={clearAll}>🗑️</button>
+        <button data-testid="clear-btn" aria-label="Clear results" class="btn btn-sm btn-ghost" title="Clear results" onclick={clearAll}><Trash2 class="w-4 h-4" /></button>
         {#if !isGridView}
           <button data-testid="names-toggle" class="btn btn-sm {showResolvedNames ? 'btn-primary' : 'btn-ghost'}" onclick={() => showResolvedNames = !showResolvedNames}>{showResolvedNames ? "MIB Names" : "Raw OIDs"}</button>
-          <button data-testid="wrap-toggle" class="btn btn-sm {wrapValue ? 'btn-primary' : 'btn-ghost'}" onclick={() => wrapValue = !wrapValue}>↳ Wrap</button>
+          <button data-testid="wrap-toggle" title="Wrap long values" class="btn btn-sm {wrapValue ? 'btn-primary' : 'btn-ghost'}" onclick={() => wrapValue = !wrapValue}>
+            <WrapText class="w-4 h-4 inline-block" /> Wrap
+          </button>
         {/if}
       {/if}
       <input data-testid="filter-input" type="text" placeholder="Filter..." class="input input-bordered input-sm w-40 font-mono" bind:value={filterText} />
@@ -330,8 +328,8 @@
   {#if hasWarnings && results?.warnings}
     <div data-testid="warnings-banner" role="alert" class="alert alert-warning px-4 py-2 text-xs max-h-24 overflow-y-auto">
       {#each results.warnings as w}
-        <div class="flex gap-1">
-          <span>⚠</span>
+        <div class="flex gap-1 items-start">
+          <TriangleAlert class="w-3.5 h-3.5 shrink-0 mt-0.5" />
           <span class="font-semibold">{w.kind}</span>
           <span>: {w.message}</span>
           {#if w.oid}<span class="font-mono opacity-70">({w.oid})</span>{/if}
@@ -376,7 +374,7 @@
                     {@const cell = row.cells[colOid]}
                     <td class="{cell.missing ? 'text-accent' : ''}">
                       {#if cell.missing}
-                        <span class="text-base-content/60 italic">\u2014 missing \u26a0</span>
+                        <span class="text-base-content/60 italic flex items-center gap-1">— missing <TriangleAlert class="w-3 h-3 shrink-0" /></span>
                       {:else if cell.value}
                         <span>{valueDisplay(cell.value.value)}</span>
                       {:else}
@@ -403,9 +401,18 @@
         <div class="resize-divider absolute top-0 bottom-0 w-[5px] z-20 hover:bg-primary/50 transition-colors" style="left: {divider2Left};" onmousedown={onDivider2MouseDown}></div>
 
         <div class="flex bg-base-200 border-b-2 border-base-content/30 sticky top-0 z-10 text-xs font-semibold uppercase tracking-wider" style="min-width: max-content;">
-          <div data-testid="sort-oid" class="cursor-pointer px-2 py-1.5 truncate select-none" style="width: {colOid}px; min-width: {COL_MIN_OID}px; max-width: {COL_MAX_OID}px;" onclick={() => toggleSort("oid")}>OID {sortIcon("oid")}</div>
-          <div data-testid="sort-value" class="flex-1 min-w-[120px] cursor-pointer px-2 py-1.5 truncate select-none" onclick={() => toggleSort("value")}>Value {sortIcon("value")}</div>
-          <div data-testid="sort-type" class="cursor-pointer px-2 py-1.5 truncate select-none" style="width: {colType}px; min-width: {COL_MIN_TYPE}px; max-width: {COL_MAX_TYPE}px;" onclick={() => toggleSort("type")}>Type {sortIcon("type")}</div>
+          <div data-testid="sort-oid" class="cursor-pointer px-2 py-1.5 truncate select-none flex items-center gap-1" style="width: {colOid}px; min-width: {COL_MIN_OID}px; max-width: {COL_MAX_OID}px;" onclick={() => toggleSort("oid")}>
+            <span class="truncate">OID</span>
+            {#if sortColumn === "oid"}{#if sortAsc}<ArrowUp class="w-3 h-3 shrink-0" />{:else}<ArrowDown class="w-3 h-3 shrink-0" />{/if}{:else}<ArrowUpDown class="w-3 h-3 shrink-0" />{/if}
+          </div>
+          <div data-testid="sort-value" class="flex-1 min-w-[120px] cursor-pointer px-2 py-1.5 truncate select-none flex items-center gap-1" onclick={() => toggleSort("value")}>
+            <span class="truncate">Value</span>
+            {#if sortColumn === "value"}{#if sortAsc}<ArrowUp class="w-3 h-3 shrink-0" />{:else}<ArrowDown class="w-3 h-3 shrink-0" />{/if}{:else}<ArrowUpDown class="w-3 h-3 shrink-0" />{/if}
+          </div>
+          <div data-testid="sort-type" class="cursor-pointer px-2 py-1.5 truncate select-none flex items-center gap-1" style="width: {colType}px; min-width: {COL_MIN_TYPE}px; max-width: {COL_MAX_TYPE}px;" onclick={() => toggleSort("type")}>
+            <span class="truncate">Type</span>
+            {#if sortColumn === "type"}{#if sortAsc}<ArrowUp class="w-3 h-3 shrink-0" />{:else}<ArrowDown class="w-3 h-3 shrink-0" />{/if}{:else}<ArrowUpDown class="w-3 h-3 shrink-0" />{/if}
+          </div>
         </div>
 
         {#each sortedRows as row (row.oid)}
@@ -415,7 +422,7 @@
             </div>
             <div class="flex-1 min-w-[120px] px-2 py-1 font-mono text-[13px] {wrapValue ? 'break-all' : 'truncate'}">
               {row.value}
-              {#if row.warning} <span class="text-accent">⚠</span>{/if}
+              {#if row.warning} <TriangleAlert class="w-3.5 h-3.5 inline-block text-accent" />{/if}
             </div>
             <div class="px-2 py-1 font-mono text-[13px] text-base-content/60" style="width: {colType}px; min-width: {COL_MIN_TYPE}px; max-width: {COL_MAX_TYPE}px;">{row.type}</div>
           </div>

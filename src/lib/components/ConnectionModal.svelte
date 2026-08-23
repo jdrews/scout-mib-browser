@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Check, X } from "lucide-svelte";
   import { S } from "$lib/stores.svelte";
   import { persistTargetConfig, configWrite } from "$lib/tauriCommands";
   import { runTestConnection, clearResultTimer } from "$lib/connectionLogic";
@@ -82,7 +83,7 @@
 {#if open}
   <dialog class="modal modal-open" onclick={handleBackdropClick}>
     <div data-connection-panel class="modal-box max-w-[480px]">
-      <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick={(e) => { e.stopPropagation(); close(); }}>✕</button>
+      <button aria-label="Close connection dialog" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick={(e) => { e.stopPropagation(); close(); }}><X class="w-4 h-4" /></button>
       <h3 class="text-lg font-bold">Target Connection</h3>
 
       <div class="space-y-4 mt-4">
@@ -173,11 +174,20 @@
         {/if}
 
         <button
+          data-testid="test-connection-btn"
           class="btn btn-block mt-2 {connectionResult === 'success' ? 'btn-success' : connectionResult === 'error' ? 'btn-error' : 'btn-primary'}"
           onclick={testConnection}
           disabled={connecting || !cfg.host.trim()}
         >
-          {connecting ? "Testing..." : connectionResult === 'success' ? "✓ Connected" : connectionResult === 'error' ? "✕ Failed" : "Test Connection"}
+          {#if connecting}
+            Testing...
+          {:else if connectionResult === "success"}
+            <Check class="w-4 h-4 inline-block" /> Connected
+          {:else if connectionResult === "error"}
+            <X class="w-4 h-4 inline-block" /> Failed
+          {:else}
+            Test Connection
+          {/if}
         </button>
 
         {#if errorMessage}

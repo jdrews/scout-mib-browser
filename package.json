@@ -52,7 +52,8 @@
     "webdriverio": "^9.30.0"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.11.1"
+    "@tauri-apps/api": "^2.11.1",
+    "lucide-svelte": "^1.0.1"
   },
   "overrides": {
     "@wdio/native-utils": "$@wdio/native-utils"
