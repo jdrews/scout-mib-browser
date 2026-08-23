@@ -7,8 +7,9 @@ const UNKNOWN_INSTANCE_OID = "1.3.6.1.2.1.31.1.1.1.19.9999";
 
 describe("Tolerance (malformed data handling)", () => {
   before(async () => {
-    // Fresh window: a tree selection left by an earlier spec would override
-    // the typed OID when Go is clicked. Reloading clears it.
+    // Fresh window for a clean baseline (results/tree state from earlier specs).
+    // Note: since UX-07, a stale tree selection no longer overrides the typed
+    // OID at Go time — this reload is about state hygiene, not correctness.
     await browser.url("http://localhost:5173");
     await waitForAppReady();
   });
@@ -34,13 +35,28 @@ describe("Tolerance (malformed data handling)", () => {
     expect(status).toMatch(/^Get complete: 1 binding\(s\)$/);
   });
 
-  it("regex-fallback MIB banner", async () => {
+  it("fallback MIB banner uses plain language", async () => {
     const banner = await $("[data-testid='fallback-banner']");
     await expect(banner).toBeExisting();
-    expect((await banner.getText()) ?? "").toContain("1 MIB(s) loaded via regex fallback");
+    expect((await banner.getText()) ?? "").toContain(
+      "1 MIB couldn't be fully parsed and was loaded with reduced information"
+    );
 
     // Its System Log button opens the syslog pane.
     await (await $("[data-testid='fallback-syslog-btn']")).click();
     await expect(await $("[data-testid='syslog-pane']")).toBeExisting();
+  });
+
+  it("fallback banner dismissal is session-scoped and reversible", async () => {
+    // Dismiss: banner goes away, a compact indicator appears in the header.
+    await (await $("[data-testid='fallback-dismiss-btn']")).click();
+    await expect(await $("[data-testid='fallback-banner']")).not.toBeExisting();
+    const indicator = await $("[data-testid='fallback-indicator']");
+    await expect(indicator).toBeExisting();
+    expect((await indicator.getAttribute("aria-label")) ?? "").toContain("1 MIB loaded with reduced information");
+
+    // Clicking the indicator reopens the banner.
+    await indicator.click();
+    await expect(await $("[data-testid='fallback-banner']")).toBeExisting();
   });
 });

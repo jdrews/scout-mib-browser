@@ -7,6 +7,9 @@ const raw = $state({
   selectedNode: null as TreeNode | null,
   targetOidFromTree: "" as string,
   treeFocusOid: null as string | null,
+  // Session-only dismissal of the fallback banner (UX-18): intentionally not
+  // persisted — a broken MIB is still broken at next launch.
+  fallbackBannerDismissed: false,
   treeData: [] as TreeNode[],
   contextMenuTarget: null as { node: TreeNode; x: number; y: number } | null,
   statusText: "Ready",
