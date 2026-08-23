@@ -1,13 +1,32 @@
 <script lang="ts">
   import { X } from "lucide-svelte";
+  import { tick } from "svelte";
   import { S } from "$lib/stores.svelte";
   import { mibLoadedList, mibUnload, mibTree } from "$lib/tauriCommands";
   import { pluralize } from "$lib/format";
+  import { trapFocus } from "$lib/focusTrap";
   import type { LoadedMib } from "$lib/types";
 
   let mibs: LoadedMib[] = $state([]);
   let loading = $state(false);
   let dataLoaded = $state(false);
+
+  let panelEl: HTMLDialogElement | undefined;
+  let lastTrigger: HTMLElement | null = null;
+
+  // Dialog pattern (UX-10): same treatment as the connection modal.
+  $effect(() => {
+    if (!S.manageMibsOpen) return;
+    lastTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    let cleanup: (() => void) | undefined;
+    void tick().then(() => {
+      if (panelEl) cleanup = trapFocus(panelEl, close);
+    });
+    return () => {
+      cleanup?.();
+      if (lastTrigger instanceof HTMLElement) lastTrigger.focus();
+    };
+  });
 
   async function loadMibs() {
     if (dataLoaded) return;
@@ -62,12 +81,12 @@
 </script>
 
 {#if S.manageMibsOpen}
-  <dialog class="modal modal-open" onclick={close}>
+  <dialog role="dialog" aria-modal="true" aria-labelledby="manage-mibs-dialog-title" bind:this={panelEl} class="modal modal-open" onclick={close}>
     <div data-testid="manage-mibs-dialog" class="modal-box max-w-[560px] max-h-[70vh] flex flex-col" onclick={(e) => e.stopPropagation()}>
       <form method="dialog">
-        <button aria-label="Close Manage MIBs dialog" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2 hover:text-error"><X class="w-4 h-4" /></button>
+        <button data-autofocus aria-label="Close Manage MIBs dialog" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2 hover:text-error"><X class="w-4 h-4" /></button>
       </form>
-      <h3 class="text-lg font-bold">Manage MIBs</h3>
+      <h3 id="manage-mibs-dialog-title" class="text-lg font-bold">Manage MIBs</h3>
 
       <div class="flex-1 overflow-y-auto mt-4">
         {#if loading}

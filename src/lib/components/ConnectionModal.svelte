@@ -1,8 +1,10 @@
 <script lang="ts">
   import { Check, X } from "lucide-svelte";
+  import { tick } from "svelte";
   import { S } from "$lib/stores.svelte";
   import { persistTargetConfig, configWrite } from "$lib/tauriCommands";
   import { runTestConnection, clearResultTimer } from "$lib/connectionLogic";
+  import { trapFocus } from "$lib/focusTrap";
 
   let open = $derived(S.connectionPanelOpen);
   let cfg = $derived.by(() => ({ ...S.targetConfig }));
@@ -11,6 +13,24 @@
   let connecting = $state(false);
   let connectionResult: "idle" | "success" | "error" = $state("idle");
   let errorMessage = $state("");
+
+  let panelEl: HTMLDialogElement | undefined;
+  let lastTrigger: HTMLElement | null = null;
+
+  // Dialog pattern (UX-10): focus moves into the modal on open and back to
+  // the trigger on close; Tab cycles inside; Escape closes.
+  $effect(() => {
+    if (!open) return;
+    lastTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    let cleanup: (() => void) | undefined;
+    void tick().then(() => {
+      if (panelEl) cleanup = trapFocus(panelEl, close);
+    });
+    return () => {
+      cleanup?.();
+      if (lastTrigger instanceof HTMLElement) lastTrigger.focus();
+    };
+  });
 
   function close() {
     S.connectionPanelOpen = false;
@@ -81,10 +101,10 @@
 </script>
 
 {#if open}
-  <dialog class="modal modal-open" onclick={handleBackdropClick}>
+  <dialog role="dialog" aria-modal="true" aria-labelledby="connection-dialog-title" bind:this={panelEl} class="modal modal-open" onclick={handleBackdropClick}>
     <div data-connection-panel class="modal-box max-w-[480px]">
-      <button aria-label="Close connection dialog" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick={(e) => { e.stopPropagation(); close(); }}><X class="w-4 h-4" /></button>
-      <h3 class="text-lg font-bold">Target Connection</h3>
+      <button data-autofocus aria-label="Close connection dialog" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick={(e) => { e.stopPropagation(); close(); }}><X class="w-4 h-4" /></button>
+      <h3 id="connection-dialog-title" class="text-lg font-bold">Target Connection</h3>
 
       <div class="space-y-4 mt-4">
         <div role="group" aria-labelledby="label-snmp-version">

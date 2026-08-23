@@ -89,6 +89,53 @@ describe("Connection (target configuration)", () => {
     await closeModal();
   });
 
+  it("dialog a11y: focus is trapped, Escape closes, focus returns to trigger", async () => {
+    // Open from the gear — the trigger we'll assert focus returns to.
+    await (await $("[data-testid='conn-gear']")).click();
+    await (await $("[data-connection-panel]")).waitForExist({ timeout: 5000 });
+
+    // role/aria wiring (UX-10).
+    const dialog = await $("dialog[role='dialog'][aria-modal='true']");
+    expect(await dialog.getAttribute("aria-labelledby")).toBe("connection-dialog-title");
+
+    // Focus moved into the modal (the close button carries data-autofocus).
+    await browser.waitUntil(
+      async () =>
+        await browser.execute(() => {
+          const panel = document.querySelector("[data-connection-panel]");
+          return !!panel && panel.contains(document.activeElement);
+        }),
+      { timeout: 5000 }
+    );
+    expect(
+      await browser.execute(() => document.activeElement?.getAttribute("aria-label") ?? "")
+    ).toContain("Close connection dialog");
+
+    // The embedded driver accepts Tab key events but never moves focus on them
+    // (documented in ux-03-keyboard.spec.ts), so the trap's wrap behavior is
+    // exercised by focusing the last control and dispatching a Tab keydown:
+    // the trap must move focus back to the first control instead of letting it
+    // escape the modal.
+    const wrapped = await browser.execute(() => {
+      const panel = document.querySelector("[data-connection-panel]");
+      const toggle = panel!.querySelector<HTMLElement>("#save-credentials-toggle")!;
+      toggle.focus();
+      if (document.activeElement !== toggle) return "focus-setup-failed";
+      toggle.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
+      const active = document.activeElement as HTMLElement | null;
+      if (!panel!.contains(active)) return "escaped-modal";
+      return active.getAttribute("aria-label") ?? "";
+    });
+    expect(wrapped).toContain("Close connection dialog");
+
+    // Escape closes and returns focus to the trigger.
+    await browser.keys(["Escape"]);
+    await (await $("[data-connection-panel]")).waitForExist({ timeout: 5000, reverse: true });
+    expect(
+      await browser.execute(() => document.activeElement?.getAttribute("data-testid") ?? "")
+    ).toBe("conn-gear");
+  });
+
   it("Test Connection succeeds against snmpsim", async () => {
     await openModal();
     const btn = await $("[data-connection-panel] .btn-block");
