@@ -81,7 +81,7 @@ describe("Connection (target configuration)", () => {
     await closeModal();
   });
 
-  it("Test Connection fails with a message", async () => {
+  it("Test Connection failure is actionable (names host:port, suggests checks)", async () => {
     // Point at an unused local port — UDP replies with port-unreachable.
     await (await $("[data-testid='port-input']").setValue("11699"));
     await openModal();
@@ -92,15 +92,17 @@ describe("Connection (target configuration)", () => {
       async () => ((await btn.getText()) ?? "").includes("Failed"),
       { timeout: 60000, interval: 500, timeoutMsg: "Test Connection did not fail" }
     );
-    expect((await btn.getText()) ?? "").toContain("✕ Failed");
+    expect((await btn.getText()) ?? "").toContain("Failed");
 
-    // An error message paragraph is visible (not the italic disclaimer).
+    // The error paragraph is the actionable message: it names the exact
+    // host:port and suggests what to check (no raw transport string).
     let errMsg = "";
     for (const p of await $$("[data-connection-panel] p")) {
       const t = (await p.getText()) ?? "";
-      if (t && !t.startsWith("Credentials are not persisted")) errMsg = t;
+      if (t.startsWith("Connection failed — no SNMP response from")) errMsg = t;
     }
-    expect(errMsg.length).toBeGreaterThan(0);
+    expect(errMsg).toContain(`no SNMP response from ${AGENT_HOST}:11699`);
+    expect(errMsg).toContain("Check the host/port and that the agent is listening");
 
     // Restore the seeded port.
     await closeModal();
