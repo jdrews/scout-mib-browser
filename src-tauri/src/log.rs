@@ -281,6 +281,24 @@ pub fn log_clear(buffer: tauri::State<LogBuffer>) {
     buffer.clear();
 }
 
+/// Appends a frontend-originated entry to the system log (e.g., raw SNMP
+/// error strings kept for debugging alongside actionable UI messages).
+#[tauri::command]
+pub fn log_frontend(
+    buffer: tauri::State<LogBuffer>,
+    level: String,
+    target: String,
+    message: String,
+) {
+    let timestamp = chrono::Local::now().format("%H:%M:%S%.3f").to_string();
+    buffer.push(LogEntry {
+        timestamp,
+        level,
+        target,
+        message,
+    });
+}
+
 #[tauri::command]
 pub fn log_path() -> String {
     config_dir().join("scout.log").to_string_lossy().to_string()

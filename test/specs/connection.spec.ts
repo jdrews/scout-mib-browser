@@ -62,6 +62,80 @@ describe("Connection (target configuration)", () => {
     await closeModal();
   });
 
+  it("credential persistence note is truthful and the opt-out toggle persists", async () => {
+    await openModal();
+
+    // Default (on): an honest statement that settings incl. credentials are saved.
+    expect(((await (await $("[data-testid='credentials-note']")).getText()) ?? "")).toContain(
+      "saved to the local config file"
+    );
+    const toggle = await $("[data-testid='save-credentials-toggle']");
+    expect(await toggle.getProperty("checked")).toBe(true);
+
+    // Turn off: note flips and the opt-out is persisted to the config file.
+    await toggle.click();
+    await browser.pause(300);
+    expect(((await (await $("[data-testid='credentials-note']")).getText()) ?? "")).toContain(
+      "will not be saved"
+    );
+    expect(readConfigFile()).toMatch(/save_credentials\s*=\s*false/);
+
+    // Turn back on for later specs.
+    await toggle.click();
+    await browser.pause(300);
+    expect(((await (await $("[data-testid='credentials-note']")).getText()) ?? "")).toContain(
+      "saved to the local config file"
+    );
+    await closeModal();
+  });
+
+  it("dialog a11y: focus is trapped, Escape closes, focus returns to trigger", async () => {
+    // Open from the gear — the trigger we'll assert focus returns to.
+    await (await $("[data-testid='conn-gear']")).click();
+    await (await $("[data-connection-panel]")).waitForExist({ timeout: 5000 });
+
+    // role/aria wiring (UX-10).
+    const dialog = await $("dialog[role='dialog'][aria-modal='true']");
+    expect(await dialog.getAttribute("aria-labelledby")).toBe("connection-dialog-title");
+
+    // Focus moved into the modal (the close button carries data-autofocus).
+    await browser.waitUntil(
+      async () =>
+        await browser.execute(() => {
+          const panel = document.querySelector("[data-connection-panel]");
+          return !!panel && panel.contains(document.activeElement);
+        }),
+      { timeout: 5000 }
+    );
+    expect(
+      await browser.execute(() => document.activeElement?.getAttribute("aria-label") ?? "")
+    ).toContain("Close connection dialog");
+
+    // The embedded driver accepts Tab key events but never moves focus on them
+    // (documented in ux-03-keyboard.spec.ts), so the trap's wrap behavior is
+    // exercised by focusing the last control and dispatching a Tab keydown:
+    // the trap must move focus back to the first control instead of letting it
+    // escape the modal.
+    const wrapped = await browser.execute(() => {
+      const panel = document.querySelector("[data-connection-panel]");
+      const toggle = panel!.querySelector<HTMLElement>("#save-credentials-toggle")!;
+      toggle.focus();
+      if (document.activeElement !== toggle) return "focus-setup-failed";
+      toggle.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
+      const active = document.activeElement as HTMLElement | null;
+      if (!panel!.contains(active)) return "escaped-modal";
+      return active.getAttribute("aria-label") ?? "";
+    });
+    expect(wrapped).toContain("Close connection dialog");
+
+    // Escape closes and returns focus to the trigger.
+    await browser.keys(["Escape"]);
+    await (await $("[data-connection-panel]")).waitForExist({ timeout: 5000, reverse: true });
+    expect(
+      await browser.execute(() => document.activeElement?.getAttribute("data-testid") ?? "")
+    ).toBe("conn-gear");
+  });
+
   it("Test Connection succeeds against snmpsim", async () => {
     await openModal();
     const btn = await $("[data-connection-panel] .btn-block");
@@ -74,14 +148,14 @@ describe("Connection (target configuration)", () => {
       },
       { timeout: 45000, interval: 500, timeoutMsg: "Test Connection never finished" }
     );
-    expect((await btn.getText()) ?? "").toContain("✓ Connected");
+    expect((await btn.getText()) ?? "").toContain("Connected");
 
     const indicator = (await (await $("[data-testid='conn-indicator']").getText())) ?? "";
     expect(indicator).toContain("Connected");
     await closeModal();
   });
 
-  it("Test Connection fails with a message", async () => {
+  it("Test Connection failure is actionable (names host:port, suggests checks)", async () => {
     // Point at an unused local port — UDP replies with port-unreachable.
     await (await $("[data-testid='port-input']").setValue("11699"));
     await openModal();
@@ -92,15 +166,17 @@ describe("Connection (target configuration)", () => {
       async () => ((await btn.getText()) ?? "").includes("Failed"),
       { timeout: 60000, interval: 500, timeoutMsg: "Test Connection did not fail" }
     );
-    expect((await btn.getText()) ?? "").toContain("✕ Failed");
+    expect((await btn.getText()) ?? "").toContain("Failed");
 
-    // An error message paragraph is visible (not the italic disclaimer).
+    // The error paragraph is the actionable message: it names the exact
+    // host:port and suggests what to check (no raw transport string).
     let errMsg = "";
     for (const p of await $$("[data-connection-panel] p")) {
       const t = (await p.getText()) ?? "";
-      if (t && !t.startsWith("Credentials are not persisted")) errMsg = t;
+      if (t.startsWith("Connection failed — no SNMP response from")) errMsg = t;
     }
-    expect(errMsg.length).toBeGreaterThan(0);
+    expect(errMsg).toContain(`no SNMP response from ${AGENT_HOST}:11699`);
+    expect(errMsg).toContain("Check the host/port and that the agent is listening");
 
     // Restore the seeded port.
     await closeModal();

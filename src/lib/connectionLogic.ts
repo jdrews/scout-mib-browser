@@ -1,6 +1,6 @@
 import { S } from "$lib/stores.svelte";
 import type { TargetConfig } from "./types";
-import { snmpConnect } from "./tauriCommands";
+import { snmpConnect, logAppend } from "./tauriCommands";
 
 export type ConnectionResult = "idle" | "success" | "error";
 
@@ -19,6 +19,15 @@ export function clearResultTimer() {
 function scheduleReset(delay: number, cb: () => void) {
   clearTimeout(_resultTimer);
   _resultTimer = setTimeout(cb, delay);
+}
+
+/**
+ * Actionable failure message for a failed Test Connection: names the
+ * host:port and suggests what to check. The raw transport error is kept in
+ * the System Log separately (see runTestConnection's catch block).
+ */
+export function connectionFailureMessage(cfg: TargetConfig): string {
+  return `Connection failed — no SNMP response from ${cfg.host}:${cfg.port}. Check the host/port and that the agent is listening.`;
 }
 
 export async function runTestConnection(cfg: TargetConfig): Promise<ConnectionStateResult> {
@@ -58,8 +67,12 @@ export async function runTestConnection(cfg: TargetConfig): Promise<ConnectionSt
     scheduleReset(2500, () => { result = "idle"; errorMessage = ""; });
   } catch (err) {
     S.connectionState = "disconnected" as any;
-    const msg = typeof err === "string" ? err : (err as Error)?.message ?? String(err);
-    S.statusText = `Connection failed: ${msg}`;
+    const raw = typeof err === "string" ? err : (err as Error)?.message ?? String(err);
+    // Preserve the raw transport error in the System Log for debugging; the
+    // UI shows one actionable message instead.
+    logAppend("ERROR", "scout.connection", `Test connection to ${cfg.host}:${cfg.port} failed: ${raw}`).catch(() => {});
+    const msg = connectionFailureMessage(cfg);
+    S.statusText = msg;
     result = "error";
     errorMessage = msg;
     scheduleReset(4000, () => { result = "idle"; errorMessage = ""; });

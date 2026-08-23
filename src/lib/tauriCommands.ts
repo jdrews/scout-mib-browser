@@ -257,3 +257,8 @@ export async function logClear(): Promise<void> {
 export async function logPath(): Promise<string> {
   return invoke("log_path");
 }
+
+/** Appends a frontend-originated entry to the system log. */
+export async function logAppend(level: string, target: string, message: string): Promise<void> {
+  return invoke("log_frontend", { level, target, message });
+}

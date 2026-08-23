@@ -3,6 +3,14 @@
   themes: dark --default, light;
 };
 
+/* UX-16: the stock light base-content leaves muted variants (e.g.
+   text-base-content/60 on base-200) at ~4.5:1 — right at the WCAG AA line.
+   Darken the theme token so all opacity-mixed derivatives clear 4.5:1 with
+   margin, instead of patching individual usages. */
+[data-theme="light"] {
+  --color-base-content: oklch(15% 0.006 285.885);
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
 }

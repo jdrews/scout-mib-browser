@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Settings } from "lucide-svelte";
   import { mibSearch } from "$lib/tauriCommands";
   import { S } from "$lib/stores.svelte";
   import { persistTargetConfig } from "$lib/tauriCommands";
@@ -60,6 +61,10 @@
     const target = e.target as HTMLInputElement;
     const val = target.value.trim();
     inputValue = target.value;
+
+    // UX-07: a manual edit makes the typed value authoritative — drop the tree
+    // selection so the two can't silently diverge at Go time.
+    if (S.selectedNode) S.selectedNode = null;
 
     if (val.length < 1) {
       S.autocompleteResults.length = 0;
@@ -143,15 +148,39 @@
     return parts[0].trim();
   }
 
-  async function handleGo() {
-    const val = inputValue.trim();
-    if (!val || executing) return;
-
+  /** Resolves the typed value to an unambiguous OID: numeric OIDs pass
+   *  through; MIB names must match exactly (case-insensitive). */
+  async function resolveEffectiveOid(val: string): Promise<string | null> {
     let oid = extractOid(val);
     if (!oid) oid = val.trim();
+    if (!oid) return S.selectedNode?.oid ?? null;
 
-    const targetNode = S.selectedNode;
-    const effectiveOid = targetNode?.oid || oid;
+    if (/^\d+(\.\d+)*$/.test(oid)) return oid;
+
+    const res = await mibSearch(oid);
+    const exact = res.find((r) => r.name.toLowerCase() === oid.toLowerCase());
+    return exact?.oid ?? null;
+  }
+
+  async function handleGo() {
+    const val = inputValue.trim();
+    if (executing) return;
+
+    // UX-07: the typed value is authoritative; a tree selection only fills in
+    // when the bar is untouched. The effective OID must be unambiguous.
+    let effectiveOid = "";
+    try {
+      effectiveOid = (await resolveEffectiveOid(val)) ?? "";
+    } catch (err) {
+      console.error("OID resolution failed:", err);
+    }
+
+    if (!effectiveOid) {
+      S.statusText = val.trim()
+        ? `No MIB object named "${extractOid(val) || val.trim()}" — type a full name or OID`
+        : "Enter an OID or select a tree node";
+      return;
+    }
 
     if (operation === "set") {
       handleSet(effectiveOid);
@@ -393,10 +422,11 @@
 </script>
 
 <div data-address-bar class="flex items-center gap-2 px-4 py-2 bg-base-200 border-b border-base-300 flex-shrink-0 relative" onclick={(e) => { if (e.target === e.currentTarget) hideOnOutsideClick(e); }}>
-  <label class="text-xs font-semibold uppercase tracking-wide text-base-content/60 whitespace-nowrap">Target</label>
+  <label for="target-host" class="text-xs font-semibold uppercase tracking-wide text-base-content/60 whitespace-nowrap">Target</label>
 
   <div class="join">
     <input
+      id="target-host"
       data-testid="host-input"
       type="text"
       placeholder="Host or IP"
@@ -405,10 +435,12 @@
       class="input input-bordered input-sm w-[160px] font-mono join-item"
     />
 
-    <span class="text-base-content/40 text-sm flex items-center join-item">:</span>
+    <!-- /60 (not /40): 4.5:1 AA on base-200 in the light theme. -->
+    <span class="text-base-content/60 text-sm flex items-center join-item">:</span>
 
     <input
       data-testid="port-input"
+      aria-label="Port"
       type="text"
       placeholder="Port"
       value={cfg.port}
@@ -419,18 +451,18 @@
 
   <button
     data-testid="conn-gear"
+    aria-label="Connection settings"
     title="Connection settings"
     onclick={openConnectionPanel}
     class="btn btn-ghost btn-circle btn-sm"
   >
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="12" cy="12" r="3"/>
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-    </svg>
+    <Settings class="w-4 h-4" />
   </button>
 
   <input
+    id="oid-input"
     data-testid="oid-input"
+    aria-label="OID or MIB name"
     type="text"
     placeholder="Enter OID or MIB name (e.g., sysDescr)"
     autocomplete="off"
@@ -442,6 +474,7 @@
 
   <select
     data-testid="op-select"
+    aria-label="SNMP operation"
     class="select select-bordered select-sm w-[90px]"
     bind:value={S.snmpOperation}
   >

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { FileText, Folder, FolderOpen } from "lucide-svelte";
   import type { TreeNode as TreeNodeType } from "$lib/types";
   import { S } from "$lib/stores.svelte";
   import Self from "./TreeNode.svelte";
@@ -7,9 +8,14 @@
 
   let hasChildren = $derived(!!node.hasChildren);
   let isSelected = $derived(S.selectedNode?.oid === node.oid);
+  let isFallbackNode = $derived(S.fallbackMibs.includes(node.mibName));
   let childrenList = $state<TreeNodeType[]>(node.children ?? []);
   let loaded = $state(!!node.children && node.children.length > 0);
   let loading = $state(false);
+  let expanded = $state(false);
+
+  // Roving tabindex: exactly one treeitem in the tree holds tabindex=0.
+  let tabIndex = $derived(S.treeFocusOid === node.oid ? 0 : -1);
 
   let truncatedOid = $derived(truncateOid(node.oid));
 
@@ -35,16 +41,34 @@
     }
   }
 
-  function onToggle(e: Event) {
-    const isNowOpen = (e.target as HTMLDetailsElement).open;
-    if (isNowOpen) {
-      loadChildren();
-    }
+  function expandNode() {
+    expanded = true;
+    loadChildren();
+  }
+
+  function collapseNode() {
+    expanded = false;
   }
 
   function selectNode() {
     S.selectedNode = node;
     S.targetOidFromTree = node.oid;
+    S.treeFocusOid = node.oid;
+  }
+
+  /** Row click selects; branch nodes also expand (never collapse — selecting a
+   *  branch must not hide its subtree). Collapsing is the icon toggle or ArrowLeft. */
+  function onClick() {
+    if (hasChildren && !expanded) expandNode();
+    selectNode();
+  }
+
+  /** Dedicated expand/collapse affordance (pointer only; keyboard uses arrows). */
+  function onToggleClick(e: MouseEvent) {
+    e.stopPropagation();
+    if (!hasChildren) return;
+    if (expanded) collapseNode();
+    else expandNode();
   }
 
   function showContextMenu(e: MouseEvent) {
@@ -52,59 +76,119 @@
     selectNode();
     S.contextMenuTarget = { node, x: e.clientX, y: e.clientY };
   }
+
+  let nodeEl: HTMLDivElement;
+
+  /** All rendered treeitems in document order (children render only when expanded). */
+  function visibleTreeItems(): HTMLElement[] {
+    return Array.from(document.querySelectorAll("[role='treeitem']")) as HTMLElement[];
+  }
+
+  function focusItem(el: Element | null) {
+    if (!(el instanceof HTMLElement)) return;
+    const oid = el.getAttribute("data-oid");
+    if (oid) S.treeFocusOid = oid;
+    el.focus();
+  }
+
+  /** ARIA tree pattern keyboard navigation. */
+  function onKeydown(e: KeyboardEvent) {
+    const items = visibleTreeItems();
+    const idx = items.indexOf(nodeEl);
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        focusItem(items[idx + 1] ?? null);
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        focusItem(items[idx - 1] ?? null);
+        break;
+      case "ArrowRight":
+        e.preventDefault();
+        if (hasChildren && !expanded) {
+          expandNode();
+        } else if (hasChildren && expanded) {
+          // First child is the next treeitem in document order.
+          focusItem(items[idx + 1] ?? null);
+        }
+        break;
+      case "ArrowLeft":
+        e.preventDefault();
+        if (hasChildren && expanded) {
+          collapseNode();
+        } else {
+          const parentLi = nodeEl.closest("ul[role='group']")?.closest("li");
+          focusItem(parentLi ? parentLi.querySelector(":scope > [role='treeitem']") : null);
+        }
+        break;
+      case "Enter":
+      case " ":
+        e.preventDefault();
+        selectNode();
+        break;
+    }
+  }
 </script>
 
-<li>
-  {#if hasChildren}
-    <details ontoggle={onToggle}>
-      <summary
-        data-tree-node
-        title="{node.name} ({node.oid})"
-        onclick={selectNode}
-        oncontextmenu={showContextMenu}
+<li role="presentation">
+  <div
+    bind:this={nodeEl}
+    role="treeitem"
+    data-tree-node
+    data-oid={node.oid}
+    title="{node.name} ({node.oid})"
+    tabindex={tabIndex}
+    aria-selected={isSelected}
+    aria-expanded={hasChildren ? expanded : undefined}
+    class="tree-row flex items-center gap-1.5 px-2 py-1 text-sm cursor-pointer select-none whitespace-nowrap rounded hover:bg-base-300/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+    class:selected={isSelected}
+    class:fallback-node={isFallbackNode}
+    onclick={onClick}
+    onkeydown={onKeydown}
+    oncontextmenu={showContextMenu}
+  >
+    {#if hasChildren}
+      <span
+        class="tree-toggle inline-flex cursor-pointer rounded hover:bg-base-300"
+        onclick={onToggleClick}
+        title={expanded ? "Collapse" : "Expand"}
       >
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" /></svg>
-        <span class="truncate">{node.name}</span>
-        {#if loading}
-          <span class="ml-auto pl-2 text-[10px] opacity-40">loading...</span>
+        {#if expanded}
+          <FolderOpen class="h-4 w-4 shrink-0" />
         {:else}
-          <span class="ml-auto pl-2 font-mono text-[10px] opacity-60">{truncatedOid}</span>
+          <Folder class="h-4 w-4 shrink-0" />
         {/if}
-      </summary>
-      <ul>
-        {#each childrenList as child (child.oid)}
-          <Self node={child} />
-        {/each}
-      </ul>
-    </details>
-  {:else}
-    <a
-      data-tree-node
-      title="{node.name} ({node.oid})"
-      onclick={(e) => { e.preventDefault(); selectNode(); }}
-      oncontextmenu={showContextMenu}
-    >
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
-      <span class="truncate">{node.name}</span>
+      </span>
+    {:else}
+      <FileText class="h-4 w-4 shrink-0" />
+    {/if}
+    <span class="truncate">{node.name}</span>
+    {#if isFallbackNode}
+      <span class="badge badge-outline badge-warning badge-xs">unresolved</span>
+    {/if}
+    {#if loading}
+      <span class="ml-auto pl-2 text-[10px] opacity-40">loading...</span>
+    {:else}
       <span class="ml-auto pl-2 font-mono text-[10px] opacity-60">{truncatedOid}</span>
-    </a>
+    {/if}
+  </div>
+  {#if hasChildren && expanded}
+    <ul role="group" class="ml-3 border-l border-base-300 pl-1">
+      {#each childrenList as child (child.oid)}
+        <Self node={child} />
+      {/each}
+    </ul>
   {/if}
 </li>
 
 <style>
-  summary {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    white-space: nowrap;
-    user-select: none;
+  .tree-row.selected {
+    background-color: oklch(var(--p) / 0.2);
+    color: var(--fallback-pc, oklch(var(--pc)));
   }
 
-  a {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    white-space: nowrap;
-    user-select: none;
+  .tree-row.fallback-node {
+    opacity: 0.55;
   }
 </style>

@@ -32,12 +32,29 @@ describe("App shell (launch and layout)", () => {
     await expect(await findTreeNode("mib-2")).toBeExisting();
   });
 
-  it("shows disconnected state before any test connection", async () => {
+  it("shows a neutral indicator before any connection attempt", async () => {
+    // UX-12: the indicator is neutral at startup; red only after a real failure.
     const text = (await (await $("[data-testid='conn-indicator']").getText())) ?? "";
-    expect(text).toContain("Disconnected");
+    expect(text).toContain("Not connected");
   });
 
   it("placeholder results prompt", async () => {
     await expect(await $("[data-testid='results-placeholder']")).toBeExisting();
+  });
+
+  it("document structure: single h1, landmarks, focusable scroll regions", async () => {
+    const structure = await browser.execute(() => {
+      const out: Record<string, unknown> = {};
+      out.h1Count = document.querySelectorAll("h1").length;
+      out.treeIsNav = !!document.querySelector('nav[aria-label="MIB tree"] [role="tree"]');
+      out.resultsInMain = !!document.querySelector("main [data-testid='results-body']");
+      const body = document.querySelector("[data-testid='results-body']") as HTMLElement | null;
+      out.resultsBodyFocusable = body?.getAttribute("tabindex") === "0";
+      return out;
+    });
+    expect(structure.h1Count).toBe(1);
+    expect(structure.treeIsNav).toBe(true);
+    expect(structure.resultsInMain).toBe(true);
+    expect(structure.resultsBodyFocusable).toBe(true);
   });
 });

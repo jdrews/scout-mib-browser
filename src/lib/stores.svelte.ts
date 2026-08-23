@@ -6,6 +6,10 @@ const raw = $state({
   currentTheme: (typeof localStorage !== "undefined" ? localStorage.getItem("scout-theme") : null) || "dark" as string,
   selectedNode: null as TreeNode | null,
   targetOidFromTree: "" as string,
+  treeFocusOid: null as string | null,
+  // Session-only dismissal of the fallback banner (UX-18): intentionally not
+  // persisted — a broken MIB is still broken at next launch.
+  fallbackBannerDismissed: false,
   treeData: [] as TreeNode[],
   contextMenuTarget: null as { node: TreeNode; x: number; y: number } | null,
   statusText: "Ready",
@@ -30,7 +34,8 @@ const raw = $state({
     v3_security_level: "noAuthNoPrivacy",
   } as TargetConfig,
   connectionPanelOpen: false,
-  connectionState: "disconnected" as ConnectionState,
+  saveCredentials: true,
+  connectionState: "unknown" as ConnectionState,
   snmpOperation: "get" as SnmpOperation,
   isExecuting: false,
   executionBindings: [] as VariableBinding[],

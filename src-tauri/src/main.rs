@@ -212,6 +212,7 @@ fn main() {
             log::log_read,
             log::log_clear,
             log::log_path,
+            log::log_frontend,
         ])
         .run(tauri::generate_context!())
         .expect("error running Scout MIB Browser");

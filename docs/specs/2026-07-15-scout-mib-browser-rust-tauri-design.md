@@ -1,7 +1,7 @@
 # Scout MIB Browser - Design Specification (Rust/Tauri)
 
 **Date:** 2026-07-15
-**Status:** Accepted — Rust/Tauri approach
+**Status:** Implemented (2026-08-22) — all MVP features built; full feature coverage verified by the e2e suite merged in PR #49
 
 ## Overview
 

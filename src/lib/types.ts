@@ -59,7 +59,9 @@ export interface TargetConfig {
 }
 
 /** Connection state for the Target. */
-export type ConnectionState = "disconnected" | "connecting" | "connected";
+// "unknown" is the neutral startup state (no attempt yet); "disconnected"
+// means an actual connection attempt failed.
+export type ConnectionState = "unknown" | "disconnected" | "connecting" | "connected";
 
 /** Application configuration read from the backend. */
 export interface AppConfig {
@@ -67,6 +69,9 @@ export interface AppConfig {
     directories?: string[];
   };
   target?: Omit<TargetConfig, "host" | "port"> & Partial<Pick<TargetConfig, "host" | "port">>;
+  ui?: {
+    save_credentials?: boolean;
+  };
 }
 
 // ── SNMP Execution Types ─────────────────────────────────────────────────────

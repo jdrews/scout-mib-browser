@@ -160,13 +160,13 @@ export async function selectTreeNode(name: string): Promise<void> {
 export async function expandTo(names: string[]): Promise<void> {
   for (const name of names) {
     const node = await waitForTreeNode(name);
-    // Branch nodes are <summary data-tree-node> inside a <details>; the tree
-    // state persists across spec files, so only click when collapsed — clicking
-    // an open summary would collapse it.
-    const open = await browser.execute((el: Element) => {
-      const d = el.closest("details");
-      return d ? d.open : true;
-    }, node);
+    // Branch nodes are role=treeitem divs with aria-expanded; the tree state
+    // persists across spec files, so only click when collapsed — clicking an
+    // expanded branch would collapse it.
+    const open = await browser.execute(
+      (el: Element) => el.getAttribute("aria-expanded") === "true",
+      node
+    );
     if (!open) await node.click();
   }
 }
@@ -203,11 +203,11 @@ export async function oidInputValue(): Promise<string> {
   return (await (await $('[data-testid="oid-input"]').getValue())) ?? "";
 }
 
-/** Parses "N nodes loaded" from the footer node count element. */
+/** Parses "N node(s) loaded" from the footer node count element. */
 export async function nodeCount(): Promise<number> {
   const text = (await (await $('[data-testid="node-count"]').getText())) ?? "";
-  const m = text.match(/(\d+) nodes loaded/);
-  if (!m) throw new Error(`node-count did not match "N nodes loaded": "${text}"`);
+  const m = text.match(/(\d+) nodes? loaded/);
+  if (!m) throw new Error(`node-count did not match "N node(s) loaded": "${text}"`);
   return Number(m[1]);
 }
 

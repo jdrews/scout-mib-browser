@@ -1,14 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { TargetConfig } from "$lib/types";
-import { runTestConnection, clearResultTimer } from "$lib/connectionLogic";
+import { runTestConnection, clearResultTimer, connectionFailureMessage } from "$lib/connectionLogic";
 import { S } from "$lib/stores.svelte";
 
 vi.mock("$lib/tauriCommands", () => ({
   snmpConnect: vi.fn(),
+  logAppend: vi.fn(() => Promise.resolve()),
 }));
 
-import { snmpConnect } from "$lib/tauriCommands";
+import { snmpConnect, logAppend } from "$lib/tauriCommands";
 const mockedSnmpConnect = snmpConnect as ReturnType<typeof vi.fn>;
+const mockedLogAppend = logAppend as ReturnType<typeof vi.fn>;
 
 function makeConfig(overrides?: Partial<TargetConfig>): TargetConfig {
   return {
@@ -69,28 +71,33 @@ describe("runTestConnection", () => {
     expect(S.statusText).toBe("Connected to 192.168.1.1:161");
   });
 
-  it("shows error state when connection fails", async () => {
-    const errorMsg = "Connection timed out";
-    mockedSnmpConnect.mockRejectedValue(new Error(errorMsg));
+  it("shows an actionable error message naming the host:port", async () => {
+    mockedSnmpConnect.mockRejectedValue(new Error("Receive"));
 
     const cfg = makeConfig({ host: "192.168.3.62", port: 1700 });
     const result = await runTestConnection(cfg);
 
     expect(result.connecting).toBe(false);
     expect(result.result).toBe("error");
-    expect(result.errorMessage).toBe(errorMsg);
+    // Actionable copy: names the target and suggests checks — no raw "Receive".
+    expect(result.errorMessage).toBe(
+      "Connection failed — no SNMP response from 192.168.3.62:1700. Check the host/port and that the agent is listening.",
+    );
     expect(S.connectionState).toBe("disconnected");
-    expect(S.statusText).toContain(`Connection failed: ${errorMsg}`);
+    expect(S.statusText).toBe(result.errorMessage);
   });
 
-  it("handles string error from Tauri", async () => {
+  it("preserves the raw error string in the System Log", async () => {
     const errorMsg = "IO error: connection refused";
     mockedSnmpConnect.mockRejectedValue(errorMsg);
 
-    const result = await runTestConnection(makeConfig());
+    await runTestConnection(makeConfig({ host: "10.1.2.3", port: 162 }));
 
-    expect(result.result).toBe("error");
-    expect(result.errorMessage).toBe(errorMsg);
+    expect(mockedLogAppend).toHaveBeenCalledWith(
+      "ERROR",
+      "scout.connection",
+      `Test connection to 10.1.2.3:162 failed: ${errorMsg}`,
+    );
   });
 
   it("handles unknown error type", async () => {
@@ -99,7 +106,13 @@ describe("runTestConnection", () => {
     const result = await runTestConnection(makeConfig());
 
     expect(result.result).toBe("error");
-    expect(result.errorMessage).toBe("[object Object]");
+    // The UI still shows the actionable message; the raw string is logged.
+    expect(result.errorMessage).toBe(connectionFailureMessage(makeConfig()));
+    expect(mockedLogAppend).toHaveBeenCalledWith(
+      "ERROR",
+      "scout.connection",
+      `Test connection to 192.168.1.1:161 failed: [object Object]`,
+    );
   });
 
   it("sends correct params for v2c", async () => {

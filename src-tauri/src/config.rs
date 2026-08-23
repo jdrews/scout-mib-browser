@@ -165,7 +165,9 @@ impl AppConfig {
         );
         table.insert("mib".to_string(), toml::Value::Table(mib_table));
 
-        // Target section — always include all fields.
+        // Target section — always include all fields. Credential values are
+        // omitted entirely when `save_credentials` is off, so no secrets can
+        // reach the file through any write path.
         let mut target_table = toml::map::Map::new();
         if !self.target.host.is_empty() {
             target_table.insert(
@@ -181,15 +183,29 @@ impl AppConfig {
             "version".to_string(),
             toml::Value::String(self.target.version.as_str().to_string()),
         );
-        target_table.insert(
-            "community".to_string(),
-            toml::Value::String(self.target.community.clone()),
-        );
-        if !self.target.v3_username.is_empty() {
+        if self.ui.save_credentials {
             target_table.insert(
-                "v3_username".to_string(),
-                toml::Value::String(self.target.v3_username.clone()),
+                "community".to_string(),
+                toml::Value::String(self.target.community.clone()),
             );
+            if !self.target.v3_username.is_empty() {
+                target_table.insert(
+                    "v3_username".to_string(),
+                    toml::Value::String(self.target.v3_username.clone()),
+                );
+            }
+            if !self.target.v3_auth_passphrase.is_empty() {
+                target_table.insert(
+                    "v3_auth_passphrase".to_string(),
+                    toml::Value::String(self.target.v3_auth_passphrase.clone()),
+                );
+            }
+            if !self.target.v3_priv_passphrase.is_empty() {
+                target_table.insert(
+                    "v3_priv_passphrase".to_string(),
+                    toml::Value::String(self.target.v3_priv_passphrase.clone()),
+                );
+            }
         }
         if !self.target.v3_auth_protocol.is_default() {
             target_table.insert(
@@ -197,22 +213,10 @@ impl AppConfig {
                 toml::Value::String(self.target.v3_auth_protocol.as_str().to_string()),
             );
         }
-        if !self.target.v3_auth_passphrase.is_empty() {
-            target_table.insert(
-                "v3_auth_passphrase".to_string(),
-                toml::Value::String(self.target.v3_auth_passphrase.clone()),
-            );
-        }
         if !self.target.v3_priv_protocol.is_default() {
             target_table.insert(
                 "v3_priv_protocol".to_string(),
                 toml::Value::String(self.target.v3_priv_protocol.as_str().to_string()),
-            );
-        }
-        if !self.target.v3_priv_passphrase.is_empty() {
-            target_table.insert(
-                "v3_priv_passphrase".to_string(),
-                toml::Value::String(self.target.v3_priv_passphrase.clone()),
             );
         }
         if !self.target.v3_security_level.is_default() {
@@ -240,6 +244,10 @@ impl AppConfig {
         ui_table.insert(
             "splitter_vertical".to_string(),
             toml::Value::Float(self.ui.splitter_vertical),
+        );
+        ui_table.insert(
+            "save_credentials".to_string(),
+            toml::Value::Boolean(self.ui.save_credentials),
         );
         table.insert("ui".to_string(), toml::Value::Table(ui_table));
 
@@ -375,6 +383,12 @@ pub struct UiConfig {
         skip_serializing_if = "is_default_splitter_v"
     )]
     pub splitter_vertical: f64,
+
+    /// Whether Target credentials (community string and V3 username/
+    /// passphrases) are persisted to the config file. Host, port, version,
+    /// and protocol choices are always saved.
+    #[serde(default = "default_true", skip_serializing_if = "is_default_bool_true")]
+    pub save_credentials: bool,
 }
 
 impl Default for UiConfig {
@@ -384,6 +398,7 @@ impl Default for UiConfig {
             results_pane_visible: default_true(),
             splitter_horizontal: default_splitter_horizontal(),
             splitter_vertical: default_splitter_vertical(),
+            save_credentials: default_true(),
         }
     }
 }
@@ -395,7 +410,19 @@ impl UiConfig {
             && self.results_pane_visible
             && (self.splitter_horizontal - 0.3).abs() < f64::EPSILON
             && (self.splitter_vertical - 0.5).abs() < f64::EPSILON
+            && self.save_credentials
     }
+}
+
+/// Removes credential values from a config in place: community string and all
+/// V3 credential fields (username, auth passphrase, priv passphrase) reset to
+/// their defaults. Host, port, version, and protocol choices are kept. Called
+/// when the `save_credentials` toggle is turned off so no secrets remain on disk.
+pub fn scrub_credentials(cfg: &mut AppConfig) {
+    cfg.target.community = default_community_string();
+    cfg.target.v3_username.clear();
+    cfg.target.v3_auth_passphrase.clear();
+    cfg.target.v3_priv_passphrase.clear();
 }
 
 // ── Default value helpers ────────────────────────────────────────────────────
@@ -480,6 +507,8 @@ fn with_defaults(
         .set_default("ui.splitter_horizontal", 0.3_f64)
         .unwrap()
         .set_default("ui.splitter_vertical", 0.5_f64)
+        .unwrap()
+        .set_default("ui.save_credentials", true)
         .unwrap()
 }
 
@@ -696,6 +725,16 @@ pub fn config_write(
                         cfg.ui.splitter_vertical = n;
                     }
                 }
+                "save_credentials" => {
+                    if let Some(b) = value.as_bool() {
+                        cfg.ui.save_credentials = b;
+                        // Turning the toggle off scrubs already-saved credential
+                        // values from disk immediately, not just future writes.
+                        if !b {
+                            scrub_credentials(&mut cfg);
+                        }
+                    }
+                }
                 _ => return Err(format!("unknown ui key: {}", key)),
             },
             _ => return Err(format!("unknown section: {}", section)),
@@ -741,11 +780,16 @@ pub fn config_write_target(
                 _ => cfg.target.version = SnmpVersion::V2c,
             }
         }
-        if let Some(v) = obj.get("community").and_then(|v| v.as_str()) {
-            cfg.target.community = v.to_string();
-        }
-        if let Some(v) = obj.get("v3_username").and_then(|v| v.as_str()) {
-            cfg.target.v3_username = v.to_string();
+        // Credential fields are only applied when saving is enabled; with the
+        // opt-out on, typed credentials stay in memory for the session but
+        // never reach the config file.
+        if cfg.ui.save_credentials {
+            if let Some(v) = obj.get("community").and_then(|v| v.as_str()) {
+                cfg.target.community = v.to_string();
+            }
+            if let Some(v) = obj.get("v3_username").and_then(|v| v.as_str()) {
+                cfg.target.v3_username = v.to_string();
+            }
         }
         if let Some(v) = obj.get("v3_auth_protocol").and_then(|v| v.as_str()) {
             match v.to_lowercase().as_str() {
@@ -758,8 +802,10 @@ pub fn config_write_target(
                 _ => cfg.target.v3_auth_protocol = V3AuthProtocol::None,
             }
         }
-        if let Some(v) = obj.get("v3_auth_passphrase").and_then(|v| v.as_str()) {
-            cfg.target.v3_auth_passphrase = v.to_string();
+        if cfg.ui.save_credentials {
+            if let Some(v) = obj.get("v3_auth_passphrase").and_then(|v| v.as_str()) {
+                cfg.target.v3_auth_passphrase = v.to_string();
+            }
         }
         if let Some(v) = obj.get("v3_priv_protocol").and_then(|v| v.as_str()) {
             match v.to_lowercase().as_str() {
@@ -770,8 +816,10 @@ pub fn config_write_target(
                 _ => cfg.target.v3_priv_protocol = V3PrivProtocol::None,
             }
         }
-        if let Some(v) = obj.get("v3_priv_passphrase").and_then(|v| v.as_str()) {
-            cfg.target.v3_priv_passphrase = v.to_string();
+        if cfg.ui.save_credentials {
+            if let Some(v) = obj.get("v3_priv_passphrase").and_then(|v| v.as_str()) {
+                cfg.target.v3_priv_passphrase = v.to_string();
+            }
         }
     }
 
@@ -806,6 +854,99 @@ mod tests {
         assert!(cfg.ui.results_pane_visible);
         assert!((cfg.ui.splitter_horizontal - 0.3).abs() < f64::EPSILON);
         assert!((cfg.ui.splitter_vertical - 0.5).abs() < f64::EPSILON);
+        assert!(cfg.ui.save_credentials);
+    }
+
+    #[test]
+    fn save_credentials_off_keeps_credential_fields_out_of_toml() {
+        let mut cfg = AppConfig::default();
+        cfg.target.host = "10.0.0.5".to_string();
+        cfg.target.port = 1161;
+        cfg.target.version = SnmpVersion::V3;
+        cfg.target.community = "s3cret-community".to_string();
+        cfg.target.v3_username = "admin".to_string();
+        cfg.target.v3_auth_protocol = V3AuthProtocol::Sha256;
+        cfg.target.v3_auth_passphrase = "auth-pass".to_string();
+        cfg.target.v3_priv_protocol = V3PrivProtocol::Aes128;
+        cfg.target.v3_priv_passphrase = "priv-pass".to_string();
+        cfg.ui.save_credentials = false;
+
+        let value = cfg.to_toml_value();
+        let toml_str = toml::to_string_pretty(&value).unwrap();
+
+        // No credential values reach the file.
+        assert!(!toml_str.contains("s3cret-community"));
+        assert!(!toml_str.contains("admin"));
+        assert!(!toml_str.contains("auth-pass"));
+        assert!(!toml_str.contains("priv-pass"));
+        let target = value.get("target").unwrap().as_table().unwrap();
+        assert!(target.get("community").is_none());
+        assert!(target.get("v3_username").is_none());
+        assert!(target.get("v3_auth_passphrase").is_none());
+        assert!(target.get("v3_priv_passphrase").is_none());
+
+        // Host, port, version, and (non-secret) protocol choices still persist.
+        assert_eq!(target.get("host").unwrap().as_str(), Some("10.0.0.5"));
+        assert_eq!(target.get("port").unwrap().as_integer(), Some(1161));
+        assert_eq!(target.get("version").unwrap().as_str(), Some("v3"));
+        assert_eq!(
+            target.get("v3_auth_protocol").unwrap().as_str(),
+            Some("sha256")
+        );
+        assert_eq!(
+            target.get("v3_priv_protocol").unwrap().as_str(),
+            Some("aes128")
+        );
+
+        // The toggle's own state is persisted so the opt-out survives restarts.
+        let ui = value.get("ui").unwrap().as_table().unwrap();
+        assert_eq!(ui.get("save_credentials").unwrap().as_bool(), Some(false));
+    }
+
+    #[test]
+    fn save_credentials_on_round_trips_credentials() {
+        let mut cfg = AppConfig::default();
+        cfg.target.host = "10.0.0.5".to_string();
+        cfg.target.community = "s3cret-community".to_string();
+        cfg.target.v3_username = "admin".to_string();
+        cfg.target.v3_auth_passphrase = "auth-pass".to_string();
+
+        let value = cfg.to_toml_value();
+        let toml_str = toml::to_string_pretty(&value).unwrap();
+        assert!(toml_str.contains("s3cret-community"));
+        assert!(toml_str.contains("admin"));
+        assert!(toml_str.contains("auth-pass"));
+
+        // Read back with defaults; credentials survive the round trip.
+        let loaded: AppConfig = toml::from_str(&toml_str).unwrap();
+        assert_eq!(loaded.target.community, "s3cret-community");
+        assert_eq!(loaded.target.v3_username, "admin");
+        assert_eq!(loaded.target.v3_auth_passphrase, "auth-pass");
+        assert!(loaded.ui.save_credentials);
+    }
+
+    #[test]
+    fn scrub_on_disable_removes_saved_credentials_from_disk() {
+        // Simulate a config file that already holds credentials.
+        let mut cfg = AppConfig::default();
+        cfg.target.host = "10.0.0.5".to_string();
+        cfg.target.community = "s3cret-community".to_string();
+        cfg.target.v3_username = "admin".to_string();
+        cfg.target.v3_auth_passphrase = "auth-pass".to_string();
+        cfg.target.v3_priv_passphrase = "priv-pass".to_string();
+
+        // Turning the toggle off scrubs immediately (what config_write does).
+        cfg.ui.save_credentials = false;
+        scrub_credentials(&mut cfg);
+        let toml_str = toml::to_string_pretty(&cfg.to_toml_value()).unwrap();
+
+        assert!(!toml_str.contains("s3cret-community"));
+        assert!(!toml_str.contains("admin"));
+        assert!(!toml_str.contains("auth-pass"));
+        assert!(!toml_str.contains("priv-pass"));
+
+        // Non-credential settings survive the scrub.
+        assert!(toml_str.contains("10.0.0.5"));
     }
 
     #[test]

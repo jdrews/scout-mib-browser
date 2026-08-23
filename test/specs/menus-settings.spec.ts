@@ -39,7 +39,7 @@ describe("Menus & settings (app-level settings)", () => {
       const t = (await r.getText()) ?? "";
       if (t.includes("IF-MIB")) {
         ifRow = r;
-        ifRowCount = Number(t.match(/(\d+) nodes/)![1]);
+        ifRowCount = Number(t.match(/(\d+) nodes?/)![1]);
       }
     }
     expect(ifRow).not.toBeNull();
@@ -109,7 +109,8 @@ describe("Menus & settings (app-level settings)", () => {
     await (await $("[data-testid='log-level-error']")).click();
     await (await $("[data-testid='menu-settings']")).click();
     const errorItem = await $("[data-testid='log-level-error']");
-    expect(((await errorItem.getText()) ?? "")).toContain("\u2713");
+    // Active level shows the Lucide check icon.
+    expect((await errorItem.$$("svg.lucide-check")).length).toBe(1);
 
     // The pane is filtered to error-level entries only.
     const paneText = (await (await $("[data-testid='syslog-pane']").getText())) ?? "";

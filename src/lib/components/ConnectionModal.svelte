@@ -1,7 +1,10 @@
 <script lang="ts">
+  import { Check, X } from "lucide-svelte";
+  import { tick } from "svelte";
   import { S } from "$lib/stores.svelte";
-  import { persistTargetConfig } from "$lib/tauriCommands";
+  import { persistTargetConfig, configWrite } from "$lib/tauriCommands";
   import { runTestConnection, clearResultTimer } from "$lib/connectionLogic";
+  import { trapFocus } from "$lib/focusTrap";
 
   let open = $derived(S.connectionPanelOpen);
   let cfg = $derived.by(() => ({ ...S.targetConfig }));
@@ -11,8 +14,34 @@
   let connectionResult: "idle" | "success" | "error" = $state("idle");
   let errorMessage = $state("");
 
+  let panelEl: HTMLDialogElement | undefined;
+  let lastTrigger: HTMLElement | null = null;
+
+  // Dialog pattern (UX-10): focus moves into the modal on open and back to
+  // the trigger on close; Tab cycles inside; Escape closes.
+  $effect(() => {
+    if (!open) return;
+    lastTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    let cleanup: (() => void) | undefined;
+    void tick().then(() => {
+      if (panelEl) cleanup = trapFocus(panelEl, close);
+    });
+    return () => {
+      cleanup?.();
+      if (lastTrigger instanceof HTMLElement) lastTrigger.focus();
+    };
+  });
+
   function close() {
     S.connectionPanelOpen = false;
+  }
+
+  function onSaveCredentialsChange() {
+    // Persist the toggle itself so the opt-out survives restarts. Turning it
+    // off also scrubs already-saved credentials from disk (backend).
+    configWrite("ui.save_credentials", S.saveCredentials).catch((err) => {
+      console.error("Failed to save save_credentials setting:", err);
+    });
   }
 
   function updateField(field: string, value: string | number) {
@@ -72,17 +101,18 @@
 </script>
 
 {#if open}
-  <dialog class="modal modal-open" onclick={handleBackdropClick}>
+  <dialog role="dialog" aria-modal="true" aria-labelledby="connection-dialog-title" bind:this={panelEl} class="modal modal-open" onclick={handleBackdropClick}>
     <div data-connection-panel class="modal-box max-w-[480px]">
-      <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick={(e) => { e.stopPropagation(); close(); }}>✕</button>
-      <h3 class="text-lg font-bold">Target Connection</h3>
+      <button data-autofocus aria-label="Close connection dialog" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick={(e) => { e.stopPropagation(); close(); }}><X class="w-4 h-4" /></button>
+      <h3 id="connection-dialog-title" class="text-lg font-bold">Target Connection</h3>
 
       <div class="space-y-4 mt-4">
-        <div>
-          <label class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60 mb-1.5 block">SNMP Version</label>
+        <div role="group" aria-labelledby="label-snmp-version">
+          <label id="label-snmp-version" class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60 mb-1.5 block">SNMP Version</label>
           <div class="flex gap-1">
             {#each ["v1", "v2c", "v3"] as ver}
               <button
+                aria-pressed={cfg.version === ver}
                 class="btn btn-sm {cfg.version === ver ? 'btn-primary' : ''}"
                 onclick={() => updateField("version", ver)}
               >
@@ -94,8 +124,9 @@
 
         {#if !isV3}
           <div class="form-control">
-            <label class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Community String</span></label>
+            <label for="community-input" class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Community String</span></label>
             <input
+              id="community-input"
               type="text"
               value={cfg.community}
               oninput={onCommunityInput}
@@ -106,8 +137,9 @@
 
         {#if isV3}
           <div class="form-control">
-            <label class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Username</span></label>
+            <label for="v3-username-input" class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Username</span></label>
             <input
+              id="v3-username-input"
               type="text"
               value={cfg.v3_username}
               oninput={onV3UsernameInput}
@@ -117,8 +149,9 @@
 
           <div class="grid grid-cols-2 gap-3">
             <div class="form-control">
-              <label class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Auth Protocol</span></label>
+              <label for="v3-auth-protocol-select" class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Auth Protocol</span></label>
               <select
+                id="v3-auth-protocol-select"
                 value={cfg.v3_auth_protocol}
                 onchange={onV3AuthProtocolChange}
                 class="select select-bordered w-full"
@@ -129,8 +162,9 @@
               </select>
             </div>
             <div class="form-control">
-              <label class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Auth Passphrase</span></label>
+              <label for="v3-auth-passphrase-input" class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Auth Passphrase</span></label>
               <input
+                id="v3-auth-passphrase-input"
                 type="password"
                 value={cfg.v3_auth_passphrase}
                 oninput={onV3AuthPassphraseInput}
@@ -141,8 +175,9 @@
 
           <div class="grid grid-cols-2 gap-3">
             <div class="form-control">
-              <label class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Priv Protocol</span></label>
+              <label for="v3-priv-protocol-select" class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Priv Protocol</span></label>
               <select
+                id="v3-priv-protocol-select"
                 value={cfg.v3_priv_protocol}
                 onchange={onV3PrivProtocolChange}
                 class="select select-bordered w-full"
@@ -153,8 +188,9 @@
               </select>
             </div>
             <div class="form-control">
-              <label class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Priv Passphrase</span></label>
+              <label for="v3-priv-passphrase-input" class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Priv Passphrase</span></label>
               <input
+                id="v3-priv-passphrase-input"
                 type="password"
                 value={cfg.v3_priv_passphrase}
                 oninput={onV3PrivPassphraseInput}
@@ -165,18 +201,44 @@
         {/if}
 
         <button
+          data-testid="test-connection-btn"
           class="btn btn-block mt-2 {connectionResult === 'success' ? 'btn-success' : connectionResult === 'error' ? 'btn-error' : 'btn-primary'}"
           onclick={testConnection}
           disabled={connecting || !cfg.host.trim()}
         >
-          {connecting ? "Testing..." : connectionResult === 'success' ? "✓ Connected" : connectionResult === 'error' ? "✕ Failed" : "Test Connection"}
+          {#if connecting}
+            Testing...
+          {:else if connectionResult === "success"}
+            <Check class="w-4 h-4 inline-block" /> Connected
+          {:else if connectionResult === "error"}
+            <X class="w-4 h-4 inline-block" /> Failed
+          {:else}
+            Test Connection
+          {/if}
         </button>
 
         {#if errorMessage}
-          <p class="text-xs text-error font-mono bg-error/10 rounded px-2 py-1.5 break-all">{errorMessage}</p>
+          <p data-testid="connection-error" class="text-xs text-error font-mono bg-error/10 rounded px-2 py-1.5 break-all">{errorMessage}</p>
         {/if}
 
-        <p class="text-xs text-base-content/60 italic">Credentials are not persisted beyond the current session. Re-enter on each launch.</p>
+        <div class="flex items-start gap-2.5">
+          <input
+            id="save-credentials-toggle"
+            type="checkbox"
+            class="toggle toggle-sm toggle-primary mt-0.5 flex-shrink-0"
+            data-testid="save-credentials-toggle"
+            bind:checked={S.saveCredentials}
+            onchange={onSaveCredentialsChange}
+          />
+          <div>
+            <label for="save-credentials-toggle" class="text-xs font-semibold block mb-0.5">Save credentials</label>
+            <p data-testid="credentials-note" class="text-xs text-base-content/60 leading-snug">
+              {S.saveCredentials
+                ? "Connection settings, including credentials, are saved to the local config file for convenience."
+                : "Credentials will not be saved and must be re-entered on each launch."}
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   </dialog>
