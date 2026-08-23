@@ -76,7 +76,7 @@
 </script>
 
 <div class="flex flex-col h-screen bg-base-100 text-base-content overflow-hidden" data-theme={S.currentTheme}>
-  <h1 class="visually-hidden">Scout MIB Browser</h1>
+  <h1 class="sr-only">Scout MIB Browser</h1>
   <MenuBar />
   <TargetBar />
   <div class="flex flex-col flex-1 overflow-hidden min-h-0">
