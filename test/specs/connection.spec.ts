@@ -62,6 +62,33 @@ describe("Connection (target configuration)", () => {
     await closeModal();
   });
 
+  it("credential persistence note is truthful and the opt-out toggle persists", async () => {
+    await openModal();
+
+    // Default (on): an honest statement that settings incl. credentials are saved.
+    expect(((await (await $("[data-testid='credentials-note']")).getText()) ?? "")).toContain(
+      "saved to the local config file"
+    );
+    const toggle = await $("[data-testid='save-credentials-toggle']");
+    expect(await toggle.getProperty("checked")).toBe(true);
+
+    // Turn off: note flips and the opt-out is persisted to the config file.
+    await toggle.click();
+    await browser.pause(300);
+    expect(((await (await $("[data-testid='credentials-note']")).getText()) ?? "")).toContain(
+      "will not be saved"
+    );
+    expect(readConfigFile()).toMatch(/save_credentials\s*=\s*false/);
+
+    // Turn back on for later specs.
+    await toggle.click();
+    await browser.pause(300);
+    expect(((await (await $("[data-testid='credentials-note']")).getText()) ?? "")).toContain(
+      "saved to the local config file"
+    );
+    await closeModal();
+  });
+
   it("Test Connection succeeds against snmpsim", async () => {
     await openModal();
     const btn = await $("[data-connection-panel] .btn-block");

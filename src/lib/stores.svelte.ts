@@ -30,6 +30,7 @@ const raw = $state({
     v3_security_level: "noAuthNoPrivacy",
   } as TargetConfig,
   connectionPanelOpen: false,
+  saveCredentials: true,
   connectionState: "disconnected" as ConnectionState,
   snmpOperation: "get" as SnmpOperation,
   isExecuting: false,

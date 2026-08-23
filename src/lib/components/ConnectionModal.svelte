@@ -1,6 +1,6 @@
 <script lang="ts">
   import { S } from "$lib/stores.svelte";
-  import { persistTargetConfig } from "$lib/tauriCommands";
+  import { persistTargetConfig, configWrite } from "$lib/tauriCommands";
   import { runTestConnection, clearResultTimer } from "$lib/connectionLogic";
 
   let open = $derived(S.connectionPanelOpen);
@@ -13,6 +13,14 @@
 
   function close() {
     S.connectionPanelOpen = false;
+  }
+
+  function onSaveCredentialsChange() {
+    // Persist the toggle itself so the opt-out survives restarts. Turning it
+    // off also scrubs already-saved credentials from disk (backend).
+    configWrite("ui.save_credentials", S.saveCredentials).catch((err) => {
+      console.error("Failed to save save_credentials setting:", err);
+    });
   }
 
   function updateField(field: string, value: string | number) {
@@ -173,10 +181,27 @@
         </button>
 
         {#if errorMessage}
-          <p class="text-xs text-error font-mono bg-error/10 rounded px-2 py-1.5 break-all">{errorMessage}</p>
+          <p data-testid="connection-error" class="text-xs text-error font-mono bg-error/10 rounded px-2 py-1.5 break-all">{errorMessage}</p>
         {/if}
 
-        <p class="text-xs text-base-content/60 italic">Credentials are not persisted beyond the current session. Re-enter on each launch.</p>
+        <div class="flex items-start gap-2.5">
+          <input
+            id="save-credentials-toggle"
+            type="checkbox"
+            class="toggle toggle-sm toggle-primary mt-0.5 flex-shrink-0"
+            data-testid="save-credentials-toggle"
+            bind:checked={S.saveCredentials}
+            onchange={onSaveCredentialsChange}
+          />
+          <div>
+            <label for="save-credentials-toggle" class="text-xs font-semibold block mb-0.5">Save credentials</label>
+            <p data-testid="credentials-note" class="text-xs text-base-content/60 leading-snug">
+              {S.saveCredentials
+                ? "Connection settings, including credentials, are saved to the local config file for convenience."
+                : "Credentials will not be saved and must be re-entered on each launch."}
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   </dialog>

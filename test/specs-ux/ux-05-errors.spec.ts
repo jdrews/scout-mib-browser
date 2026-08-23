@@ -35,7 +35,7 @@ describe("UX A5 — error-path wording", function () {
     let errMsg = "";
     for (const p of await $$("[data-connection-panel] p")) {
       const t = (await p.getText()) ?? "";
-      if (t && !t.startsWith("Credentials are not persisted")) errMsg = t;
+      if (t.startsWith("Connection failed — no SNMP response from")) errMsg = t;
     }
     captured.testConnectionFailed = {
       button: (await btn.getText()) ?? "",

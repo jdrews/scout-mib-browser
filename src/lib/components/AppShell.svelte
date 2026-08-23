@@ -34,6 +34,8 @@
         });
       }
 
+      S.saveCredentials = config.ui?.save_credentials ?? true;
+
       const dirs = config.mib?.directories || [];
 
       if (dirs.length > 0) {

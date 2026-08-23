@@ -67,6 +67,9 @@ export interface AppConfig {
     directories?: string[];
   };
   target?: Omit<TargetConfig, "host" | "port"> & Partial<Pick<TargetConfig, "host" | "port">>;
+  ui?: {
+    save_credentials?: boolean;
+  };
 }
 
 // ── SNMP Execution Types ─────────────────────────────────────────────────────
