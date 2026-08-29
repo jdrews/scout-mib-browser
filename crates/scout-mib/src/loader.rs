@@ -260,11 +260,15 @@ impl MibRsLoader {
             }
         }
 
-        // Columns: every column whose containing table is this one, in OID order.
+        // Columns: every *accessible* column whose containing table is this
+        // one, in OID order. Not-accessible index objects have no instances on
+        // the wire — fetching them can only produce missing cells — so they are
+        // excluded (their values come from decoding the row suffix instead).
         let mut column_oids: Vec<String> = module
             .objects()
             .filter(|o| {
                 o.is_column()
+                    && o.access() != mib_rs::Access::NotAccessible
                     && o.table().map(|t| t.node().oid().to_string()).as_deref()
                         == Some(table_oid.as_str())
             })
@@ -784,13 +788,10 @@ END
             .row_entry_oids
             .contains(&node_oid(&result, "augEntry").to_string()));
 
-        // Columns include the augmented column, in OID order.
-        let expected: Vec<&str> = vec![
-            node_oid(&result, "pairIndex"),
-            node_oid(&result, "pairAddr"),
-            node_oid(&result, "pairName"),
-            node_oid(&result, "augValue"),
-        ];
+        // Columns include the augmented column, in OID order. Not-accessible
+        // index objects are excluded — they have no instances on the wire.
+        let expected: Vec<&str> =
+            vec![node_oid(&result, "pairName"), node_oid(&result, "augValue")];
         assert_eq!(info.column_oids, expected);
     }
 
@@ -829,12 +830,10 @@ END
             .find(|t| t.name == "outerTable")
             .expect("outerTable metadata");
 
-        // Only outerTable's own columns — the nested innerTable's leaves are
-        // not columns of the outer table (G4).
-        let expected: Vec<&str> = vec![
-            node_oid(&result, "outerIndex"),
-            node_oid(&result, "outerValue"),
-        ];
+        // Only outerTable's own accessible columns — the nested innerTable's
+        // leaves are not columns of the outer table (G4), and the
+        // not-accessible index object is excluded.
+        let expected: Vec<&str> = vec![node_oid(&result, "outerValue")];
         assert_eq!(info.column_oids, expected);
 
         // The nested sub-table has its own metadata.
@@ -843,7 +842,7 @@ END
             .iter()
             .find(|t| t.name == "innerTable")
             .expect("innerTable metadata");
-        assert_eq!(inner.column_oids.len(), 2);
+        assert_eq!(inner.column_oids.len(), 1);
     }
 
     #[test]
@@ -946,5 +945,45 @@ END
         assert!(!value_col.is_table);
 
         let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+    /// The e2e grid specs depend on test/mibs/SYNTH-TABLE-MIB (Integer +
+    /// IpAddress index, IMPLIED component). Guard the fixture: if mib-rs
+    /// stops extracting its tables, the e2e tree tests fail obscurely.
+    #[test]
+    fn synth_table_mib_fixture_extracts_expected_tables() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test/mibs/SYNTH-TABLE-MIB");
+        let mut loader = MibRsLoader::new();
+        let result = loader.load_file(&path).unwrap();
+
+        assert!(
+            result.primary_success,
+            "SYNTH-TABLE-MIB must parse via mib-rs"
+        );
+        let tables: Vec<&crate::TableInfo> = result.tables.iter().collect();
+        assert_eq!(tables.len(), 2, "expected both synthetic tables");
+
+        let ip = tables
+            .iter()
+            .find(|t| t.name == "synthIpTable")
+            .expect("synthIpTable");
+        assert_eq!(ip.index_columns.len(), 2);
+        assert_eq!(ip.index_columns[0].name, "synthIpRow");
+        assert!(!ip.index_columns[0].implied);
+        assert_eq!(ip.index_columns[1].name, "synthIpAddr");
+        assert_eq!(ip.column_oids.len(), 2, "two accessible columns");
+
+        let imp = tables
+            .iter()
+            .find(|t| t.name == "synthImpTable")
+            .expect("synthImpTable");
+        assert_eq!(imp.index_columns.len(), 2);
+        assert!(!imp.index_columns[0].implied);
+        assert_eq!(imp.index_columns[1].name, "synthImpIp");
+        assert!(
+            imp.index_columns[1].implied,
+            "second component must be IMPLIED"
+        );
+        assert_eq!(imp.column_oids.len(), 1, "one accessible column");
     }
 }

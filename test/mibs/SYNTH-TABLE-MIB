@@ -1,0 +1,118 @@
+SYNTH-TABLE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, Integer32, IpAddress, mib-2
+        FROM SNMPv2-SMI;
+
+synthTableMib MODULE-IDENTITY
+    LAST-UPDATED "202608290000Z"
+    ORGANIZATION "scout-mib-browser"
+    CONTACT-INFO "e2e test fixture"
+    DESCRIPTION
+        "Synthetic tables for e2e grid coverage: a two-attribute
+        (Integer + IpAddress) index and an IMPLIED index component."
+    ::= { mib-2 15432 }
+
+synthObjects OBJECT IDENTIFIER ::= { synthTableMib 1 }
+
+-- Two-attribute index: Integer + IpAddress.
+synthIpTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF SynthIpEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "One row per (row, address) pair; synthIpNote is missing on one
+        row to exercise the missing-cell path."
+    ::= { synthObjects 1 }
+
+synthIpEntry OBJECT-TYPE
+    SYNTAX      SynthIpEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "A synthetic row."
+    INDEX { synthIpRow, synthIpAddr }
+    ::= { synthIpTable 1 }
+
+SynthIpEntry ::=
+    SEQUENCE {
+        synthIpRow    Integer32,
+        synthIpAddr   IpAddress,
+        synthIpStatus Integer32,
+        synthIpNote   OCTET STRING
+    }
+
+synthIpRow OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Integer index component."
+    ::= { synthIpEntry 1 }
+
+synthIpAddr OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "IpAddress index component."
+    ::= { synthIpEntry 2 }
+
+synthIpStatus OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Present on every row."
+    ::= { synthIpEntry 3 }
+
+synthIpNote OBJECT-TYPE
+    SYNTAX      OCTET STRING
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Missing on one row (missing-cell path)."
+    ::= { synthIpEntry 4 }
+
+-- IMPLIED index component.
+synthImpTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF SynthImpEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "The IpAddress index component is IMPLIED: its value is not
+        present in the instance OID."
+    ::= { synthObjects 2 }
+
+synthImpEntry OBJECT-TYPE
+    SYNTAX      SynthImpEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "A synthetic row with an implied address."
+    INDEX { synthImpKey, IMPLIED synthImpIp }
+    ::= { synthImpTable 1 }
+
+SynthImpEntry ::=
+    SEQUENCE {
+        synthImpKey   Integer32,
+        synthImpIp    IpAddress,
+        synthImpState Integer32
+    }
+
+synthImpKey OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Integer index component."
+    ::= { synthImpEntry 1 }
+
+synthImpIp OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Implied IpAddress index component (absent from the OID)."
+    ::= { synthImpEntry 2 }
+
+synthImpState OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "The only accessible column."
+    ::= { synthImpEntry 3 }
+
+END

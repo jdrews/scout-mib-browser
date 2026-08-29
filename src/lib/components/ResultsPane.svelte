@@ -1,10 +1,11 @@
 <script lang="ts">
   import { ArrowDown, ArrowUp, ArrowUpDown, Trash2, TriangleAlert, WrapText } from "lucide-svelte";
   import { S, clearResults } from "$lib/stores.svelte";
-  import type { VariableBinding, SnmpValue, ResultSet, TreeNode, TableResult, TableRowData, TableCell } from "$lib/types";
+  import type { VariableBinding, SnmpValue, ResultSet, TreeNode, TableResult, TableRowData, TableCell, TableIndexColumn } from "$lib/types";
   import type { ExportFormat } from "$lib/export";
   import * as exportMod from "$lib/export";
   import { saveToFile } from "$lib/tauriCommands";
+  import { saveColumnSelection } from "$lib/tableColumns";
 
   let bindings = $derived(S.executionBindings);
   let results = $derived(S.executionResults);
@@ -111,31 +112,6 @@
     return { displayName: oid, fullPath: oid };
   }
 
-  function valueDisplay(v: SnmpValue): string {
-    if (v === "Null") return "NULL";
-    if (typeof v !== "object" || v === null) return String(v);
-    if ("Integer" in v) return String(v.Integer);
-    if ("Unsigned" in v) return String(v.Unsigned);
-    if ("Counter32" in v) return `${v.Counter32} (counter32)`;
-    if ("Counter64" in v) return `${v.Counter64} (counter64)`;
-    if ("OctetString" in v) {
-      try {
-        const s = new TextDecoder().decode(new Uint8Array(v.OctetString));
-        return `"${s}"`;
-      } catch {
-        return `0x${v.OctetString.map(b => b.toString(16).padStart(2, "0")).join("")}`;
-      }
-    }
-    if ("ObjectIdentifier" in v) return v.ObjectIdentifier;
-    if ("IpAddress" in v) return v.IpAddress;
-    if ("TimeTicks" in v) return `${v.TimeTicks} (timeticks)`;
-    if ("TruthValue" in v) return v.TruthValue ? "true" : "false";
-    if ("Raw" in v) {
-      const r = v.Raw;
-      return `<raw type=0x${r.type_code.toString(16).padStart(2, "0")} data=0x${r.data.map(b => b.toString(16).padStart(2, "0")).join("")}>`;
-    }
-    return String(v);
-  }
 
   function typeLabel(v: SnmpValue): string {
     if (v === "Null") return "NULL";
@@ -160,7 +136,7 @@
       displayName: resolved.displayName,
       fullPath: resolved.fullPath,
       type: typeLabel(b.value),
-      value: valueDisplay(b.value),
+      value: exportMod.valueDisplay(b.value),
       warning: !!b.warning,
     };
   }));
@@ -200,7 +176,15 @@
 
   let isGridView = $derived(!!tableResult);
   // A table result always starts in grid view; the user can still toggle it off.
-  $effect(() => { if (tableResult) gridView = true; });
+  $effect(() => {
+    if (tableResult) {
+      gridView = true;
+      columnsOpen = false;
+      gridSortKey = null;
+      gridSortDir = 1;
+    }
+  });
+  let tableInfo = $derived(S.tableInfo);
   let gridColumns = $derived(tableResult?.columns || []);
   let gridRows = $derived(tableResult?.rows || []);
   let gridMissingCells = $derived(tableResult?.missing_cells || 0);
@@ -210,12 +194,94 @@
     return baseName;
   }
 
+  // ── Per-component index columns ────────────────────────────────────────────
+  // Rendered when the table has INDEX metadata and the engine decoded the row
+  // suffixes. Otherwise a single raw "Instance" column is shown (fallback).
+  let gridIndexCols: TableIndexColumn[] = $derived(tableInfo?.indexColumns ?? []);
+  let hasDecodedIndexes = $derived(
+    gridIndexCols.length > 0 && gridRows.some((r) => r.index_values.length > 0),
+  );
+
+  // ── Column selection (display filter for the next Get Table run) ───────────
+  let columnsOpen = $state(false);
+  let selectedColumns = $state<string[]>([]);
+  $effect(() => {
+    if (tableResult) selectedColumns = [...(tableResult?.columns || [])];
+  });
+
+  /** The full column set for the selection panel: metadata columns when
+   *  available, else whatever the last run fetched. */
+  let allSelectableColumns = $derived(
+    tableInfo && tableInfo.columnOids.length > 0 ? tableInfo.columnOids : gridColumns,
+  );
+
+  function isIndexColumn(oid: string): boolean {
+    return gridIndexCols.some((c) => c.oid === oid);
+  }
+
+  function toggleColumn(col: string) {
+    const set = new Set(selectedColumns);
+    if (set.has(col)) {
+      if (set.size <= 1) return; // keep at least one column selected
+      set.delete(col);
+    } else {
+      set.add(col);
+    }
+    selectedColumns = [...set];
+    if (tableResult) saveColumnSelection(tableResult.table_oid, selectedColumns);
+  }
+
+  // ── Grid sorting (per-column, numeric-aware; default is walk order) ───────
+  type GridSortKey = string; // "instance" | `idx:${i}` | column OID
+  let gridSortKey: GridSortKey | null = $state(null);
+  let gridSortDir: 1 | -1 = $state(1);
+
+  function toggleGridSort(key: GridSortKey) {
+    if (gridSortKey !== key) {
+      gridSortKey = key;
+      gridSortDir = 1;
+    } else if (gridSortDir === 1) {
+      gridSortDir = -1;
+    } else {
+      // Third click restores walk order.
+      gridSortKey = null;
+      gridSortDir = 1;
+    }
+  }
+
+  function snmpNumeric(v: SnmpValue): number | null {
+    if (v === "Null" || typeof v !== "object" || v === null) return null;
+    if ("Integer" in v) return v.Integer;
+    if ("Unsigned" in v) return v.Unsigned;
+    if ("Counter32" in v) return v.Counter32;
+    if ("Counter64" in v) return Number(v.Counter64);
+    if ("TimeTicks" in v) return v.TimeTicks;
+    return null;
+  }
+
+  function gridCellParts(row: TableRowData, key: GridSortKey): { text: string; numeric: number | null } {
+    if (key === "instance") {
+      return { text: row.instance_id, numeric: /^\d+$/.test(row.instance_id) ? Number(row.instance_id) : null };
+    }
+    if (key.startsWith("idx:")) {
+      const t = row.index_values[Number(key.slice(4))] ?? "";
+      return { text: t, numeric: /^\d+$/.test(t) ? Number(t) : null };
+    }
+    const cell = row.cells[key];
+    if (!cell?.value) return { text: "", numeric: null };
+    return { text: exportMod.valueDisplay(cell.value.value), numeric: snmpNumeric(cell.value.value) };
+  }
+
+  // ── Filtering + sorting + chunked rendering ────────────────────────────────
   let filteredGridRows = $derived(filterText
     ? gridRows.filter((r: TableRowData) => {
         const instMatch = r.instance_id.toLowerCase().includes(filterLower);
         if (instMatch) return true;
+        for (const v of r.index_values) {
+          if (v !== null && v.toLowerCase().includes(filterLower)) return true;
+        }
         for (const cell of Object.values(r.cells)) {
-          if (cell.value && valueDisplay(cell.value.value).toLowerCase().includes(filterLower)) {
+          if (cell.value && exportMod.valueDisplay(cell.value.value).toLowerCase().includes(filterLower)) {
             return true;
           }
         }
@@ -223,26 +289,89 @@
       })
     : gridRows);
 
+  let sortedGridRows = $derived(
+    gridSortKey === null
+      ? filteredGridRows // walk order (stable)
+      : [...filteredGridRows].sort((a, b) => {
+          const pa = gridCellParts(a, gridSortKey!);
+          const pb = gridCellParts(b, gridSortKey!);
+          const cmp =
+            pa.numeric !== null && pb.numeric !== null
+              ? pa.numeric - pb.numeric
+              : pa.text < pb.text
+                ? -1
+                : pa.text > pb.text
+                  ? 1
+                  : 0;
+          return gridSortDir * cmp;
+        }),
+  );
+
+  // Row-cap rendering: show CHUNK rows, append more when the sentinel scrolls
+  // into view. The footer always reports the true total.
+  const GRID_CHUNK = 500;
+  let visibleCount = $state(GRID_CHUNK);
+  $effect(() => {
+    void sortedGridRows.length;
+    visibleCount = GRID_CHUNK;
+  });
+  let visibleGridRows = $derived(sortedGridRows.slice(0, visibleCount));
+
+  // Footer suffix as a plain expression (not an {#if} block): Svelte trims
+  // whitespace at block boundaries, which would glue "(N match filter)" onto
+  // "rows".
+  let gridFilterSuffix = $derived(
+    filterText && sortedGridRows.length !== tableResult?.total_rows
+      ? ` (${sortedGridRows.length} match filter)`
+      : "",
+  );
+
+  let sentinelEl: HTMLDivElement | null = $state(null);
+  $effect(() => {
+    if (!isGridView || !gridView || !sentinelEl) return;
+    if (typeof IntersectionObserver === "undefined") {
+      visibleCount = Number.MAX_SAFE_INTEGER; // no chunking without IO support
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) visibleCount += GRID_CHUNK;
+      },
+      { threshold: 0 },
+    );
+    observer.observe(sentinelEl);
+    return () => observer.disconnect();
+  });
+
+  // Sticky left offsets for the row-identity column group (# + index columns,
+  // or # + Instance in raw mode). Fixed widths keep the offsets deterministic.
+  const HASH_W = 40;
+  const IDX_W = 96;
+  const INST_W = 120;
+  function stickyLeft(i: number): string {
+    // i = 0 is "#"; index columns (or the single Instance column) follow at
+    // fixed widths so the sticky offsets stay deterministic.
+    if (i === 0) return "0px";
+    if (hasDecodedIndexes) return `${HASH_W + (i - 1) * IDX_W}px`;
+    return `${HASH_W}px`;
+  }
+
   async function handleExport(format: ExportFormat) {
     exportMenuOpen = false;
     if (isGridView && tableResult) {
-      const header = ["Instance", ...gridColumns.map(c => columnName(c))];
-      const lines = [header.join("\t")];
-      for (const row of gridRows) {
-        const cells = [row.instance_id];
-        for (const colOid of gridColumns) {
-          const cell = row.cells[colOid];
-          if (cell?.value) {
-            cells.push(valueDisplay(cell.value.value));
-          } else {
-            cells.push("");
-          }
-        }
-        lines.push(cells.join("\t"));
-      }
-      const content = lines.join("\n");
-      const filename = `${tableResult.table_oid.split(".").pop() || "table"}.tsv`;
-      await saveToFile(content, filename);
+      const nameOf = (oid: string) => columnName(oid);
+      const content =
+        format === "json"
+          ? exportMod.gridToJson(tableResult, nameOf)
+          : exportMod.gridDelimited(
+              tableResult,
+              gridIndexCols,
+              nameOf,
+              format === "csv" ? "," : "\t",
+              format === "csv",
+            );
+      const name = tableInfo?.name || tableResult.table_oid.split(".").pop() || "table";
+      await saveToFile(content, `${name}.${format}`);
       return;
     }
 
@@ -283,6 +412,9 @@
     clearResults();
     filterText = "";
     gridView = false;
+    columnsOpen = false;
+    gridSortKey = null;
+    gridSortDir = 1;
     sortColumn = "oid";
     sortAsc = true;
   }
@@ -338,13 +470,26 @@
     </div>
   {/if}
 
-  {#if isGridView}
+  {#if isGridView && tableResult}
     <div class="px-4 py-1 flex items-center gap-2 border-b border-base-300">
       <label class="cursor-pointer flex items-center gap-2 text-xs">
         <input type="checkbox" class="toggle toggle-sm toggle-primary" bind:checked={gridView} />
         Grid view
       </label>
+      <button data-testid="columns-btn" class="btn btn-sm btn-ghost" onclick={() => (columnsOpen = !columnsOpen)}>Columns…</button>
     </div>
+    {#if columnsOpen}
+      <div data-testid="columns-panel" class="px-4 py-2 border-b border-base-300 bg-base-100 max-h-60 overflow-y-auto">
+        <p class="text-xs text-base-content/60 mb-1">Display columns — applied on the next Get Table run.</p>
+        {#each allSelectableColumns as col (col)}
+          <label class="flex items-center gap-2 text-sm py-0.5 cursor-pointer">
+            <input type="checkbox" checked={selectedColumns.includes(col)} onchange={() => toggleColumn(col)} />
+            <span>{columnName(col)}</span>
+            {#if isIndexColumn(col)}<span class="badge badge-xs badge-outline">index</span>{/if}
+          </label>
+        {/each}
+      </div>
+    {/if}
   {/if}
 
   <div
@@ -359,39 +504,70 @@
       {:else if filteredGridRows.length === 0}
         <p class="text-base-content/60 text-sm text-center mt-8">No results match filter.</p>
       {:else}
-        <div tabindex="0" aria-label="Table data" class="overflow-x-auto focus:outline-none focus-visible:ring-2 focus-visible:ring-primary">
-          <table data-testid="grid-table" class="table table-zebra table-sm">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Instance</th>
-                {#each gridColumns as colOid}
-                  <th>{columnName(colOid)}</th>
+        <!-- results-body is the scroll container so sticky top/left both work. -->
+        <table data-testid="grid-table" class="table table-sm w-full min-w-max border-separate border-spacing-0">
+          <thead>
+            <tr>
+              <th class="sticky top-0 left-0 z-30 bg-base-100 px-2 py-1.5 text-xs w-[40px] min-w-[40px] max-w-[40px]">#</th>
+              {#if hasDecodedIndexes}
+                {#each gridIndexCols as col, i (col.oid)}
+                  <th data-grid-col="idx:{i}" title={col.implied ? `${col.name} (implied)` : col.name} class="sticky top-0 z-30 bg-base-200 px-2 py-1.5 text-xs cursor-pointer select-none w-[96px] min-w-[96px] max-w-[96px]" style="left: {stickyLeft(i + 1)}px;" onclick={() => toggleGridSort(`idx:${i}`)}>
+                    <span class="flex items-center gap-1">
+                      <span class="truncate">{col.name}</span>
+                      {#if gridSortKey === `idx:${i}`}{#if gridSortDir === 1}<ArrowUp class="w-3 h-3 shrink-0" />{:else}<ArrowDown class="w-3 h-3 shrink-0" />{/if}{:else}<ArrowUpDown class="w-3 h-3 shrink-0 opacity-40" />{/if}
+                    </span>
+                  </th>
                 {/each}
-              </tr>
-            </thead>
-            <tbody>
-              {#each filteredGridRows as row, i (row.instance_id)}
-                <tr>
-                  <td class="text-base-content/60">{i + 1}</td>
-                  <td class="font-semibold">{row.instance_id}</td>
-                  {#each gridColumns as colOid (colOid)}
-                    {@const cell = row.cells[colOid]}
-                    <td class="{cell.missing ? 'text-accent' : ''}">
-                      {#if cell.missing}
-                        <span class="text-base-content/60 italic flex items-center gap-1">— missing <TriangleAlert class="w-3 h-3 shrink-0" /></span>
-                      {:else if cell.value}
-                        <span>{valueDisplay(cell.value.value)}</span>
-                      {:else}
-                        <span class="text-base-content/60">\u2014</span>
-                      {/if}
+              {:else}
+                <th data-grid-col="instance" class="sticky top-0 z-30 bg-base-100 px-2 py-1.5 text-xs cursor-pointer select-none w-[120px] min-w-[120px] max-w-[120px]" style="left: {stickyLeft(1)}px;" onclick={() => toggleGridSort("instance")}>
+                  <span class="flex items-center gap-1">
+                    <span class="truncate">Instance</span>
+                    {#if gridSortKey === "instance"}{#if gridSortDir === 1}<ArrowUp class="w-3 h-3 shrink-0" />{:else}<ArrowDown class="w-3 h-3 shrink-0" />{/if}{:else}<ArrowUpDown class="w-3 h-3 shrink-0 opacity-40" />{/if}
+                  </span>
+                </th>
+              {/if}
+              {#each gridColumns as colOid (colOid)}
+                <th data-grid-col={colOid} class="sticky top-0 z-20 bg-base-100 px-2 py-1.5 text-xs cursor-pointer select-none" onclick={() => toggleGridSort(colOid)}>
+                  <span class="flex items-center gap-1">
+                    <span class="truncate">{columnName(colOid)}</span>
+                    {#if gridSortKey === colOid}{#if gridSortDir === 1}<ArrowUp class="w-3 h-3 shrink-0" />{:else}<ArrowDown class="w-3 h-3 shrink-0" />{/if}{:else}<ArrowUpDown class="w-3 h-3 shrink-0 opacity-40" />{/if}
+                  </span>
+                </th>
+              {/each}
+            </tr>
+          </thead>
+          <tbody>
+            {#each visibleGridRows as row, i (row.instance_id)}
+              <tr>
+                <td class="sticky left-0 z-10 bg-base-200 px-2 text-xs text-base-content/60 w-[40px] min-w-[40px] max-w-[40px]">{i + 1}</td>
+                {#if hasDecodedIndexes}
+                  {#each row.index_values as val, i (i)}
+                    <td class="sticky z-10 bg-base-200 px-2 font-mono text-[13px] truncate w-[96px] min-w-[96px] max-w-[96px]" style="left: {stickyLeft(i + 1)}px;" title={val === null ? "(implied)" : row.instance_id}>
+                      {#if val === null}<span class="text-base-content/40 italic">—</span>{:else}{val}{/if}
                     </td>
                   {/each}
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
+                {:else}
+                  <td class="sticky z-10 bg-base-200 px-2 font-semibold font-mono text-[13px] truncate w-[120px] min-w-[120px] max-w-[120px]" style="left: {HASH_W}px;" title={row.instance_id}>{row.instance_id}</td>
+                {/if}
+                {#each gridColumns as colOid (colOid)}
+                  {@const cell = row.cells[colOid]}
+                  <td class="px-2 font-mono text-[13px] {cell.missing ? 'text-accent' : ''}">
+                    {#if cell.missing}
+                      <span class="text-base-content/60 italic flex items-center gap-1">— missing <TriangleAlert class="w-3 h-3 shrink-0" /></span>
+                    {:else if cell.value}
+                      <span>{exportMod.valueDisplay(cell.value.value)}</span>
+                    {:else}
+                      <span class="text-base-content/60">\u2014</span>
+                    {/if}
+                  </td>
+                {/each}
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+        {#if visibleGridRows.length < sortedGridRows.length}
+          <div bind:this={sentinelEl} data-testid="grid-sentinel" class="h-8"></div>
+        {/if}
       {/if}
     {:else if isGridView}
       <p class="text-base-content/60 text-sm text-center mt-12">Grid view is disabled — enable it above to display the table.</p>
@@ -439,9 +615,9 @@
 
   {#if isGridView && tableResult}
     <div data-testid="grid-footer" class="px-4 py-2 text-xs text-base-content/60 border-t border-base-300 bg-base-100 flex justify-between">
-      <span>{filteredGridRows.length} of {tableResult.total_rows} rows</span>
+      <span>Showing {visibleGridRows.length} of {tableResult.total_rows} rows{gridFilterSuffix}</span>
       {#if gridMissingCells > 0}
-        <span class="text-accent">{gridMissingCells} missing cell(s)}</span>
+        <span class="text-accent">{gridMissingCells} missing cell(s)</span>
       {/if}
     </div>
   {:else if bindings.length > 0}

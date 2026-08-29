@@ -1,9 +1,10 @@
 <script lang="ts">
   import { Settings } from "lucide-svelte";
-  import { mibSearch } from "$lib/tauriCommands";
+  import { mibSearch, mibResolveOid } from "$lib/tauriCommands";
   import { S } from "$lib/stores.svelte";
   import { persistTargetConfig } from "$lib/tauriCommands";
-  import type { MibSearchResult, TreeNode, SnmpOperation, VariableBinding, ResultSet } from "$lib/types";
+  import { loadColumnSelection } from "$lib/tableColumns";
+  import type { MibSearchResult, TreeNode, SnmpOperation, VariableBinding, ResultSet, TableInfo, TableResult } from "$lib/types";
 
   let cfg = $derived(S.targetConfig);
 
@@ -26,14 +27,17 @@
 
   // Track active walk state for Go/Stop toggle and Esc key cancellation
   let isWalkActive = $state(false);
+  // True while a Get Table run is in flight (drives the Stop status message).
+  let tableRunActive = $state(false);
 
-  const operations: SnmpOperation[] = ["get", "getNext", "walk", "bulkWalk", "set"];
+  const operations: SnmpOperation[] = ["get", "getNext", "walk", "bulkWalk", "getTable", "set"];
 
   const operationLabels: Record<SnmpOperation, string> = {
     get: "Get",
     getNext: "Get Next",
     walk: "Walk",
     bulkWalk: "Bulk Walk",
+    getTable: "Get Table",
     set: "Set",
   };
 
@@ -187,19 +191,45 @@
       return;
     }
 
+    if (operation === "getTable") {
+      await executeGetTable(effectiveOid);
+      return;
+    }
+
+    // Table Get guard: getting a table's raw OID only surfaces noSuchObject
+    // noise — point the user at the operations that make sense. Covers both
+    // tree selections and typed OIDs/names (resolved via mib_resolve_oid).
+    if (operation === "get" || operation === "getNext") {
+      let tableName: string | null = S.selectedNode?.isTable === true ? S.selectedNode.name : null;
+      if (tableName === null) {
+        try {
+          const resolved = await mibResolveOid(effectiveOid);
+          if (resolved?.isTable) tableName = resolved.name;
+        } catch (err) {
+          console.error("Table guard lookup failed:", err);
+        }
+      }
+      if (tableName !== null) {
+        S.statusText = `${tableName} is a table — use Get Table or Walk`;
+        return;
+      }
+    }
+
     await executeOperation(operation, effectiveOid);
   }
 
   async function handleStop() {
     if (!isWalkActive) return;
+    const wasTableRun = tableRunActive;
     isWalkActive = false;
+    tableRunActive = false;
 
     const cmds = await import("$lib/tauriCommands");
     await cmds.snmpCancelWalk();
 
     S.isExecuting = false;
     S.walkProgress = "";
-    S.statusText = "Walk cancelled";
+    S.statusText = wasTableRun ? "Table retrieval cancelled" : "Walk cancelled";
   }
 
   async function executeOperation(op: SnmpOperation, oid: string) {
@@ -209,10 +239,6 @@
       return;
     }
 
-    const targetNode = S.selectedNode;
-    // Backend serializes camelCase (serde rename_all) — the key is "isTable".
-    const isTableNode = targetNode?.isTable === true;
-
     S.isExecuting = true;
     S.executionBindings.length = 0;
     S.executionResults = null;
@@ -221,11 +247,8 @@
     S.queryRootOid = oid;
     isWalkActive = false;
 
-    if (isTableNode && (op === "walk" || op === "bulkWalk")) {
-      await executeTableRetrieval(op, oid);
-      return;
-    }
-
+    // Walk/Bulk Walk on a table node behaves like anywhere else — a flat
+    // subtree walk. Get Table (executeGetTable) is the only grid path.
     S.statusText = `Starting ${op} on ${oid}...`;
 
     try {
@@ -311,32 +334,79 @@
     }
   }
 
-  async function executeTableRetrieval(op: SnmpOperation, tableOid: string) {
+  /** Get Table: the only path to grid retrieval. Resolves table metadata,
+   *  applies the persisted column selection, and streams progress + grid. */
+  async function executeGetTable(oid: string) {
     const cfg = S.targetConfig;
-    S.statusText = `Detecting table columns for ${tableOid}...`;
+    if (!cfg.host) {
+      S.statusText = "No target configured";
+      return;
+    }
+
+    const cmds = await import("$lib/tauriCommands");
+
+    let info: TableInfo | null = null;
+    try {
+      info = await cmds.mibTableInfo(oid);
+    } catch (err) {
+      console.error("Table info lookup failed:", err);
+    }
+
+    if (!info) {
+      const label = S.selectedNode?.name ?? oid;
+      S.statusText = `${label} is not a table — use Walk`;
+      return;
+    }
+
+    S.isExecuting = true;
+    S.executionBindings.length = 0;
+    S.executionResults = null;
+    S.tableInfo = info;
+    S.tableResult = null;
+    S.walkProgress = "";
+    S.queryRootOid = oid;
+    isWalkActive = false;
+    tableRunActive = true;
+
+    const name = info.name || oid;
+    S.statusText = `Detecting table columns for ${name}...`;
 
     try {
-      const cmds = await import("$lib/tauriCommands");
-      const columnOids = await cmds.mibTableColumns(tableOid);
-
-      if (columnOids.length === 0) {
-        S.statusText = `No columns found for table ${tableOid}`;
-        S.isExecuting = false;
+      const allColumns = await cmds.mibTableColumns(oid);
+      if (allColumns.length === 0) {
+        tableRunActive = false;
+        S.statusText = `No columns found for table ${name}`;
         return;
       }
+      // Display selection: persisted per-table subset (default: all columns).
+      const columnOids = loadColumnSelection(oid, allColumns);
 
-      S.statusText = `Walking ${columnOids.length} column(s) for table...`;
+      S.statusText = `Fetching table ${name}...`;
+      isWalkActive = true;
 
-      const result = await cmds.snmpWalkTable(cfg, tableOid, columnOids);
-      S.tableResult = result;
-      S.walkProgress = "";
-      S.statusText = `Table complete: ${result.total_rows} row(s), ${result.columns.length} column(s)`;
-
-      if (result.missing_cells > 0) {
-        S.statusText += ` (${result.missing_cells} missing cell(s))`;
-      }
+      await cmds.snmpGetTable(cfg, oid, columnOids,
+        (count: number) => {
+          if (!isWalkActive) return;
+          S.walkProgress = `${count} bindings`;
+          S.statusText = `Get Table: ${count} bindings...`;
+        },
+        (result: TableResult) => {
+          if (!isWalkActive) return;
+          isWalkActive = false;
+          tableRunActive = false;
+          S.tableResult = result;
+          S.walkProgress = "";
+          let msg = `Table complete: ${result.total_rows} row(s), ${result.columns.length} column(s)`;
+          if (result.missing_cells > 0) {
+            msg += ` (${result.missing_cells} missing cell(s))`;
+          }
+          S.statusText = msg;
+        }
+      );
     } catch (err) {
       console.error("Table retrieval failed:", err);
+      isWalkActive = false;
+      tableRunActive = false;
       S.statusText = `Table error: ${err}`;
       S.tableResult = null;
     } finally {

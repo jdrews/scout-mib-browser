@@ -82,11 +82,11 @@ describe("Operations (executions against the mock agent)", () => {
   });
 
   it("Stop cancels an active walk", async () => {
-    // Deviation from spec: the spec suggests ifTable, but a table node triggers
-    // non-cancellable table retrieval. The slowest cancellable path is a
-    // GetNext-mode Walk of the largest recorded subtree (mib-2). The local
-    // agent still answers in milliseconds, so the window to catch the walk in
-    // flight is small; per the spec's risk table we assert on the final state.
+    // Deviation from spec: the spec suggests ifTable, but the largest recorded
+    // cancellable subtree is mib-2 (a flat walk — table nodes also walk flat).
+    // The local agent still answers in milliseconds, so the window to catch the
+    // walk in flight is small; per the spec's risk table we assert on the final
+    // state.
     const stopBtn = await $("[data-testid='stop-btn']");
 
     async function cancelRun(cancelVia: "stop" | "escape"): Promise<boolean> {

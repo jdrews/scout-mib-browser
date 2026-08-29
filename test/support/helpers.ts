@@ -2,7 +2,23 @@ import fs from "fs";
 import path from "path";
 
 export const AGENT_HOST = "127.0.0.1";
-export const AGENT_PORT = 11611;
+/** Primary mock agent (pinned linux-full-walk recording). */
+export const AGENT_PORT = Number(process.env.E2E_AGENT_PORT || 11611);
+/** Synthetic ifStackTable agent (multi-component index, 600 rows). */
+export const SYNTH_AGENT_PORT = Number(process.env.E2E_SYNTH_AGENT_PORT || 11612);
+
+/** Switches the target port in the address bar (returns the previous value). */
+export async function setTargetPort(port: number): Promise<number> {
+  const portEl = await $("[data-testid='port-input']");
+  const before = (await portEl.getValue()) ?? "";
+  await portEl.setValue(String(port));
+  return Number(before);
+}
+
+/** Restores the target port to the primary mock agent. */
+export async function restoreTargetPort(): Promise<void> {
+  await setTargetPort(AGENT_PORT);
+}
 
 /** Path to the isolated config file (the harness exports XDG_CONFIG_HOME). */
 export function configFilePath(): string {
