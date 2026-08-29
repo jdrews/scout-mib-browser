@@ -17,6 +17,7 @@ import type {
   ResultSet,
   VariableBinding,
   TargetConfig,
+  TableInfo,
   TableResult,
   LogEntry,
 } from "./types";
@@ -50,7 +51,7 @@ export async function mibSearch(query: string): Promise<MibSearchResult[]> {
 }
 
 /** Resolves a dotted-decimal OID to its MIB node. */
-export async function mibResolveOid(oid: string): Promise<{ oid: string; name: string; syntaxType?: string; mibName: string } | null> {
+export async function mibResolveOid(oid: string): Promise<{ oid: string; name: string; syntaxType?: string; mibName: string; isTable?: boolean } | null> {
   return invoke("mib_resolve_oid", { oid });
 }
 
@@ -200,22 +201,41 @@ export async function snmpSet(
   });
 }
 
-/** Walks all columns of a table and returns results as a pivoted grid. */
-export async function snmpWalkTable(
+/** Retrieves a table as a pivoted grid (streaming via channels).
+ * `columnOids` is the display selection only — the backend walks the whole
+ * subtree in one pass. Returns immediately; progress and the final grid
+ * stream via callbacks. */
+export async function snmpGetTable(
   targetConfig: TargetConfig,
   tableOid: string,
   columnOids: string[],
-): Promise<TableResult> {
-  return invoke("snmp_walk_table", {
-    params: buildSnmpParams(targetConfig),
+  onProgress: (count: number) => void,
+  onComplete: (result: TableResult) => void,
+): Promise<void> {
+  const params = buildSnmpParams(targetConfig);
+
+  // Tauri channels auto-deserialize JSON — callbacks receive objects, not strings.
+  const progressChannel = new Channel<number>((count) => onProgress(count));
+  const completeChannel = new Channel<TableResult>((result) => onComplete(result));
+
+  await invoke("snmp_get_table", {
+    params,
     tableOid,
     columnOids,
+    progressChannel,
+    completeChannel,
   });
 }
 
 /** Returns column OIDs for a TABLE node. */
 export async function mibTableColumns(tableOid: string): Promise<string[]> {
   return invoke("mib_table_columns", { tableOid });
+}
+
+/** Returns parsed INDEX/AUGMENTS metadata for a TABLE node, or null if the
+ * OID is not a known table. */
+export async function mibTableInfo(tableOid: string): Promise<TableInfo | null> {
+  return invoke("mib_table_info", { tableOid });
 }
 
 /** Returns all OID → name pairs from the loaded MIB index. */

@@ -45,8 +45,15 @@ def find_rec_files():
 
 
 def setup_data_dir(rec_file):
-    """Copy rec_file into a temp dir as public.snmprec and return (tmpdir, community)."""
-    src = os.path.join(SNMPSIM_RECORDED_DIR, rec_file)
+    """Copy rec_file into a temp dir as public.snmprec and return (tmpdir, community).
+
+    `rec_file` may be a bare name (looked up in snmpsim's installed recorded
+    directory) or a path to a repo-local .snmprec file.
+    """
+    if os.path.sep in rec_file or os.path.isfile(rec_file):
+        src = os.path.abspath(rec_file)
+    else:
+        src = os.path.join(SNMPSIM_RECORDED_DIR, rec_file)
     if not os.path.isfile(src):
         print(f"Recorded file not found: {src}", file=sys.stderr)
         sys.exit(1)

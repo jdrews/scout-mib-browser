@@ -25,8 +25,26 @@ The act of choosing a MIB Node in the UI (tree click or address bar input). Popu
 _Avoid_: Navigation, pick, choose
 
 **Operation**:
-The SNMP command mode — Walk, BulkWalk, Get, GetNext, or Set. Determines what kind of request is sent to the Target and what shape the results take.
+The SNMP command mode — Walk, BulkWalk, Get, GetNext, Get Table, or Set. Determines what kind of request is sent to the Target and what shape the results take.
 _Avoid_: Mode, action, command type
+
+### Tables
+
+**Table**:
+A MIB node defined as a TABLE (SEQUENCE OF) — an ordered set of rows keyed by its INDEX clause. Distinguished from a plain object in the tree.
+_Avoid_: Grid, dataset, table OID (when meaning the concept)
+
+**Table Row**:
+One instance of a Table, identified by its index suffix (the OIDs appended to each column's base). Rows keep walk order; they are never re-sorted by the engine.
+_Avoid_: Record, entry, line
+
+**Index Column**:
+One component of a table's INDEX clause, rendered as its own narrow sortable column in the grid. An IMPLIED index component is absent from instance OIDs and renders blank with an "(implied)" tooltip.
+_Avoid_: Key column, primary key (SQL connotations)
+
+**Get Table**:
+The Operation that retrieves a whole Table in one pass — a single subtree walk of the table's columns, streamed as progress, pivoted into rows in the backend. The only path to grid results; Walk/BulkWalk on a table stay flat.
+_Avoid_: Fetch table, pull table, table query
 
 **Result Set**:
 The output of an Execution — contains Variable Bindings plus any non-fatal warnings or errors collected during tolerance handling. What gets displayed in the results view and exported to files.

@@ -77,7 +77,7 @@ export interface AppConfig {
 // ── SNMP Execution Types ─────────────────────────────────────────────────────
 
 /** SNMP operation mode. */
-export type SnmpOperation = "get" | "getNext" | "walk" | "bulkWalk" | "set";
+export type SnmpOperation = "get" | "getNext" | "walk" | "bulkWalk" | "getTable" | "set";
 
 /** A single SNMP data value from the backend (tagged union matching Rust enum).
  * Note: serde serializes unit variants as their name string, so Null arrives as "Null". */
@@ -118,6 +118,27 @@ export interface ResultSet {
 
 // ── Table Retrieval Types ────────────────────────────────────────────────────
 
+/** How an index component maps to OID sub-identifiers.
+ * `FixedString(n)` serializes as the bare number n (serde newtype variant). */
+export type IndexEncoding = "Integer" | "IpAddress" | "Variable" | number;
+
+/** One component of a table's INDEX clause, in clause order. */
+export interface TableIndexColumn {
+  name: string;
+  oid: string;
+  implied: boolean;
+  encoding: IndexEncoding;
+}
+
+/** Parsed INDEX/AUGMENTS metadata for a TABLE node (camelCase from serde). */
+export interface TableInfo {
+  tableOid: string;
+  name: string;
+  rowEntryOids: string[];
+  indexColumns: TableIndexColumn[];
+  columnOids: string[];
+}
+
 /** A single cell in a table grid result. */
 export interface TableCell {
   value?: VariableBinding;
@@ -128,6 +149,10 @@ export interface TableCell {
 export interface TableRowData {
   instance_id: string;
   cells: Record<string, TableCell>;
+  /** Decoded index component values aligned with TableInfo.indexColumns order
+   * (null = IMPLIED component). Empty when the table has no index metadata or
+   * the suffix is undecodable — the UI shows the raw instance column instead. */
+  index_values: (string | null)[];
 }
 
 /** Result of a table retrieval operation — pivoted grid of rows and columns. */

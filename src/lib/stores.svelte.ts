@@ -1,4 +1,4 @@
-import type { TreeNode, MibSearchResult, TargetConfig, ConnectionState, SnmpOperation, ResultSet, VariableBinding, TableResult, LogEntry, LogLevel } from "./types";
+import type { TreeNode, MibSearchResult, TargetConfig, ConnectionState, SnmpOperation, ResultSet, VariableBinding, TableInfo, TableResult, LogEntry, LogLevel } from "./types";
 
 // ── Single reactive app state (Svelte 5 deep reactivity) ──────────────────────
 
@@ -42,6 +42,7 @@ const raw = $state({
   executionResults: null as ResultSet | null,
   walkProgress: "",
   queryRootOid: null as string | null,
+  tableInfo: null as TableInfo | null,
   tableResult: null as TableResult | null,
   systemLogOpen: false,
   logLevelFilter: "all" as LogLevel,
@@ -62,6 +63,7 @@ const persistKeys: Record<string, string> = {
 export function clearResults() {
   raw.executionBindings.length = 0;
   raw.executionResults = null;
+  raw.tableInfo = null;
   raw.tableResult = null;
 }
 

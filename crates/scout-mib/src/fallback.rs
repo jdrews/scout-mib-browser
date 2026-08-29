@@ -2,14 +2,31 @@ use std::path::Path;
 use std::sync::OnceLock;
 use tracing::{info, warn};
 
-use super::MibNode;
+use super::{IndexColumn, IndexEncoding, MibNode, SyntaxType, TableInfo};
 
-static OBJECT_TYPE_BLOCK_RE: OnceLock<regex::Regex> = OnceLock::new();
-fn object_type_block_re() -> &'static regex::Regex {
-    OBJECT_TYPE_BLOCK_RE.get_or_init(|| {
-        regex::Regex::new(r"(?ims)(\b[A-Za-z][A-Za-z0-9_-]*)\s+OBJECT-TYPE\s*\n((?:[^\n]*\n)*)")
-            .unwrap()
+static OBJECT_TYPE_HEADER_RE: OnceLock<regex::Regex> = OnceLock::new();
+fn object_type_header_re() -> &'static regex::Regex {
+    OBJECT_TYPE_HEADER_RE.get_or_init(|| {
+        regex::Regex::new(r"(?m)^\s*([A-Za-z][A-Za-z0-9_-]*)\s+OBJECT-TYPE[ \t]*\r?\n").unwrap()
     })
+}
+
+static SEQUENCE_OF_RE: OnceLock<regex::Regex> = OnceLock::new();
+fn sequence_of_re() -> &'static regex::Regex {
+    SEQUENCE_OF_RE.get_or_init(|| {
+        regex::Regex::new(r"(?i)\bSYNTAX\s+SEQUENCE\s+OF\s+([A-Za-z][A-Za-z0-9_]*)").unwrap()
+    })
+}
+
+static INDEX_CLAUSE_RE: OnceLock<regex::Regex> = OnceLock::new();
+fn index_clause_re() -> &'static regex::Regex {
+    INDEX_CLAUSE_RE.get_or_init(|| regex::Regex::new(r"(?i)\bINDEX\s*\{([^}]*)\}").unwrap())
+}
+
+/// One OBJECT-TYPE block recovered by the fallback scan.
+struct ObjectTypeBlock {
+    name: String,
+    body: String,
 }
 
 static OID_ASSIGNMENT_RE: OnceLock<regex::Regex> = OnceLock::new();
@@ -57,8 +74,11 @@ impl FallbackExtractor {
         &self.last_mib_name
     }
 
-    /// Extracts MIB nodes from a file using regex-based parsing.
-    pub fn extract_from_file(&mut self, path: &Path) -> Result<Vec<MibNode>, String> {
+    /// Extracts MIB nodes and table metadata from a file using regex-based parsing.
+    pub fn extract_from_file(
+        &mut self,
+        path: &Path,
+    ) -> Result<(Vec<MibNode>, Vec<TableInfo>), String> {
         let raw = std::fs::read_to_string(path)
             .map_err(|e| format!("Cannot read {}: {}", path.display(), e))?;
         // Strip comment lines so regexes don't match keywords inside `--` comments.
@@ -68,7 +88,7 @@ impl FallbackExtractor {
         let mib_name = Self::detect_module_name(&content);
         if mib_name.is_empty() {
             warn!("Fallback: no module name detected in {}", path.display());
-            return Ok(Vec::new());
+            return Ok((Vec::new(), Vec::new()));
         }
 
         self.last_mib_name = mib_name.clone();
@@ -78,21 +98,199 @@ impl FallbackExtractor {
             mib_name
         );
 
-        let mut nodes = Vec::new();
-
         // Strategy 1: Extract OBJECT-TYPE blocks with regex.
-        nodes.extend(Self::extract_object_types(&content, &mib_name));
+        let blocks = Self::parse_object_type_blocks(&content);
+        let tables = Self::detect_tables(&blocks);
+        let mut nodes = Self::nodes_from_blocks(&blocks, &mib_name, &tables);
 
         // Strategy 2: Extract explicit OID assignments (e.g., `name ::= { parent num }`).
         nodes.extend(Self::extract_oid_assignments(&content, &mib_name));
 
         info!(
-            "Fallback extracted {} nodes from {}",
+            "Fallback extracted {} nodes ({} tables) from {}",
             nodes.len(),
+            tables.len(),
             path.display()
         );
 
-        Ok(nodes)
+        Ok((nodes, tables))
+    }
+
+    /// Splits the content into OBJECT-TYPE blocks.
+    ///
+    /// A block starts at a line of the form `name OBJECT-TYPE` and runs up to
+    /// (not including) the next such line, or end of input. The previous
+    /// single-regex approach used a greedy body that swallowed every block
+    /// after the first; explicit boundary scanning fixes that.
+    fn parse_object_type_blocks(content: &str) -> Vec<ObjectTypeBlock> {
+        let matches: Vec<_> = object_type_header_re().captures_iter(content).collect();
+        let mut blocks = Vec::new();
+
+        for (i, caps) in matches.iter().enumerate() {
+            let name = match caps.get(1) {
+                Some(n) if !n.as_str().is_empty() => n.as_str().to_string(),
+                _ => continue,
+            };
+            // The header match includes its trailing newline, so the body
+            // starts right at the end of the match.
+            let body_start = match caps.get(0) {
+                Some(m) => m.end(),
+                None => continue,
+            };
+            let body_end = matches
+                .get(i + 1)
+                .and_then(|c| c.get(0))
+                .map(|m| m.start())
+                .unwrap_or(content.len());
+
+            blocks.push(ObjectTypeBlock {
+                name,
+                body: content[body_start..body_end].to_string(),
+            });
+        }
+
+        blocks
+    }
+
+    /// Best-effort table detection across OBJECT-TYPE blocks.
+    ///
+    /// An OBJECT-TYPE with `SYNTAX SEQUENCE OF X` whose corresponding entry
+    /// (an OBJECT-TYPE with `SYNTAX X`) carries an `INDEX { … }` clause marks
+    /// a table. Only index *names* are recorded — the fallback has no type
+    /// resolution, so every component is encoded as [`IndexEncoding::Variable`]
+    /// and instance decoding degrades to the raw suffix (tolerance path).
+    fn detect_tables(blocks: &[ObjectTypeBlock]) -> Vec<TableInfo> {
+        let mut tables = Vec::new();
+
+        for block in blocks {
+            let entry_type = match sequence_of_re().captures(&block.body) {
+                Some(caps) => caps.get(1).map(|m| m.as_str().to_string()),
+                None => continue,
+            };
+            let Some(entry_type) = entry_type else {
+                continue;
+            };
+
+            // The entry is the block whose SYNTAX names the SEQUENCE type and
+            // which declares an INDEX clause.
+            let entry = match blocks.iter().find(|b| {
+                Self::syntax_type_name(&b.body).is_some_and(|s| s.eq_ignore_ascii_case(&entry_type))
+                    && index_clause_re().is_match(&b.body)
+            }) {
+                Some(e) => e,
+                None => continue,
+            };
+
+            let index_clause = match index_clause_re().captures(&entry.body) {
+                Some(caps) => caps.get(1).map(|m| m.as_str().to_string()),
+                None => continue,
+            };
+            let Some(index_clause) = index_clause else {
+                continue;
+            };
+
+            tables.push(TableInfo {
+                table_oid: Self::block_oid(block),
+                name: block.name.clone(),
+                row_entry_oids: vec![Self::block_oid(entry)],
+                index_columns: Self::parse_index_clause(&index_clause),
+                column_oids: Vec::new(),
+            });
+        }
+
+        tables
+    }
+
+    /// Parses the contents of an `INDEX { … }` clause into index columns.
+    ///
+    /// Each comma-separated item is `name [IMPLIED]`; encoding is always
+    /// [`IndexEncoding::Variable`] (no type resolution in the fallback).
+    fn parse_index_clause(clause: &str) -> Vec<IndexColumn> {
+        clause
+            .split(',')
+            .filter_map(|item| {
+                let tokens: Vec<&str> = item.split_whitespace().collect();
+                // SMIv2 writes the keyword first: `IMPLIED name` (also accept
+                // the reversed order some vendors use).
+                let implied = tokens.iter().any(|t| t.eq_ignore_ascii_case("IMPLIED"));
+                let name = tokens
+                    .into_iter()
+                    .find(|t| !t.eq_ignore_ascii_case("IMPLIED"))?;
+                Some(IndexColumn {
+                    name: name.to_string(),
+                    oid: String::new(),
+                    implied,
+                    encoding: IndexEncoding::Variable,
+                })
+            })
+            .collect()
+    }
+
+    /// The OID for a block: its `::= { parent num }` assignment, or a
+    /// `.fallback.<name>` placeholder when absent (keeps nodes and table
+    /// metadata consistent).
+    fn block_oid(block: &ObjectTypeBlock) -> String {
+        match Self::extract_oid_from_assignment(&block.body) {
+            oid if !oid.is_empty() => oid,
+            _ => format!(".fallback.{}", block.name),
+        }
+    }
+
+    /// Returns the first token of the block's SYNTAX clause (e.g. `"TestEntry"`).
+    fn syntax_type_name(body: &str) -> Option<String> {
+        syntax_re()
+            .captures(body)
+            .and_then(|caps| caps.get(1))
+            .map(|m| {
+                m.as_str()
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("")
+                    .to_string()
+            })
+            .filter(|s| !s.is_empty())
+    }
+
+    /// Builds MibNodes from OBJECT-TYPE blocks, marking detected tables.
+    fn nodes_from_blocks(
+        blocks: &[ObjectTypeBlock],
+        mib_name: &str,
+        tables: &[TableInfo],
+    ) -> Vec<MibNode> {
+        let mut nodes = Vec::new();
+
+        for block in blocks {
+            let is_table = tables.iter().any(|t| t.name == block.name);
+            let syntax_type = if is_table {
+                SyntaxType::Table
+            } else {
+                Self::extract_syntax(&block.body)
+            };
+            // No explicit OID — use a placeholder. The node can still be
+            // useful for reverse_lookup by name.
+            let oid = match Self::extract_oid_from_assignment(&block.body) {
+                oid if !oid.is_empty() => oid,
+                _ => format!(".fallback.{}", block.name),
+            };
+
+            nodes.push(MibNode {
+                oid,
+                name: block.name.clone(),
+                syntax_type,
+                mib_name: mib_name.to_string(),
+                is_table,
+            });
+        }
+
+        nodes
+    }
+
+    /// Extracts OBJECT-TYPE definitions using regex (test-facing convenience).
+    #[cfg(test)]
+    fn extract_object_types(content: &str, mib_name: &str) -> Vec<MibNode> {
+        let blocks = Self::parse_object_type_blocks(content);
+        let tables = Self::detect_tables(&blocks);
+        Self::nodes_from_blocks(&blocks, mib_name, &tables)
     }
 
     /// Detects the MIB module name from file content.
@@ -108,59 +306,6 @@ impl FallbackExtractor {
             .filter(|line| !line.trim_start().starts_with("--"))
             .collect::<Vec<_>>()
             .join("\n")
-    }
-
-    /// Extracts OBJECT-TYPE definitions using regex.
-    ///
-    /// Matches patterns like:
-    /// ```text
-    /// myObject OBJECT-TYPE
-    ///     SYNTAX DisplayString
-    ///     MAX-ACCESS read-only
-    ///     STATUS current
-    ///     DESCRIPTION "..."
-    ///     ::= { parentSubtree 1 }
-    /// ```
-    fn extract_object_types(content: &str, mib_name: &str) -> Vec<MibNode> {
-        let mut nodes = Vec::new();
-
-        for captures in object_type_block_re().captures_iter(content) {
-            let name = captures.get(1).map(|m| m.as_str().to_string());
-            let body = captures.get(2).map(|m| m.as_str()).unwrap_or("");
-
-            let name = match name {
-                Some(n) if !n.is_empty() => n,
-                _ => continue,
-            };
-
-            // Extract SYNTAX type.
-            let syntax_type = Self::extract_syntax(body);
-
-            // Extract OID assignment from ::= { ... } clause.
-            let oid = Self::extract_oid_from_assignment(body);
-
-            if !oid.is_empty() {
-                nodes.push(MibNode {
-                    oid,
-                    name,
-                    syntax_type,
-                    mib_name: mib_name.to_string(),
-                    is_table: false,
-                });
-            } else {
-                // No explicit OID — use a placeholder. The node can still be
-                // useful for reverse_lookup by name.
-                nodes.push(MibNode {
-                    oid: format!(".fallback.{}", name),
-                    name,
-                    syntax_type,
-                    mib_name: mib_name.to_string(),
-                    is_table: false,
-                });
-            }
-        }
-
-        nodes
     }
 
     /// Extracts explicit OID assignments like `name ::= { parent num }`.
@@ -311,6 +456,106 @@ END
         assert_eq!(nodes[0].mib_name, "VENDOR-MIB");
     }
 
+    /// A vendor-style MIB with a SEQUENCE OF table and an entry carrying an
+    /// INDEX clause (including an IMPLIED component) must yield one table.
+    #[test]
+    fn extract_vendor_table_with_index() {
+        let content = r#"VENDOR-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    OBJECT-TYPE, enterprises FROM SNMPv2-SMI;
+
+vendorMib MODULE-IDENTITY
+    ::= { enterprises 99997 }
+
+vendorObjects OBJECT IDENTIFIER ::= { vendorMib 1 }
+
+devTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF DevEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "A device table."
+    ::= { vendorObjects 2 }
+
+DevEntry ::= SEQUENCE {
+    devIndex INTEGER,
+    devMac OCTET STRING (SIZE (6)),
+    devName DisplayString
+}
+
+devEntry OBJECT-TYPE
+    SYNTAX DevEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "A device row."
+    INDEX { devIndex, IMPLIED devMac }
+    ::= { devTable 1 }
+
+devIndex OBJECT-TYPE
+    SYNTAX INTEGER
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "Row index."
+    ::= { devEntry 1 }
+
+devMac OBJECT-TYPE
+    SYNTAX OCTET STRING (SIZE (6))
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "Implied MAC index."
+    ::= { devEntry 2 }
+
+devName OBJECT-TYPE
+    SYNTAX DisplayString (SIZE (0..32))
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "Device name."
+    ::= { devEntry 3 }
+
+END
+"#;
+
+        let mut extractor = FallbackExtractor::new();
+        let tmp_dir = std::env::temp_dir().join("scout_fallback_table_test");
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        std::fs::create_dir_all(&tmp_dir).unwrap();
+
+        let mib_path = tmp_dir.join("VENDOR-TABLE-MIB.txt");
+        std::fs::write(&mib_path, content).unwrap();
+
+        let (nodes, tables) = extractor
+            .extract_from_file(&mib_path)
+            .expect("should not panic");
+
+        // The table node is flagged.
+        let table_node = nodes
+            .iter()
+            .find(|n| n.name == "devTable")
+            .expect("devTable node");
+        assert!(table_node.is_table);
+        assert_eq!(table_node.syntax_type, SyntaxType::Table);
+
+        // Exactly one table detected, with both index components in order.
+        assert_eq!(tables.len(), 1);
+        let info = &tables[0];
+        assert_eq!(info.name, "devTable");
+        assert_eq!(info.table_oid, table_node.oid);
+        assert_eq!(info.index_columns.len(), 2);
+
+        assert_eq!(info.index_columns[0].name, "devIndex");
+        assert!(!info.index_columns[0].implied);
+        assert_eq!(info.index_columns[0].encoding, IndexEncoding::Variable);
+
+        assert_eq!(info.index_columns[1].name, "devMac");
+        assert!(info.index_columns[1].implied);
+        assert_eq!(info.index_columns[1].encoding, IndexEncoding::Variable);
+
+        // Fallback has no type resolution: column list stays empty so the
+        // resolver falls back to its leaf heuristic.
+        assert!(info.column_oids.is_empty());
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
     #[test]
     fn extract_oid_assignment() {
         let content = r#"VENDOR-MIB DEFINITIONS ::= BEGIN
@@ -379,7 +624,7 @@ END
         let mib_path = tmp_dir.join("BROKEN-VENDOR-MIB.txt");
         std::fs::write(&mib_path, content).unwrap();
 
-        let nodes = extractor
+        let (nodes, tables) = extractor
             .extract_from_file(&mib_path)
             .expect("should not panic");
 
@@ -388,13 +633,12 @@ END
             "Should extract at least some nodes from malformed MIB"
         );
         assert_eq!(extractor.last_mib_name(), "BROKEN-VENDOR-MIB");
+        assert!(tables.is_empty(), "no tables in this fixture");
 
-        // Check that we found the objects despite missing imports.
+        // Check that we found every OBJECT-TYPE block despite missing imports.
         let names: Vec<_> = nodes.iter().map(|n| &n.name).collect();
-        assert!(
-            names.contains(&&"badObject".to_string())
-                || names.contains(&&"weirdObject".to_string())
-        );
+        assert!(names.contains(&&"badObject".to_string()));
+        assert!(names.contains(&&"weirdObject".to_string()));
 
         let _ = std::fs::remove_dir_all(&tmp_dir);
     }

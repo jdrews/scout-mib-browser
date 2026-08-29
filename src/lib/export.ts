@@ -1,4 +1,12 @@
-import type { VariableBinding, SnmpValue, SnmpWarning, TargetConfig } from "./types";
+import type {
+  VariableBinding,
+  SnmpValue,
+  SnmpWarning,
+  TargetConfig,
+  TableIndexColumn,
+  TableRowData,
+  TableResult,
+} from "./types";
 
 export type ExportFormat = "tsv" | "json" | "csv";
 
@@ -123,7 +131,7 @@ export function formatJSON(
 }
 
 /** RFC 4180 CSV quoting for a single field. */
-function csvQuote(field: string): string {
+export function quoteCsvField(field: string): string {
   if (field.includes(",") || field.includes('"') || field.includes("\n") || field.includes("\r")) {
     return `"${field.replace(/"/g, '""')}"`;
   }
@@ -132,5 +140,77 @@ function csvQuote(field: string): string {
 
 /** Format rows as CSV with RFC 4180 quoting. */
 export function formatCSV(rows: ExportRow[]): string {
-  return rows.map(r => [r.oid, r.name, r.type, r.value].map(csvQuote).join(",")).join("\n");
+  return rows.map(r => [r.oid, r.name, r.type, r.value].map(quoteCsvField).join(",")).join("\n");
+}
+
+// ── Grid (table result) export ───────────────────────────────────────────────
+
+/** True when the result carries decoded index values for the given columns. */
+function hasDecodedIndexes(result: TableResult, indexColumns: TableIndexColumn[]): boolean {
+  return indexColumns.length > 0 && result.rows.some((r) => r.index_values.length > 0);
+}
+
+/** Grid export header: Instance + decoded index components + data columns. */
+export function gridHeaderNames(
+  result: TableResult,
+  indexColumns: TableIndexColumn[],
+  nameOf: (oid: string) => string,
+): string[] {
+  const names = ["Instance"];
+  if (hasDecodedIndexes(result, indexColumns)) names.push(...indexColumns.map((c) => c.name));
+  names.push(...result.columns.map(nameOf));
+  return names;
+}
+
+/** One grid row as display strings, aligned with gridHeaderNames(). */
+export function gridRowValues(
+  row: TableRowData,
+  result: TableResult,
+  indexColumns: TableIndexColumn[],
+): string[] {
+  const vals = [row.instance_id];
+  if (hasDecodedIndexes(result, indexColumns)) {
+    for (const v of row.index_values) vals.push(v ?? "");
+  }
+  for (const colOid of result.columns) {
+    const cell = row.cells[colOid];
+    vals.push(cell?.value ? valueDisplay(cell.value.value) : "");
+  }
+  return vals;
+}
+
+/** Grid JSON: { table_oid, columns: [{oid, name}], rows: [...] }. */
+export function gridToJson(
+  result: TableResult,
+  nameOf: (oid: string) => string,
+): string {
+  return JSON.stringify(
+    {
+      table_oid: result.table_oid,
+      columns: result.columns.map((oid) => ({ oid, name: nameOf(oid) })),
+      rows: result.rows.map((r) => ({
+        instance_id: r.instance_id,
+        cells: Object.fromEntries(
+          Object.entries(r.cells).map(([k, c]) => [k, c.value ? valueDisplay(c.value.value) : null]),
+        ),
+      })),
+    },
+    null,
+    2,
+  );
+}
+
+/** Grid TSV/CSV: header + rows; CSV fields get RFC 4180 quoting. */
+export function gridDelimited(
+  result: TableResult,
+  indexColumns: TableIndexColumn[],
+  nameOf: (oid: string) => string,
+  delimiter: string,
+  quote: boolean,
+): string {
+  const lines = [gridHeaderNames(result, indexColumns, nameOf)];
+  for (const row of result.rows) lines.push(gridRowValues(row, result, indexColumns));
+  return lines
+    .map((fields) => fields.map((f) => (quote ? quoteCsvField(f) : f)).join(delimiter))
+    .join("\n");
 }

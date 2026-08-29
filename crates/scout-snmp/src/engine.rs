@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -37,6 +36,35 @@ pub trait WalkBatchSender: Send + Sync {
     /// Sends the final result set (success or error summary).
     fn send_complete(&self, result: &ResultSet);
 }
+
+/// Receives progress and the final grid from a streaming table retrieval.
+///
+/// Implemented by the app crate to bridge to Tauri IPC channels, exactly like
+/// [`WalkBatchSender`].
+pub trait TableRowSender: Send + Sync {
+    /// Sends a progress update with the current binding count. Returns `false`
+    /// if the client is gone (channel closed or serialization failed), in which
+    /// case the engine stops walking.
+    fn send_progress(&self, count: usize) -> bool;
+
+    /// Sends the final pivoted grid (success or error summary).
+    fn send_complete(&self, result: &TableResult);
+}
+
+/// How the walk loop consumes each binding it receives.
+enum WalkSink<'a> {
+    /// Stream bindings to a client without retaining them (Walk/BulkWalk).
+    Stream(&'a dyn WalkBatchSender),
+    /// Retain bindings in memory and report progress periodically (Get Table —
+    /// rows only complete once the whole column-major walk has arrived).
+    Collect {
+        bindings: &'a mut Vec<VariableBinding>,
+        progress: &'a mut (dyn FnMut(usize) -> bool + Send + 'a),
+    },
+}
+
+/// Progress is reported every this many collected bindings.
+const TABLE_PROGRESS_STEP: usize = 10;
 
 /// Core SNMP engine that executes operations against a Target with error tolerance.
 ///
@@ -253,11 +281,12 @@ impl SnmpEngine {
         let root_oid = root_oid.to_string();
 
         runtime.spawn(async move {
+            let mut sink = WalkSink::Stream(sender.as_ref());
             let result = Self::do_walk_loop(
                 mode,
                 &target,
                 &root_oid,
-                Some(sender.as_ref()),
+                Some(&mut sink),
                 cancel_token.as_deref(),
             )
             .await;
@@ -346,68 +375,111 @@ impl SnmpEngine {
         Ok(rs)
     }
 
-    /// Walks all columns of a table and assembles results into a grid.
+    /// Executes a streaming Get Table operation with cancellation support.
+    /// Returns the JoinHandle for aborting.
     ///
-    /// Takes the table's root OID and column OIDs, BulkWalks each column,
-    /// then merges results by instance suffix into rows. Returns a [`TableResult`]
-    /// with best-effort merge for inconsistent data.
-    pub async fn walk_table(
+    /// One connection; one BulkWalk of the whole table subtree; bindings are
+    /// pivoted onto rows only when they belong to a requested column (nested
+    /// sub-table data is excluded). `column_oids` is the *display* selection —
+    /// the walk fetches the entire subtree regardless.
+    pub fn get_table_streaming(
         &self,
+        runtime: &tokio::runtime::Handle,
+        target: &Target,
+        table_oid: &str,
+        column_oids: Vec<String>,
+        index_columns: Vec<IndexColumnSpec>,
+        sender: Arc<dyn TableRowSender>,
+        cancel_token: Option<Arc<AtomicBool>>,
+    ) -> tokio::task::JoinHandle<()> {
+        let target = target.clone();
+        let table_oid = table_oid.to_string();
+        runtime.spawn(async move {
+            let result = Self::do_get_table(
+                &target,
+                &table_oid,
+                &column_oids,
+                &index_columns,
+                sender.as_ref(),
+                cancel_token.as_deref(),
+            )
+            .await;
+            match result {
+                Ok(grid) => sender.send_complete(&grid),
+                Err(e) => {
+                    warn!("GetTable streaming error: {}", e);
+                    sender.send_complete(&Self::error_table_result(&table_oid, column_oids, e));
+                }
+            }
+        })
+    }
+
+    /// Single-pass table retrieval: one BulkWalk of the table subtree, then
+    /// pivot the collected bindings into a grid.
+    async fn do_get_table(
         target: &Target,
         table_oid: &str,
         column_oids: &[String],
+        index_columns: &[IndexColumnSpec],
+        sender: &dyn TableRowSender,
+        cancel_token: Option<&AtomicBool>,
     ) -> Result<TableResult, String> {
         info!(
-            "WalkTable started on {} for {} ({} columns)",
+            "GetTable started on {} for {} ({} display columns)",
             target.addr(),
             table_oid,
             column_oids.len()
         );
-        if column_oids.is_empty() {
-            return Ok(TableResult {
-                table_oid: table_oid.to_string(),
-                columns: Vec::new(),
-                rows: Vec::new(),
-                total_rows: 0,
-                missing_cells: 0,
-                warnings: Vec::new(),
-                partial: false,
-            });
-        }
 
-        let mut column_results: HashMap<String, Vec<VariableBinding>> = HashMap::new();
-        let mut all_warnings: Vec<SnmpWarning> = Vec::new();
-        let mut any_partial = false;
+        let mut bindings: Vec<VariableBinding> = Vec::new();
+        let mut progress = |count: usize| sender.send_progress(count);
+        let mut sink = WalkSink::Collect {
+            bindings: &mut bindings,
+            progress: &mut progress,
+        };
 
-        for col_oid in column_oids {
-            match Self::do_walk_loop(WalkMode::GetBulk, target, col_oid, None, None).await {
-                Ok(rs) => {
-                    column_results.insert(col_oid.clone(), rs.bindings);
-                    all_warnings.extend(rs.warnings);
-                    any_partial |= rs.partial;
-                }
-                Err(e) => {
-                    warn!("Table walk failed for column {}: {}", col_oid, e);
-                    all_warnings.push(SnmpWarning {
-                        kind: "column-walk-error".to_string(),
-                        message: format!("Failed to walk column {}: {}", col_oid, e),
-                        oid: Some(col_oid.clone()),
-                    });
-                    any_partial = true;
-                }
-            }
-        }
+        // One connection, one walk of the whole subtree (column-major order).
+        let rs = Self::do_walk_loop(
+            WalkMode::GetBulk,
+            target,
+            table_oid,
+            Some(&mut sink),
+            cancel_token,
+        )
+        .await?;
 
-        let mut grid = assemble_table_grid(table_oid.to_string(), column_results);
-        grid.warnings.extend(all_warnings);
-        grid.partial = any_partial;
+        let mut grid = assemble_table_walk(
+            table_oid.to_string(),
+            column_oids.to_vec(),
+            bindings,
+            index_columns,
+        );
+        grid.warnings.extend(rs.warnings);
+        grid.partial = rs.partial || !grid.warnings.is_empty();
         info!(
-            "WalkTable completed on {}: {} rows, {} missing cells",
+            "GetTable completed on {}: {} rows, {} missing cells",
             target.addr(),
             grid.total_rows,
             grid.missing_cells
         );
         Ok(grid)
+    }
+
+    /// Builds a partial table result carrying a single error warning.
+    fn error_table_result(table_oid: &str, column_oids: Vec<String>, error: String) -> TableResult {
+        TableResult {
+            table_oid: table_oid.to_string(),
+            columns: column_oids,
+            rows: Vec::new(),
+            total_rows: 0,
+            missing_cells: 0,
+            warnings: vec![SnmpWarning {
+                kind: "error".to_string(),
+                message: error,
+                oid: None,
+            }],
+            partial: true,
+        }
     }
 
     // ── Async implementations ────────────────────────────────────────────────
@@ -433,12 +505,12 @@ impl SnmpEngine {
         (bindings, warnings)
     }
 
-    /// Shared walk loop used by both Walk and BulkWalk.
+    /// Shared walk loop used by Walk, BulkWalk, and Get Table.
     async fn do_walk_loop(
         mode: WalkMode,
         target: &Target,
         root_oid: &str,
-        sender: Option<&dyn WalkBatchSender>,
+        sink: Option<&mut WalkSink<'_>>,
         cancel_token: Option<&AtomicBool>,
     ) -> Result<ResultSet, String> {
         let op_name = mode.label();
@@ -456,6 +528,7 @@ impl SnmpEngine {
             .map_err(|e| format!("Invalid root OID: {:?}", e))?;
         let mut current_oid = root;
         let mut retry_count: u32 = 0;
+        let mut client_gone = false;
 
         loop {
             if cancel_token.is_some_and(|t| t.load(Ordering::Acquire)) {
@@ -488,13 +561,19 @@ impl SnmpEngine {
                         }
 
                         let binding = binding_from_snmp(oid_str.clone(), v);
-                        if let Some(s) = sender {
-                            if !s.send_binding(&binding) {
-                                warn!("{} client gone, stopping", op_name);
-                                break;
+                        let gone = match sink {
+                            Some(WalkSink::Stream(s)) => !s.send_binding(&binding),
+                            Some(WalkSink::Collect { bindings, progress }) => {
+                                bindings.push(binding);
+                                let n = bindings.len();
+                                n % TABLE_PROGRESS_STEP == 0 && !progress(n)
                             }
-                        } else {
-                            rs.bindings.push(binding);
+                            None => false,
+                        };
+                        if gone {
+                            warn!("{} client gone, stopping", op_name);
+                            client_gone = true;
+                            break;
                         }
                         received_varbinds = true;
 
@@ -504,7 +583,12 @@ impl SnmpEngine {
                         }
                     }
 
-                    if !received_varbinds {
+                    // A client-gone stop must end the whole walk, not just the
+                    // current PDU's varbinds.
+                    if !received_varbinds || client_gone {
+                        if client_gone {
+                            rs.partial = true;
+                        }
                         break;
                     }
                 }

@@ -2,7 +2,9 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
-use super::{LoadResult, MibNode, SyntaxType};
+use super::{
+    oid_numeric_cmp, IndexColumn, IndexEncoding, LoadResult, MibNode, SyntaxType, TableInfo,
+};
 
 /// Primary MIB loader using the mib-rs crate.
 ///
@@ -42,6 +44,7 @@ impl MibRsLoader {
             );
             return Ok(LoadResult {
                 nodes: Vec::new(),
+                tables: Vec::new(),
                 primary_success: false,
                 module_name: String::new(),
             });
@@ -66,6 +69,7 @@ impl MibRsLoader {
         match result {
             Ok(mib) => {
                 let mut nodes = Vec::new();
+                let mut tables = Vec::new();
 
                 if mib.has_errors() {
                     let error_count = mib
@@ -128,17 +132,35 @@ impl MibRsLoader {
                             });
                         }
                     }
+
+                    // Extract table metadata (INDEX/AUGMENTS) for every table.
+                    // Per-table tolerance: a failure degrades that table to the
+                    // column heuristic and never blocks the rest of the module.
+                    for obj in module.objects() {
+                        if !obj.is_table() {
+                            continue;
+                        }
+                        match Self::build_table_info(&module, obj) {
+                            Some(info) => tables.push(info),
+                            None => warn!(
+                                "Failed to build table metadata for {} — falling back to column heuristic",
+                                obj.name()
+                            ),
+                        }
+                    }
                 }
 
                 self.loaded_files.insert(path.to_path_buf());
                 info!(
-                    "mib-rs loaded {} nodes from {}",
+                    "mib-rs loaded {} nodes ({} tables) from {}",
                     nodes.len(),
+                    tables.len(),
                     path.display()
                 );
 
                 Ok(LoadResult {
                     nodes,
+                    tables,
                     primary_success: true,
                     module_name: module_name.clone(),
                 })
@@ -152,11 +174,115 @@ impl MibRsLoader {
 
                 Ok(LoadResult {
                     nodes: Vec::new(),
+                    tables: Vec::new(),
                     primary_success: false,
                     module_name: module_name.clone(),
                 })
             }
         }
+    }
+
+    /// Builds [`TableInfo`] for a table object from its row entries and INDEX clause.
+    ///
+    /// Row entries are the table's base entry plus every row reached through
+    /// `AUGMENTS` (transitively). Index columns come from the base row's
+    /// effective indexes, which follow the augment chain automatically. Columns
+    /// are every object mib-rs classifies as a column whose containing table
+    /// is this one — the exact set, including augmented columns and excluding
+    /// leaves of nested sub-tables.
+    fn build_table_info(
+        module: &mib_rs::Module<'_>,
+        table_obj: mib_rs::Object<'_>,
+    ) -> Option<TableInfo> {
+        let table_oid = table_obj.node().oid().to_string();
+        let name = table_obj.name().to_string();
+
+        let base_row = table_obj.row()?;
+
+        // Index columns from the base row (effective_indexes follows AUGMENTS).
+        let mut index_columns: Vec<IndexColumn> = Vec::new();
+        for idx in base_row.effective_indexes() {
+            index_columns.push(IndexColumn {
+                name: idx.name().to_string(),
+                oid: idx
+                    .object()
+                    .map(|o| o.node().oid().to_string())
+                    .unwrap_or_default(),
+                implied: idx.implied(),
+                encoding: match idx.encoding() {
+                    mib_rs::IndexEncoding::Integer => IndexEncoding::Integer,
+                    mib_rs::IndexEncoding::IpAddress => IndexEncoding::IpAddress,
+                    mib_rs::IndexEncoding::FixedString | mib_rs::IndexEncoding::Implied => {
+                        // `Implied` folds the IMPLIED keyword into the encoding
+                        // and skips width detection, so recover a fixed width
+                        // from the object's SIZE constraint when present.
+                        let size = if idx.encoding() == mib_rs::IndexEncoding::FixedString {
+                            let (size, fixed) = idx.fixed_size();
+                            (fixed && size > 0).then_some(size)
+                        } else {
+                            // Only OCTET STRING widths are byte counts; other
+                            // implied bases (OID, BITS, Opaque) stay variable.
+                            let is_octet_string = idx.ty().map(|t| t.effective_base())
+                                == Some(mib_rs::BaseType::OctetString);
+                            if !is_octet_string {
+                                None
+                            } else {
+                                idx.object().and_then(|o| {
+                                    let sizes = o.effective_sizes();
+                                    (sizes.len() == 1
+                                        && sizes[0].min == sizes[0].max
+                                        && sizes[0].min > 0)
+                                        .then(|| sizes[0].min as usize)
+                                })
+                            }
+                        };
+                        size.map(IndexEncoding::FixedString)
+                            .unwrap_or(IndexEncoding::Variable)
+                    }
+                    // LengthPrefixed / Unknown: not splittable.
+                    _ => IndexEncoding::Variable,
+                },
+            });
+        }
+
+        // Row entries: base entry plus augmented rows (transitively).
+        let mut row_entry_oids: Vec<String> = Vec::new();
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut queue: Vec<mib_rs::Object<'_>> = vec![base_row];
+        while let Some(row) = queue.pop() {
+            let row_oid = row.node().oid().to_string();
+            if !seen.insert(row_oid) {
+                continue;
+            }
+            row_entry_oids.push(row.node().oid().to_string());
+            for augmented in row.augmented_by() {
+                queue.push(augmented);
+            }
+        }
+
+        // Columns: every *accessible* column whose containing table is this
+        // one, in OID order. Not-accessible index objects have no instances on
+        // the wire — fetching them can only produce missing cells — so they are
+        // excluded (their values come from decoding the row suffix instead).
+        let mut column_oids: Vec<String> = module
+            .objects()
+            .filter(|o| {
+                o.is_column()
+                    && o.access() != mib_rs::Access::NotAccessible
+                    && o.table().map(|t| t.node().oid().to_string()).as_deref()
+                        == Some(table_oid.as_str())
+            })
+            .map(|o| o.node().oid().to_string())
+            .collect();
+        column_oids.sort_by(|a, b| oid_numeric_cmp(a, b));
+
+        Some(TableInfo {
+            table_oid,
+            name,
+            row_entry_oids,
+            index_columns,
+            column_oids,
+        })
     }
 
     /// Maps a mib-rs [`BaseType`] to our [`SyntaxType`].
@@ -404,6 +530,321 @@ END
         let _ = std::fs::remove_dir_all(&tmp_dir);
     }
 
+    /// Writes the table-metadata fixture MIB to a temp file and loads it.
+    ///
+    /// Covers: a two-attribute index (Integer + IpAddress), an IMPLIED
+    /// fixed-size string index, an AUGMENTS row adding a column, and a nested
+    /// sub-table that must not leak into its outer table's columns.
+    fn load_table_meta_fixture(tag: &str) -> crate::LoadResult {
+        let tmp_dir = std::env::temp_dir().join(format!("scout_loader_tablemeta_{tag}"));
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        std::fs::create_dir_all(&tmp_dir).unwrap();
+
+        let mib_content = r#"TABLE-META-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, Integer32, IpAddress, enterprises, OCTET STRING
+        FROM SNMPv2-SMI
+    DisplayString
+        FROM SNMPv2-TC;
+
+tableMetaMib MODULE-IDENTITY
+    LAST-UPDATED "202601010000Z"
+    ORGANIZATION "Test"
+    CONTACT-INFO "test@test.com"
+    DESCRIPTION "Table metadata test module."
+    ::= { enterprises 99996 }
+
+tableMetaObjects OBJECT IDENTIFIER ::= { tableMetaMib 1 }
+
+pairTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF PairEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "A table with a two-attribute index."
+    ::= { tableMetaObjects 1 }
+
+pairEntry OBJECT-TYPE
+    SYNTAX PairEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "Row entry for pairTable."
+    INDEX { pairIndex, pairAddr }
+    ::= { pairTable 1 }
+
+PairEntry ::= SEQUENCE {
+    pairIndex Integer32,
+    pairAddr IpAddress,
+    pairName DisplayString
+}
+
+pairIndex OBJECT-TYPE
+    SYNTAX Integer32 (1..2147483647)
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "Integer index."
+    ::= { pairEntry 1 }
+
+pairAddr OBJECT-TYPE
+    SYNTAX IpAddress
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "IpAddress index."
+    ::= { pairEntry 2 }
+
+pairName OBJECT-TYPE
+    SYNTAX DisplayString (SIZE (0..32))
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "A regular column."
+    ::= { pairEntry 3 }
+
+augEntry OBJECT-TYPE
+    SYNTAX AugEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "Augments pairEntry with an extra column."
+    AUGMENTS { pairEntry }
+    ::= { pairTable 2 }
+
+AugEntry ::= SEQUENCE {
+    augValue Integer32
+}
+
+augValue OBJECT-TYPE
+    SYNTAX Integer32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "An augmented column."
+    ::= { augEntry 1 }
+
+implTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF ImplEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "A table with an implied fixed-size string index."
+    ::= { tableMetaObjects 2 }
+
+implEntry OBJECT-TYPE
+    SYNTAX ImplEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "Row entry for implTable."
+    INDEX { implIndex, IMPLIED implTag }
+    ::= { implTable 1 }
+
+ImplEntry ::= SEQUENCE {
+    implIndex Integer32,
+    implTag OCTET STRING (SIZE (4))
+}
+
+implIndex OBJECT-TYPE
+    SYNTAX Integer32 (1..2147483647)
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "Integer index."
+    ::= { implEntry 1 }
+
+implTag OBJECT-TYPE
+    SYNTAX OCTET STRING (SIZE (4))
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "Fixed-size implied index."
+    ::= { implEntry 2 }
+
+outerTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF OuterEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "A table containing a nested sub-table."
+    ::= { tableMetaObjects 3 }
+
+outerEntry OBJECT-TYPE
+    SYNTAX OuterEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "Row entry for outerTable."
+    INDEX { outerIndex }
+    ::= { outerTable 1 }
+
+OuterEntry ::= SEQUENCE {
+    outerIndex Integer32,
+    outerValue Integer32
+}
+
+outerIndex OBJECT-TYPE
+    SYNTAX Integer32 (1..2147483647)
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "Outer index."
+    ::= { outerEntry 1 }
+
+outerValue OBJECT-TYPE
+    SYNTAX Integer32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "Outer column."
+    ::= { outerEntry 2 }
+
+innerTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF InnerEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "A sub-table nested inside outerTable."
+    ::= { outerTable 3 }
+
+innerEntry OBJECT-TYPE
+    SYNTAX InnerEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "Row entry for innerTable."
+    INDEX { innerIndex }
+    ::= { innerTable 1 }
+
+InnerEntry ::= SEQUENCE {
+    innerIndex Integer32,
+    innerValue Integer32
+}
+
+innerIndex OBJECT-TYPE
+    SYNTAX Integer32 (1..2147483647)
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION "Inner index."
+    ::= { innerEntry 1 }
+
+innerValue OBJECT-TYPE
+    SYNTAX Integer32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "Inner column (not a column of outerTable)."
+    ::= { innerEntry 2 }
+
+END
+"#;
+
+        let mib_path = tmp_dir.join("TABLE-META-MIB.txt");
+        std::fs::write(&mib_path, mib_content).unwrap();
+
+        let mut loader = MibRsLoader::new();
+        let result = loader.load_file(&mib_path).expect("should load");
+        assert!(result.primary_success);
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        result
+    }
+
+    fn node_oid<'a>(result: &'a crate::LoadResult, name: &str) -> &'a str {
+        result
+            .nodes
+            .iter()
+            .find(|n| n.name == name)
+            .unwrap_or_else(|| panic!("node {} not found", name))
+            .oid
+            .as_str()
+    }
+
+    #[test]
+    fn table_info_multi_attribute_index() {
+        let result = load_table_meta_fixture("multi");
+        let info = result
+            .tables
+            .iter()
+            .find(|t| t.name == "pairTable")
+            .expect("pairTable metadata");
+
+        // Index columns in INDEX clause order with derived encodings.
+        assert_eq!(info.index_columns.len(), 2);
+        assert_eq!(info.index_columns[0].name, "pairIndex");
+        assert!(!info.index_columns[0].implied);
+        assert_eq!(
+            info.index_columns[0].encoding,
+            crate::IndexEncoding::Integer
+        );
+        assert_eq!(info.index_columns[0].oid, node_oid(&result, "pairIndex"));
+
+        assert_eq!(info.index_columns[1].name, "pairAddr");
+        assert!(!info.index_columns[1].implied);
+        assert_eq!(
+            info.index_columns[1].encoding,
+            crate::IndexEncoding::IpAddress
+        );
+    }
+
+    #[test]
+    fn table_info_augments_contributes_rows_and_columns() {
+        let result = load_table_meta_fixture("augments");
+        let info = result
+            .tables
+            .iter()
+            .find(|t| t.name == "pairTable")
+            .expect("pairTable metadata");
+
+        // Both the base entry and the augmenting row are listed.
+        assert_eq!(info.row_entry_oids.len(), 2);
+        assert!(info
+            .row_entry_oids
+            .contains(&node_oid(&result, "pairEntry").to_string()));
+        assert!(info
+            .row_entry_oids
+            .contains(&node_oid(&result, "augEntry").to_string()));
+
+        // Columns include the augmented column, in OID order. Not-accessible
+        // index objects are excluded — they have no instances on the wire.
+        let expected: Vec<&str> =
+            vec![node_oid(&result, "pairName"), node_oid(&result, "augValue")];
+        assert_eq!(info.column_oids, expected);
+    }
+
+    #[test]
+    fn table_info_implied_fixed_string_index() {
+        let result = load_table_meta_fixture("implied");
+        let info = result
+            .tables
+            .iter()
+            .find(|t| t.name == "implTable")
+            .expect("implTable metadata");
+
+        assert_eq!(info.index_columns.len(), 2);
+        assert_eq!(info.index_columns[0].name, "implIndex");
+        assert_eq!(
+            info.index_columns[0].encoding,
+            crate::IndexEncoding::Integer
+        );
+
+        let tag = &info.index_columns[1];
+        assert_eq!(tag.name, "implTag");
+        assert!(tag.implied, "IMPLIED flag must be recorded");
+        assert_eq!(
+            tag.encoding,
+            crate::IndexEncoding::FixedString(4),
+            "SIZE (4) must yield a fixed-width encoding"
+        );
+    }
+
+    #[test]
+    fn table_info_excludes_nested_subtable_columns() {
+        let result = load_table_meta_fixture("nested");
+        let info = result
+            .tables
+            .iter()
+            .find(|t| t.name == "outerTable")
+            .expect("outerTable metadata");
+
+        // Only outerTable's own accessible columns — the nested innerTable's
+        // leaves are not columns of the outer table (G4), and the
+        // not-accessible index object is excluded.
+        let expected: Vec<&str> = vec![node_oid(&result, "outerValue")];
+        assert_eq!(info.column_oids, expected);
+
+        // The nested sub-table has its own metadata.
+        let inner = result
+            .tables
+            .iter()
+            .find(|t| t.name == "innerTable")
+            .expect("innerTable metadata");
+        assert_eq!(inner.column_oids.len(), 1);
+    }
+
     #[test]
     fn load_mib_with_table_detects_structure() {
         let tmp_dir = std::env::temp_dir().join("scout_loader_table_test");
@@ -504,5 +945,45 @@ END
         assert!(!value_col.is_table);
 
         let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+    /// The e2e grid specs depend on test/mibs/SYNTH-TABLE-MIB (Integer +
+    /// IpAddress index, IMPLIED component). Guard the fixture: if mib-rs
+    /// stops extracting its tables, the e2e tree tests fail obscurely.
+    #[test]
+    fn synth_table_mib_fixture_extracts_expected_tables() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test/mibs/SYNTH-TABLE-MIB");
+        let mut loader = MibRsLoader::new();
+        let result = loader.load_file(&path).unwrap();
+
+        assert!(
+            result.primary_success,
+            "SYNTH-TABLE-MIB must parse via mib-rs"
+        );
+        let tables: Vec<&crate::TableInfo> = result.tables.iter().collect();
+        assert_eq!(tables.len(), 2, "expected both synthetic tables");
+
+        let ip = tables
+            .iter()
+            .find(|t| t.name == "synthIpTable")
+            .expect("synthIpTable");
+        assert_eq!(ip.index_columns.len(), 2);
+        assert_eq!(ip.index_columns[0].name, "synthIpRow");
+        assert!(!ip.index_columns[0].implied);
+        assert_eq!(ip.index_columns[1].name, "synthIpAddr");
+        assert_eq!(ip.column_oids.len(), 2, "two accessible columns");
+
+        let imp = tables
+            .iter()
+            .find(|t| t.name == "synthImpTable")
+            .expect("synthImpTable");
+        assert_eq!(imp.index_columns.len(), 2);
+        assert!(!imp.index_columns[0].implied);
+        assert_eq!(imp.index_columns[1].name, "synthImpIp");
+        assert!(
+            imp.index_columns[1].implied,
+            "second component must be IMPLIED"
+        );
+        assert_eq!(imp.column_oids.len(), 1, "one accessible column");
     }
 }

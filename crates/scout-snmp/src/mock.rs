@@ -38,6 +38,15 @@ pub struct MockSnmpServer {
 struct MockServerInner {
     /// Mapped OIDs to their values (as raw BER-encoded bytes).
     data: HashMap<String, Vec<u8>>,
+    /// Total requests received (one per SNMP datagram).
+    request_count: usize,
+    /// Number of distinct walk chains observed. A chain starts at the first
+    /// request and continues while each requested OID is strictly greater
+    /// than the previous one; a request below the previous one marks a new
+    /// walk (e.g., the engine starting a second per-column walk).
+    walk_chains: usize,
+    /// The OID of the most recent request, as sub-identifiers.
+    last_request_oid: Option<Vec<u64>>,
     /// Set on drop so the serve loop exits promptly.
     stop: AtomicBool,
 }
@@ -55,6 +64,9 @@ impl MockSnmpServer {
         let addr = socket.local_addr().unwrap();
         let inner = Arc::new(Mutex::new(MockServerInner {
             data: Self::default_mib_data(),
+            request_count: 0,
+            walk_chains: 0,
+            last_request_oid: None,
             stop: AtomicBool::new(false),
         }));
 
@@ -77,6 +89,16 @@ impl MockSnmpServer {
             .unwrap()
             .data
             .insert(oid.to_string(), ber_bytes);
+    }
+
+    /// Total number of request datagrams received.
+    pub fn request_count(&self) -> usize {
+        self.inner.lock().unwrap().request_count
+    }
+
+    /// Number of distinct walk chains observed (see `walk_chains`).
+    pub fn walk_chain_count(&self) -> usize {
+        self.inner.lock().unwrap().walk_chains
     }
 
     /// Default MIB data for testing — simulates a basic SNMP Target.
@@ -164,16 +186,33 @@ impl MockSnmpServer {
     fn handle_request(request: &[u8], inner: &Arc<Mutex<MockServerInner>>) -> Vec<u8> {
         let mut state = inner.lock().unwrap();
 
-        match Self::parse_request(request) {
-            Some(parsed) => match parsed.msg_type {
+        if let Some(parsed) = Self::parse_request(request) {
+            // Track request volume and walk-chain structure so tests can
+            // assert single-pass table retrieval (one chain, not one per column).
+            state.request_count += 1;
+            if let Some(oid) = parsed.oids.first().map(|(o, _)| o.clone()) {
+                let parts = Self::oid_parts(&oid);
+                match &state.last_request_oid {
+                    None => state.walk_chains = 1,
+                    Some(last) => {
+                        if Self::oid_less_or_eq(&parts, last) {
+                            state.walk_chains += 1;
+                        }
+                    }
+                }
+                state.last_request_oid = Some(parts);
+            }
+
+            return match parsed.msg_type {
                 MessageType::Get => Self::build_get_response(&parsed, &state.data),
                 MessageType::GetNext | MessageType::GetBulk => {
                     Self::build_getnext_response(&parsed, &state.data)
                 }
                 MessageType::Set => Self::build_set_response(&parsed, &mut state.data),
-            },
-            None => Self::build_error_response(request),
+            };
         }
+
+        Self::build_error_response(request)
     }
 
     // ── BER helpers ────────────────────────────────────────────────────────
@@ -212,6 +251,8 @@ impl MockSnmpServer {
             if c < 128 {
                 encoded.push(c as u8);
             } else {
+                // Base-128 groups, most significant first; every byte except
+                // the last carries the continuation bit.
                 let mut val = c;
                 let mut bytes = Vec::new();
                 while val > 0 {
@@ -219,7 +260,7 @@ impl MockSnmpServer {
                     val >>= 7;
                 }
                 for (i, b) in bytes.iter().enumerate().rev() {
-                    encoded.push(if i == bytes.len() - 1 { *b } else { *b | 0x80 });
+                    encoded.push(if i == 0 { *b } else { *b | 0x80 });
                 }
             }
         }
@@ -506,18 +547,46 @@ impl MockSnmpServer {
     }
 
     /// Finds the next OID in sorted order after the given OID.
+    ///
+    /// Ordering is numeric per sub-identifier (as on the wire), not
+    /// lexicographic — index `2` precedes `10`.
     pub fn find_next_oid<'a>(
         current: &str,
         data: &'a HashMap<String, Vec<u8>>,
     ) -> Option<(String, &'a Vec<u8>)> {
-        let mut candidates: Vec<_> = data.iter().filter(|(k, _)| k.as_str() > current).collect();
-        candidates.sort_by_key(|(k, _)| *k);
+        let current_parts = Self::oid_parts(current);
 
-        if let Some((oid, value)) = candidates.first() {
-            Some(((*oid).clone(), *value))
-        } else {
-            None
+        let mut candidates: Vec<(&String, &Vec<u8>, Vec<u64>)> = data
+            .iter()
+            .map(|(k, v)| (k, v, Self::oid_parts(k)))
+            .filter(|(_, _, parts)| !Self::oid_less_or_eq(parts, &current_parts))
+            .collect();
+        candidates.sort_by(|a, b| Self::cmp_oid(&a.2, &b.2));
+
+        candidates
+            .first()
+            .map(|(oid, value, _)| ((*oid).clone(), *value))
+    }
+
+    /// Splits a dotted-decimal OID into sub-identifiers.
+    pub fn oid_parts(oid: &str) -> Vec<u64> {
+        oid.split('.').filter_map(|s| s.parse().ok()).collect()
+    }
+
+    /// Compares two OIDs numerically, per sub-identifier (shorter prefix first).
+    fn cmp_oid(a: &[u64], b: &[u64]) -> std::cmp::Ordering {
+        for (x, y) in a.iter().zip(b.iter()) {
+            match x.cmp(y) {
+                std::cmp::Ordering::Equal => continue,
+                other => return other,
+            }
         }
+        a.len().cmp(&b.len())
+    }
+
+    /// True when OID `a` is strictly less than or equal to OID `b`.
+    fn oid_less_or_eq(a: &[u64], b: &[u64]) -> bool {
+        Self::cmp_oid(a, b) != std::cmp::Ordering::Greater
     }
 }
 
@@ -631,6 +700,27 @@ mod tests {
     }
 
     #[test]
+    fn ber_oid_roundtrip_large_component() {
+        // Sub-identifiers >= 128 use multi-byte base-128 groups; the
+        // continuation bit must be on every byte except the last.
+        for &c in &[128u64, 99_997, 0xFFFF_FFFF] {
+            let encoded = MockSnmpServer::ber_oid(&[1, 3, 6, 1, c]);
+            // Content starts after tag + length byte(s).
+            let content_len = if encoded[1] < 0x80 {
+                2
+            } else {
+                2 + (encoded[1] & 0x7F) as usize
+            };
+            assert_eq!(
+                MockSnmpServer::decode_oid_string(&encoded[content_len..]),
+                format!("1.3.6.1.{}", c),
+                "roundtrip failed for {}",
+                c
+            );
+        }
+    }
+
+    #[test]
     fn ber_length_encoding() {
         assert_eq!(MockSnmpServer::ber_length(0x7F), vec![0x7F]);
         assert_eq!(MockSnmpServer::ber_length(0x80), vec![0x81, 0x80]);
@@ -669,6 +759,22 @@ mod tests {
 
         let next = MockSnmpServer::find_next_oid("9.9.9.9", &data);
         assert!(next.is_none());
+    }
+
+    #[test]
+    fn find_next_oid_numeric_not_lexicographic() {
+        // G3 support: with rows 2 and 10, the successor of row 1 is row 2 —
+        // lexicographic string order would wrongly pick "10".
+        let mut data = HashMap::new();
+        data.insert("1.3.6.1.4.1.99997.1.2".to_string(), vec![2]);
+        data.insert("1.3.6.1.4.1.99997.1.10".to_string(), vec![10]);
+
+        let next = MockSnmpServer::find_next_oid("1.3.6.1.4.1.99997.1.1", &data);
+        assert_eq!(next.unwrap().0, "1.3.6.1.4.1.99997.1.2");
+
+        // And after row 9 comes row 10.
+        let next = MockSnmpServer::find_next_oid("1.3.6.1.4.1.99997.1.9", &data);
+        assert_eq!(next.unwrap().0, "1.3.6.1.4.1.99997.1.10");
     }
 
     /// Builds a minimal SNMPv2c GetRequest message for parser tests.

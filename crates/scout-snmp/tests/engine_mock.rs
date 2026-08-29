@@ -12,8 +12,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use scout_snmp::{
-    MockSnmpServer, ResultSet, SetValue, SnmpEngine, SnmpValue, Target, VariableBinding,
-    WalkBatchSender,
+    IndexColumnSpec, IndexEncoding, MockSnmpServer, ResultSet, SetValue, SnmpEngine, SnmpValue,
+    TableResult, TableRowSender, Target, VariableBinding, WalkBatchSender,
 };
 
 /// Builds a runtime shaped like the app's: 8MB worker stacks.
@@ -214,6 +214,205 @@ fn engine_walk_cancel_stops_early() {
     assert!(
         complete.unwrap().partial,
         "cancelled walk must be marked partial"
+    );
+}
+
+/// Collects progress updates and the final table grid.
+#[derive(Default)]
+struct TestTableSender {
+    progress: Mutex<Vec<usize>>,
+    complete: Mutex<Option<TableResult>>,
+}
+
+impl TableRowSender for TestTableSender {
+    fn send_progress(&self, count: usize) -> bool {
+        self.progress.lock().unwrap().push(count);
+        true
+    }
+
+    fn send_complete(&self, result: &TableResult) {
+        *self.complete.lock().unwrap() = Some(result.clone());
+    }
+}
+
+/// A table sender that declares the client gone once `count` bindings have
+/// been reported — exercises the stop-on-client-gone path.
+struct GoneAtTableSender {
+    inner: Arc<TestTableSender>,
+    gone_at: usize,
+}
+
+impl TableRowSender for GoneAtTableSender {
+    fn send_progress(&self, count: usize) -> bool {
+        self.inner.send_progress(count);
+        count < self.gone_at
+    }
+
+    fn send_complete(&self, result: &TableResult) {
+        self.inner.send_complete(result);
+    }
+}
+
+/// Populates a fresh mock server with a 12-row table (5 columns on an integer
+/// index) plus a nested sub-table whose row suffixes collide with the outer
+/// rows. Returns the server, target, table root OID, and column OIDs.
+fn start_table_server() -> (MockSnmpServer, Target, String, Vec<String>) {
+    let (server, target) = start_server();
+    let table_oid = "1.3.6.1.4.1.99997.5".to_string();
+
+    for row in 1..=12u32 {
+        for col in 1..=5u32 {
+            server.set_value(
+                &format!("{table_oid}.1.{col}.{row}"),
+                MockSnmpServer::ber_integer(row as i32 * col as i32),
+            );
+        }
+    }
+    // Nested sub-table under the same table subtree — must not appear in the
+    // grid, even though its suffixes ("9", "10") match outer row IDs.
+    server.set_value(
+        &format!("{table_oid}.3.1.1.9"),
+        MockSnmpServer::ber_integer(999),
+    );
+    server.set_value(
+        &format!("{table_oid}.3.1.1.10"),
+        MockSnmpServer::ber_integer(998),
+    );
+
+    let column_oids: Vec<String> = (1..=5).map(|c| format!("{table_oid}.1.{c}")).collect();
+    (server, target, table_oid, column_oids)
+}
+
+#[test]
+fn engine_get_table_single_pass_grid() {
+    let rt = app_runtime();
+    let (server, target, table_oid, column_oids) = start_table_server();
+
+    let col1 = column_oids[0].clone();
+    let sender = Arc::new(TestTableSender::default());
+    let sender_for_task = sender.clone();
+    rt.block_on(rt.spawn(async move {
+        let engine = SnmpEngine::new();
+        let handle = tokio::runtime::Handle::current();
+
+        // 12 rows on an integer index, decoded per-component.
+        let index_columns = vec![IndexColumnSpec {
+            name: "rowId".to_string(),
+            implied: false,
+            encoding: IndexEncoding::Integer,
+        }];
+        let join = engine.get_table_streaming(
+            &handle,
+            &target,
+            &table_oid,
+            column_oids,
+            index_columns,
+            sender_for_task,
+            None,
+        );
+        tokio::time::timeout(Duration::from_secs(15), join)
+            .await
+            .expect("get table timed out")
+            .expect("get table task panicked");
+    }))
+    .expect("test task panicked");
+
+    let grid = sender
+        .complete
+        .lock()
+        .unwrap()
+        .take()
+        .expect("complete result was not sent");
+
+    // G3 regression: rows in walk order — 2 before 10, no string sorting.
+    assert_eq!(grid.total_rows, 12);
+    let ids: Vec<&str> = grid.rows.iter().map(|r| r.instance_id.as_str()).collect();
+    assert_eq!(ids, (1..=12).map(|i| i.to_string()).collect::<Vec<_>>());
+
+    // Index values decoded per component.
+    assert_eq!(grid.rows[0].index_values, vec![Some("1".to_string())]);
+    assert_eq!(grid.rows[9].index_values, vec![Some("10".to_string())]);
+
+    // Every selected column has data for every row.
+    assert_eq!(grid.missing_cells, 0);
+    assert_eq!(
+        grid.rows[3]
+            .cells
+            .get(&col1)
+            .and_then(|c| c.value.as_ref())
+            .map(|v| v.value.clone()),
+        Some(SnmpValue::Integer(4)) // row 4, column 1: value = row * col
+    );
+
+    // Nested sub-table data is excluded from the grid (G4) — its values
+    // (999/998) can never come from the outer columns (max row*col = 60).
+    for row in &grid.rows {
+        for cell in row.cells.values() {
+            if let Some(v) = &cell.value {
+                assert_ne!(v.value, SnmpValue::Integer(999), "nested sub-table leaked");
+                assert_ne!(v.value, SnmpValue::Integer(998), "nested sub-table leaked");
+            }
+        }
+    }
+
+    // Single pass: one walk chain over the whole subtree (not one per column).
+    assert_eq!(server.walk_chain_count(), 1, "expected a single walk chain");
+    assert!(server.request_count() >= 60, "all bindings must be fetched");
+
+    // Progress streamed during the walk.
+    let progress = sender.progress.lock().unwrap().clone();
+    assert!(!progress.is_empty(), "no progress updates were sent");
+    assert!(
+        progress.windows(2).all(|w| w[0] < w[1]),
+        "progress must increase"
+    );
+
+    assert!(!grid.partial);
+}
+
+#[test]
+fn engine_get_table_client_gone_stops_early() {
+    let rt = app_runtime();
+    let (_server, target, table_oid, column_oids) = start_table_server();
+
+    // 60 bindings total; declare the client gone at the first progress tick
+    // (10 bindings — column-major, so rows 1-10 only). The walk must stop
+    // promptly and report partial results.
+    let inner = Arc::new(TestTableSender::default());
+    let sender = Arc::new(GoneAtTableSender {
+        inner: inner.clone(),
+        gone_at: 10,
+    });
+    rt.block_on(rt.spawn(async move {
+        let engine = SnmpEngine::new();
+        let handle = tokio::runtime::Handle::current();
+
+        let join = engine.get_table_streaming(
+            &handle,
+            &target,
+            &table_oid,
+            column_oids,
+            Vec::new(),
+            sender,
+            None,
+        );
+        tokio::time::timeout(Duration::from_secs(15), join)
+            .await
+            .expect("get table timed out (hang on client-gone?)")
+            .expect("get table task panicked");
+    }))
+    .expect("test task panicked");
+
+    let grid = inner
+        .complete
+        .lock()
+        .unwrap()
+        .take()
+        .expect("complete result was not sent");
+    assert!(grid.partial, "client-gone stop must be marked partial");
+    assert!(
+        grid.total_rows < 12,
+        "walk should have stopped before all rows arrived"
     );
 }
 

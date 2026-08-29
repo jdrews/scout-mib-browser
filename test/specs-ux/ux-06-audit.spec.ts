@@ -55,7 +55,7 @@ describe("UX A6/A7 — axe + DOM audit + terminology collection", function () {
     // ── State: grid view (ifTable) ───────────────────────────────────────────
     await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2", "interfaces"]);
     await selectTreeNode("ifTable");
-    await setOperation("walk");
+    await setOperation("getTable");
     await go();
     await waitForStatus(/^Table complete: \d+ row\(s\), \d+ column\(s\)$/, 60000);
     nameAudit["grid-view"] = await accessibleNameAudit();

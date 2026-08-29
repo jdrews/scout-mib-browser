@@ -79,6 +79,50 @@ impl SyntaxType {
     }
 }
 
+/// How an index component's value maps to OID sub-identifiers (RFC 2578 §7.7).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub enum IndexEncoding {
+    /// Single sub-identifier holding the integer value.
+    Integer,
+    /// Four sub-identifiers, one per IPv4 octet.
+    IpAddress,
+    /// Exactly `n` sub-identifiers (SIZE-constrained string), no length prefix.
+    FixedString(usize),
+    /// Variable-length or undetermined — the component cannot be split
+    /// deterministically and is treated as opaque.
+    Variable,
+}
+
+/// One component of a table's INDEX clause.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexColumn {
+    /// Name from the INDEX clause (e.g., `"ifIndex"`).
+    pub name: String,
+    /// Column OID of the index object (empty for bare-type indexes).
+    pub oid: String,
+    /// Whether the component is declared `IMPLIED`.
+    pub implied: bool,
+    /// How the component's value maps to sub-identifiers.
+    pub encoding: IndexEncoding,
+}
+
+/// Metadata about a Table parsed from its INDEX/AUGMENTS clauses.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TableInfo {
+    /// Dotted-decimal OID of the table.
+    pub table_oid: String,
+    /// Table name (e.g., `"ifTable"`).
+    pub name: String,
+    /// Row entry OIDs: the base entry plus any augmented entries.
+    pub row_entry_oids: Vec<String>,
+    /// Index columns in INDEX clause order.
+    pub index_columns: Vec<IndexColumn>,
+    /// All column OIDs (including augmented), in OID order.
+    pub column_oids: Vec<String>,
+}
+
 /// A named entry in a MIB schema file.
 ///
 /// Represents what *could* be queried, not live data. Has an OID, name,
@@ -104,6 +148,8 @@ pub struct MibNode {
 pub struct LoadResult {
     /// Nodes extracted from the file.
     pub nodes: Vec<MibNode>,
+    /// Table metadata extracted from INDEX/AUGMENTS clauses (empty when none).
+    pub tables: Vec<TableInfo>,
     /// Whether the primary (mib-rs) loader succeeded.
     pub primary_success: bool,
     /// MIB module name the file was loaded as (may be empty when undetermined).
@@ -167,6 +213,10 @@ pub struct Resolver {
     fallback_mibs: HashSet<String>,
     /// File path -> MIB module name mapping for tracking loaded files.
     loaded_files: BTreeMap<String, String>,
+    /// Table OID -> table metadata (mib-rs results take precedence).
+    table_index: HashMap<String, TableInfo>,
+    /// Table OID -> MIB module name that contributed its metadata.
+    table_mibs: HashMap<String, String>,
 }
 
 impl Resolver {
@@ -179,6 +229,8 @@ impl Resolver {
     pub fn load_directories(&mut self, directories: &[String]) {
         let mut all_nodes = Vec::new();
         let mut primary_nodes = Vec::new();
+        // Table metadata from successful mib-rs loads, paired with their module.
+        let mut primary_tables: Vec<(String, TableInfo)> = Vec::new();
         // Track file -> MIB module name for loaded files management.
         let mut file_mib_map: HashMap<String, String> = HashMap::new();
 
@@ -224,6 +276,12 @@ impl Resolver {
                                     result.module_name.clone(),
                                 );
                             }
+                            primary_tables.extend(
+                                result
+                                    .tables
+                                    .into_iter()
+                                    .map(|t| (result.module_name.clone(), t)),
+                            );
                             primary_nodes.extend(result.nodes);
                         } else {
                             all_nodes.push(result);
@@ -244,15 +302,16 @@ impl Resolver {
                         file.display()
                     );
                     match fallback.extract_from_file(file) {
-                        Ok(nodes) => {
+                        Ok((nodes, tables)) => {
                             let mib_name = fallback.last_mib_name().to_string();
-                            if !nodes.is_empty() {
+                            if !nodes.is_empty() || !tables.is_empty() {
                                 self.fallback_mibs.insert(mib_name.clone());
                                 file_mib_map
                                     .insert(file.to_string_lossy().to_string(), mib_name.clone());
                                 all_nodes.push(LoadResult {
                                     module_name: mib_name.clone(),
                                     nodes,
+                                    tables,
                                     primary_success: false,
                                 });
                             }
@@ -297,16 +356,40 @@ impl Resolver {
             }
         }
 
+        // Merge table metadata: primary first (takes precedence), then fallback fills gaps.
+        let mut table_index: HashMap<String, TableInfo> = HashMap::new();
+        let mut table_mibs: HashMap<String, String> = HashMap::new();
+        for (mib_name, table) in primary_tables {
+            table_mibs.insert(table.table_oid.clone(), mib_name);
+            table_index.insert(table.table_oid.clone(), table);
+        }
+        for result in &all_nodes {
+            for table in &result.tables {
+                if !table_index.contains_key(&table.table_oid) {
+                    table_mibs.insert(table.table_oid.clone(), result.module_name.clone());
+                    table_index.insert(table.table_oid.clone(), table.clone());
+                }
+            }
+        }
+
         self.oid_index = merged_oid;
         self.name_index = merged_name;
         self.loaded_files = file_mib_map.into_iter().collect();
+        self.table_index = table_index;
+        self.table_mibs = table_mibs;
 
         info!(
-            "Resolver loaded {} nodes ({} fallback MIBs, {} tracked files)",
+            "Resolver loaded {} nodes ({} tables, {} fallback MIBs, {} tracked files)",
             self.oid_index.len(),
+            self.table_index.len(),
             self.fallback_mibs.len(),
             self.loaded_files.len()
         );
+    }
+
+    /// Returns table metadata for the given table OID, if known.
+    pub fn get_table_info(&self, table_oid: &str) -> Option<&TableInfo> {
+        self.table_index.get(table_oid)
     }
 
     /// Returns information about all currently loaded MIB modules.
@@ -361,6 +444,18 @@ impl Resolver {
 
         // Remove from loaded files tracking.
         self.loaded_files.retain(|_, mn| mn != mib_name);
+
+        // Drop table metadata contributed by this module.
+        let tables_to_remove: Vec<String> = self
+            .table_mibs
+            .iter()
+            .filter(|(_, mn)| *mn == mib_name)
+            .map(|(oid, _)| oid.clone())
+            .collect();
+        for oid in &tables_to_remove {
+            self.table_index.remove(oid);
+            self.table_mibs.remove(oid);
+        }
 
         if oids_to_remove.is_empty() {
             self.fallback_mibs.remove(mib_name);
@@ -647,12 +742,22 @@ impl Resolver {
         self.name_index.get(name).map(|s| s.as_str())
     }
 
-    /// Returns column OIDs for a TABLE node by finding all leaf objects under its subtree.
+    /// Returns column OIDs for a TABLE node.
     ///
-    /// Excludes the table itself, row entry, and any intermediate OBJECT IDENTIFIER subtrees.
-    /// An OID-syntax node is only excluded when it actually has indexed descendants —
-    /// a leaf object whose SYNTAX is OBJECT IDENTIFIER (e.g. ifSpecific) is a column.
+    /// Prefers parsed table metadata (exact column set, including augmented
+    /// columns and excluding nested sub-tables). Falls back to the leaf-object
+    /// heuristic when no metadata exists or it carries no columns (fallback-MIB
+    /// tables), where every indexed leaf under the subtree is treated as a
+    /// column: an OID-syntax node is only excluded when it actually has
+    /// indexed descendants — a leaf object whose SYNTAX is OBJECT IDENTIFIER
+    /// (e.g. ifSpecific) is a column.
     pub fn get_table_columns(&self, table_oid: &str) -> Vec<String> {
+        if let Some(info) = self.table_index.get(table_oid) {
+            if !info.column_oids.is_empty() {
+                return info.column_oids.clone();
+            }
+        }
+
         let mut columns = Vec::new();
         for node in self.oid_index.values() {
             // Must be under the table's subtree
@@ -710,6 +815,13 @@ impl Resolver {
             .map(|e| e.path().to_path_buf())
             .collect()
     }
+}
+
+/// Compares two dotted-decimal OIDs numerically, sub-identifier by
+/// sub-identifier (so `2` sorts before `10`, unlike string order).
+pub(crate) fn oid_numeric_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    let key = |oid: &str| -> Vec<u64> { oid.split('.').filter_map(|p| p.parse().ok()).collect() };
+    key(a).cmp(&key(b))
 }
 
 /// Checks whether a file appears to be a text file by reading the first 8KB
@@ -1292,5 +1404,93 @@ mod tests {
         let columns = resolver.get_table_columns("1.3.6.1.2.1.2.2.1");
         assert_eq!(columns.len(), 1);
         assert_eq!(columns[0], "1.3.6.1.2.1.2.2.1.1");
+    }
+
+    #[test]
+    fn get_table_columns_prefers_metadata_over_leaf_heuristic() {
+        let mut resolver = Resolver::default();
+
+        // Table container + its real columns.
+        resolver.oid_index.insert(
+            "1.3.6.1.4.1.99996.1.3".to_string(),
+            MibNode {
+                oid: "1.3.6.1.4.1.99996.1.3".to_string(),
+                name: "outerTable".to_string(),
+                syntax_type: SyntaxType::Table,
+                mib_name: "TABLE-META-MIB".to_string(),
+                is_table: true,
+            },
+        );
+        resolver.oid_index.insert(
+            "1.3.6.1.4.1.99996.1.3.1.1".to_string(),
+            MibNode {
+                oid: "1.3.6.1.4.1.99996.1.3.1.1".to_string(),
+                name: "outerIndex".to_string(),
+                syntax_type: SyntaxType::Integer32,
+                mib_name: "TABLE-META-MIB".to_string(),
+                is_table: false,
+            },
+        );
+        resolver.oid_index.insert(
+            "1.3.6.1.4.1.99996.1.3.1.2".to_string(),
+            MibNode {
+                oid: "1.3.6.1.4.1.99996.1.3.1.2".to_string(),
+                name: "outerValue".to_string(),
+                syntax_type: SyntaxType::Integer32,
+                mib_name: "TABLE-META-MIB".to_string(),
+                is_table: false,
+            },
+        );
+
+        // A nested sub-table leaf under the outer table's subtree. The leaf
+        // heuristic would include it; metadata must exclude it (G4).
+        resolver.oid_index.insert(
+            "1.3.6.1.4.1.99996.1.3.3.1.2".to_string(),
+            MibNode {
+                oid: "1.3.6.1.4.1.99996.1.3.3.1.2".to_string(),
+                name: "innerValue".to_string(),
+                syntax_type: SyntaxType::Integer32,
+                mib_name: "TABLE-META-MIB".to_string(),
+                is_table: false,
+            },
+        );
+
+        let info = TableInfo {
+            table_oid: "1.3.6.1.4.1.99996.1.3".to_string(),
+            name: "outerTable".to_string(),
+            row_entry_oids: vec!["1.3.6.1.4.1.99996.1.3.1".to_string()],
+            index_columns: vec![IndexColumn {
+                name: "outerIndex".to_string(),
+                oid: "1.3.6.1.4.1.99996.1.3.1.1".to_string(),
+                implied: false,
+                encoding: IndexEncoding::Integer,
+            }],
+            column_oids: vec![
+                "1.3.6.1.4.1.99996.1.3.1.1".to_string(),
+                "1.3.6.1.4.1.99996.1.3.1.2".to_string(),
+            ],
+        };
+        resolver.table_index.insert(info.table_oid.clone(), info);
+        resolver.table_mibs.insert(
+            "1.3.6.1.4.1.99996.1.3".to_string(),
+            "TABLE-META-MIB".to_string(),
+        );
+
+        let columns = resolver.get_table_columns("1.3.6.1.4.1.99996.1.3");
+        assert_eq!(
+            columns,
+            vec!["1.3.6.1.4.1.99996.1.3.1.1", "1.3.6.1.4.1.99996.1.3.1.2",]
+        );
+
+        // get_table_info exposes the same metadata.
+        let got = resolver
+            .get_table_info("1.3.6.1.4.1.99996.1.3")
+            .expect("info");
+        assert_eq!(got.name, "outerTable");
+        assert_eq!(got.index_columns[0].encoding, IndexEncoding::Integer);
+
+        // Unloading the module prunes the table metadata.
+        resolver.unload_mib("TABLE-META-MIB");
+        assert!(resolver.get_table_info("1.3.6.1.4.1.99996.1.3").is_none());
     }
 }

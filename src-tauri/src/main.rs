@@ -151,6 +151,63 @@ impl snmp::WalkBatchSender for ChannelWalkSender {
     }
 }
 
+/// Bridges the engine's table-retrieval streaming to Tauri IPC channels.
+struct ChannelTableSender {
+    progress: tauri::ipc::Channel,
+    complete: tauri::ipc::Channel,
+}
+
+impl snmp::TableRowSender for ChannelTableSender {
+    fn send_progress(&self, count: usize) -> bool {
+        match serde_json::to_string(&count) {
+            Ok(json) => self.progress.send(json.into()).is_ok(),
+            Err(e) => {
+                warn!("Table progress serialization failed: {}", e);
+                false
+            }
+        }
+    }
+
+    fn send_complete(&self, result: &snmp::TableResult) {
+        match serde_json::to_string(result) {
+            Ok(json) => {
+                if let Err(e) = self.complete.send(json.into()) {
+                    warn!("Table complete channel send failed: {}", e);
+                }
+            }
+            Err(e) => warn!("Table complete serialization failed: {}", e),
+        }
+    }
+}
+
+/// Maps MIB index metadata to the SNMP crate's decode specs.
+fn mib_index_specs(
+    resolver: &RwLock<mib::Resolver>,
+    table_oid: &str,
+) -> Vec<snmp::IndexColumnSpec> {
+    let Ok(guard) = resolver.read() else {
+        return Vec::new();
+    };
+    guard
+        .get_table_info(table_oid)
+        .map(|info| {
+            info.index_columns
+                .iter()
+                .map(|c| snmp::IndexColumnSpec {
+                    name: c.name.clone(),
+                    implied: c.implied,
+                    encoding: match &c.encoding {
+                        mib::IndexEncoding::Integer => snmp::IndexEncoding::Integer,
+                        mib::IndexEncoding::IpAddress => snmp::IndexEncoding::IpAddress,
+                        mib::IndexEncoding::FixedString(n) => snmp::IndexEncoding::FixedString(*n),
+                        mib::IndexEncoding::Variable => snmp::IndexEncoding::Variable,
+                    },
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn main() {
     let log_buffer = log::init_logging().expect("failed to initialize logging");
     tracing::info!("Scout MIB Browser started");
@@ -197,6 +254,7 @@ fn main() {
             mib_unload,
             mib_loaded_list,
             mib_table_columns,
+            mib_table_info,
             mib_oid_name_map,
             snmp_connect,
             snmp_get,
@@ -205,7 +263,7 @@ fn main() {
             snmp_bulk_walk_streaming,
             snmp_cancel_walk,
             snmp_set,
-            snmp_walk_table,
+            snmp_get_table,
             fs_write_file,
             dialog_open_directory,
             dialog_save_file,
@@ -323,6 +381,16 @@ fn mib_table_columns(
 ) -> Result<Vec<String>, String> {
     let res = resolver.inner.read().map_err(|e| e.to_string())?;
     Ok(res.get_table_columns(&table_oid))
+}
+
+/// Returns parsed INDEX/AUGMENTS metadata for a TABLE node, if any.
+#[tauri::command]
+fn mib_table_info(
+    resolver: tauri::State<MibResolverState>,
+    table_oid: String,
+) -> Result<Option<mib::TableInfo>, String> {
+    let res = resolver.inner.read().map_err(|e| e.to_string())?;
+    Ok(res.get_table_info(&table_oid).cloned())
 }
 
 /// Returns all OID → name pairs for frontend resolution.
@@ -506,21 +574,42 @@ async fn snmp_set(
         .await?
 }
 
-/// Walks all columns of a table and returns results as a pivoted grid.
+/// Retrieves a table as a pivoted grid (streaming via channels).
+///
+/// One BulkWalk of the whole table subtree; `column_oids` is the display
+/// selection only. Progress and the final grid arrive on the channels, so
+/// Stop/Esc work like for Walk.
 #[tauri::command]
-async fn snmp_walk_table(
+async fn snmp_get_table(
     engine_state: tauri::State<'_, SnmpEngineState>,
+    resolver: tauri::State<'_, MibResolverState>,
+    cancel_token: tauri::State<'_, WalkCancelToken>,
     params: SnmpCommandParams,
     table_oid: String,
     column_oids: Vec<String>,
-) -> Result<snmp::TableResult, String> {
+    progress_channel: tauri::ipc::Channel,
+    complete_channel: tauri::ipc::Channel,
+) -> Result<(), String> {
+    cancel_token.reset();
     let target = build_target(&params);
+    let index_columns = mib_index_specs(&resolver.inner, &table_oid);
     let engine = engine_state.engine.clone();
-    engine_state
-        .run("WalkTable", async move {
-            engine.walk_table(&target, &table_oid, &column_oids).await
-        })
-        .await?
+    let cancel = (*cancel_token).inner();
+    let sender = Arc::new(ChannelTableSender {
+        progress: progress_channel,
+        complete: complete_channel,
+    });
+    let handle = engine.get_table_streaming(
+        &engine_state.runtime_handle(),
+        &target,
+        &table_oid,
+        column_oids,
+        index_columns,
+        sender,
+        Some(cancel),
+    );
+    cancel_token.set_handle(handle);
+    Ok(())
 }
 
 // ── File System Commands ─────────────────────────────────────────────────────
