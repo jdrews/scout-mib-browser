@@ -3,7 +3,6 @@
   import { mibSearch, mibResolveOid } from "$lib/tauriCommands";
   import { S } from "$lib/stores.svelte";
   import { persistTargetConfig } from "$lib/tauriCommands";
-  import { loadColumnSelection } from "$lib/tableColumns";
   import type { MibSearchResult, TreeNode, SnmpOperation, VariableBinding, ResultSet, TableInfo, TableResult } from "$lib/types";
 
   let cfg = $derived(S.targetConfig);
@@ -334,8 +333,8 @@
     }
   }
 
-  /** Get Table: the only path to grid retrieval. Resolves table metadata,
-   *  applies the persisted column selection, and streams progress + grid. */
+  /** Get Table: the only path to grid retrieval. Fetches every column —
+   *  display-column selection is a client-side filter in ResultsPane. */
   async function executeGetTable(oid: string) {
     const cfg = S.targetConfig;
     if (!cfg.host) {
@@ -378,13 +377,11 @@
         S.statusText = `No columns found for table ${name}`;
         return;
       }
-      // Display selection: persisted per-table subset (default: all columns).
-      const columnOids = loadColumnSelection(oid, allColumns);
 
       S.statusText = `Fetching table ${name}...`;
       isWalkActive = true;
 
-      await cmds.snmpGetTable(cfg, oid, columnOids,
+      await cmds.snmpGetTable(cfg, oid, allColumns,
         (count: number) => {
           if (!isWalkActive) return;
           S.walkProgress = `${count} bindings`;

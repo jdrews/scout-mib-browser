@@ -46,7 +46,7 @@ describe("Table retrieval (Get Table)", () => {
     const status = await waitForStatus(/^Table complete: \d+ row\(s\), \d+ column\(s\)$/);
     expect(status).toBe(`Table complete: ${IF_TABLE_ROWS} row(s), ${IF_TABLE_COLS} column(s)`);
 
-    // Grid view is auto-enabled for table results.
+    // A table result is always rendered as the grid.
     const grid = await $("[data-testid='grid-table']");
     await expect(grid).toBeExisting();
 
@@ -121,57 +121,156 @@ describe("Table retrieval (Get Table)", () => {
     );
   });
 
-  it("column selection applies to the next Get Table run", async () => {
+  it("column selection shows and hides grid columns immediately", async () => {
     // Start from a full grid.
     await go("getTable");
     await waitForStatus(
       new RegExp(`^Table complete: ${IF_TABLE_ROWS} row\\(s\\), ${IF_TABLE_COLS} column\\(s\\)$`),
     );
 
-    // Uncheck ifAdminStatus in the Columns… panel. The embedded driver's
+    const headerText = async () => ((await (await $("thead").getText())) ?? "");
+    const thCount = async () => (await $$("[data-testid='grid-table'] thead th")).length;
+    const baseThs = await thCount();
+
+    // Toggle ifAdminStatus in the Columns… panel. The embedded driver's
     // synthetic .click() does not reliably fire Svelte's onchange, so set the
     // property and dispatch change explicitly (same pattern as setOperation).
-    await (await $("[data-testid='columns-btn']")).click();
-    const toggled = await browser.execute(() => {
-      const panel = document.querySelector("[data-testid='columns-panel']");
-      if (!panel) return false;
-      const label = Array.from(panel.querySelectorAll("label")).find((l) =>
-        (l.textContent ?? "").includes("ifAdminStatus"),
+    // The label is a literal: browser.execute serializes the function via
+    // toString(), so closures and arguments do not survive.
+    async function toggleColumn(): Promise<boolean> {
+      // Open the panel only if closed — clicking again would close it.
+      const panelOpen = await browser.execute(
+        () => !!document.querySelector("[data-testid='columns-panel']"),
       );
-      const input = label?.querySelector("input") as HTMLInputElement | null;
+      if (!panelOpen) await (await $("[data-testid='columns-btn']")).click();
+      return await browser.execute(() => {
+        const panel = document.querySelector("[data-testid='columns-panel']");
+        if (!panel) return false;
+        const label = Array.from(panel.querySelectorAll("label")).find((l) =>
+          (l.textContent ?? "").includes("ifAdminStatus"),
+        );
+        const input = label?.querySelector("input") as HTMLInputElement | null;
+        if (!input) return false;
+        input.checked = !input.checked;
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      });
+    }
+
+    // Unchecking hides the column in the CURRENT grid — no re-run needed. The
+    // run always fetches every column, so the status still reports the full
+    // count while the rendered header drops one.
+    expect(await toggleColumn()).toBe(true);
+    await browser.pause(200);
+    expect(await headerText()).not.toContain("ifAdminStatus");
+    expect(await thCount()).toBe(baseThs - 1);
+
+    // Re-checking brings it straight back.
+    expect(await toggleColumn()).toBe(true);
+    await browser.pause(200);
+    expect(await headerText()).toContain("ifAdminStatus");
+    expect(await thCount()).toBe(baseThs);
+  });
+
+  it("the All columns control selects and clears every column", async () => {
+    const thCount = async () => (await $$("[data-testid='grid-table'] thead th")).length;
+    const masterState = () =>
+      browser.execute(() => {
+        const input = document.querySelector(
+          '[data-testid="select-all-cols"]',
+        ) as HTMLInputElement | null;
+        return input ? { checked: input.checked, indeterminate: input.indeterminate } : null;
+      });
+
+    // Make sure the panel is open (a previous test may have left it so).
+    const panelOpen = await browser.execute(
+      () => !!document.querySelector("[data-testid='columns-panel']"),
+    );
+    if (!panelOpen) await (await $("[data-testid='columns-btn']")).click();
+
+    const fullThs = await thCount();
+    expect(await masterState()).toEqual({ checked: true, indeterminate: false });
+
+    // Clearing the master checkbox hides every data column — only # and the
+    // index column remain.
+    const cleared = await browser.execute(() => {
+      const input = document.querySelector(
+        '[data-testid="select-all-cols"]',
+      ) as HTMLInputElement | null;
       if (!input) return false;
-      input.checked = !input.checked;
+      input.checked = false;
       input.dispatchEvent(new Event("change", { bubbles: true }));
       return true;
     });
-    expect(toggled).toBe(true);
+    expect(cleared).toBe(true);
+    await browser.pause(200);
+    expect(await thCount()).toBe(2);
+    expect(await masterState()).toEqual({ checked: false, indeterminate: false });
 
-    // The selection is a display filter: it applies on the next run. Wait for
-    // the NEW count specifically — the previous run's status still matches the
-    // generic pattern and would satisfy a stale read.
-    await go("getTable");
-    const status = await waitForStatus(
-      new RegExp(`^Table complete: ${IF_TABLE_ROWS} row\\(s\\), ${IF_TABLE_COLS - 1} column\\(s\\)$`),
-    );
-    expect(status).toBe(`Table complete: ${IF_TABLE_ROWS} row(s), ${IF_TABLE_COLS - 1} column(s)`);
-
-    const headerText = (await (await $("thead").getText())) ?? "";
-    expect(headerText).not.toContain("ifAdminStatus");
-
-    // Restore the default (all columns) so later specs see a clean state. A
-    // new result closes the panel, so reopen it first.
-    await (await $("[data-testid='columns-btn']")).click();
-    await browser.execute(() => {
+    // One column re-selected → the master checkbox goes indeterminate.
+    const one = await browser.execute(() => {
       const panel = document.querySelector("[data-testid='columns-panel']");
-      if (!panel) return;
+      if (!panel) return false;
       const label = Array.from(panel.querySelectorAll("label")).find((l) =>
-        (l.textContent ?? "").includes("ifAdminStatus"),
+        (l.textContent ?? "").includes("ifDescr"),
       );
       const input = label?.querySelector("input") as HTMLInputElement | null;
-      if (!input || input.checked) return;
+      if (!input) return false;
       input.checked = true;
       input.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
     });
+    expect(one).toBe(true);
+    await browser.pause(200);
+    expect(await masterState()).toEqual({ checked: false, indeterminate: true });
+
+    // Clicking the indeterminate master checkbox selects everything again.
+    const restored = await browser.execute(() => {
+      const input = document.querySelector(
+        '[data-testid="select-all-cols"]',
+      ) as HTMLInputElement | null;
+      if (!input) return false;
+      input.checked = true;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
+    });
+    expect(restored).toBe(true);
+    await browser.pause(200);
+    expect(await thCount()).toBe(fullThs);
+    expect(await masterState()).toEqual({ checked: true, indeterminate: false });
+  });
+
+  it("grid columns can be resized by dragging a header edge", async () => {
+    // The grid is still showing ifTable from the previous test. Grab the first
+    // data column's resize handle and drag it wider; its <th> width grows and
+    // the change sticks for the session.
+    const before = await browser.execute(() => {
+      const th = document.querySelector('[data-testid="grid-table"] thead th[data-grid-col]');
+      return th ? Math.round(th.getBoundingClientRect().width) : 0;
+    });
+    expect(before).toBeGreaterThan(0);
+
+    const dragged = await browser.execute(async () => {
+      const handle = document.querySelector(
+        '[data-testid="grid-table"] thead th[data-grid-col] .col-resize-handle',
+      );
+      if (!handle) return false;
+      const x = (handle as HTMLElement).getBoundingClientRect().right;
+      handle.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, clientX: x }));
+      await new Promise((r) => setTimeout(r, 50));
+      window.dispatchEvent(new MouseEvent("mousemove", { clientX: x + 120 }));
+      await new Promise((r) => setTimeout(r, 50));
+      window.dispatchEvent(new MouseEvent("mouseup", { clientX: x + 120 }));
+      return true;
+    });
+    expect(dragged).toBe(true);
+
+    const after = await browser.execute(() => {
+      const th = document.querySelector('[data-testid="grid-table"] thead th[data-grid-col]');
+      return th ? Math.round(th.getBoundingClientRect().width) : 0;
+    });
+    // Allow for rounding + the min-width clamp; a 120px drag must visibly grow.
+    expect(after - before).toBeGreaterThanOrEqual(80);
   });
 });
 

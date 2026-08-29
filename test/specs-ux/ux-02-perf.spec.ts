@@ -96,7 +96,7 @@ describe("UX A2 — perceived-performance probes (N=5)", function () {
       // ── Grid render: go-to-complete and status-to-rows (ifTable) ──────────
       await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2", "interfaces"]);
       await selectTreeNode("ifTable");
-      await setOperation("walk");
+      await setOperation("getTable");
       const tTable = Date.now();
       await (await $("[data-testid='go-btn']")).click();
       await waitForStatus(/^Table complete: \d+ row\(s\), \d+ column\(s\)$/, 60000);
