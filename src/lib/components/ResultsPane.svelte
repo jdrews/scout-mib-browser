@@ -576,7 +576,7 @@
                       <span class="truncate">{col.name}</span>
                       {#if gridSortKey === `idx:${i}`}{#if gridSortDir === 1}<ArrowUp class="w-3 h-3 shrink-0" />{:else}<ArrowDown class="w-3 h-3 shrink-0" />{/if}{:else}<ArrowUpDown class="w-3 h-3 shrink-0 opacity-40" />{/if}
                     </span>
-                    <span class="col-resize-handle absolute top-0 right-0 h-full w-[5px] cursor-col-resize z-10 hover:bg-primary/60" onmousedown={(e) => startColResize(e, `idx:${i}`)}></span>
+                    <span class="col-resize-handle absolute top-0 right-0 h-full w-[5px] cursor-col-resize z-10 hover:bg-primary/60" onclick={(e) => e.stopPropagation()} onmousedown={(e) => startColResize(e, `idx:${i}`)}></span>
                   </th>
                 {/each}
               {:else}
@@ -585,7 +585,7 @@
                     <span class="truncate">Instance</span>
                     {#if gridSortKey === "instance"}{#if gridSortDir === 1}<ArrowUp class="w-3 h-3 shrink-0" />{:else}<ArrowDown class="w-3 h-3 shrink-0" />{/if}{:else}<ArrowUpDown class="w-3 h-3 shrink-0 opacity-40" />{/if}
                   </span>
-                  <span class="col-resize-handle absolute top-0 right-0 h-full w-[5px] cursor-col-resize z-10 hover:bg-primary/60" onmousedown={(e) => startColResize(e, "instance")}></span>
+                  <span class="col-resize-handle absolute top-0 right-0 h-full w-[5px] cursor-col-resize z-10 hover:bg-primary/60" onclick={(e) => e.stopPropagation()} onmousedown={(e) => startColResize(e, "instance")}></span>
                 </th>
               {/if}
               {#each visibleGridColumns as colOid (colOid)}
@@ -594,7 +594,7 @@
                     <span class="truncate">{columnName(colOid)}</span>
                     {#if gridSortKey === colOid}{#if gridSortDir === 1}<ArrowUp class="w-3 h-3 shrink-0" />{:else}<ArrowDown class="w-3 h-3 shrink-0" />{/if}{:else}<ArrowUpDown class="w-3 h-3 shrink-0 opacity-40" />{/if}
                   </span>
-                  <span class="col-resize-handle absolute top-0 right-0 h-full w-[5px] cursor-col-resize z-10 hover:bg-primary/60" onmousedown={(e) => startColResize(e, colOid)}></span>
+                  <span class="col-resize-handle absolute top-0 right-0 h-full w-[5px] cursor-col-resize z-10 hover:bg-primary/60" onclick={(e) => e.stopPropagation()} onmousedown={(e) => startColResize(e, colOid)}></span>
                 </th>
               {/each}
             </tr>

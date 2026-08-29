@@ -271,6 +271,27 @@ describe("Table retrieval (Get Table)", () => {
     });
     // Allow for rounding + the min-width clamp; a 120px drag must visibly grow.
     expect(after - before).toBeGreaterThanOrEqual(80);
+
+    // A real-mouse drag ends with a click on the handle; that click must not
+    // toggle this column's sort (it used to bubble into the header handler).
+    const clicked = await browser.execute(() => {
+      const handle = document.querySelector(
+        '[data-testid="grid-table"] thead th[data-grid-col] .col-resize-handle',
+      );
+      if (!handle) return false;
+      handle.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      return true;
+    });
+    expect(clicked).toBe(true);
+    await browser.pause(200);
+
+    // Still unsorted: the header shows the neutral (opacity-40) indicator.
+    const sortIndicators = await browser.execute(() => {
+      const th = document.querySelector('[data-testid="grid-table"] thead th[data-grid-col]');
+      if (!th) return null;
+      return Array.from(th.querySelectorAll("svg")).map((s) => s.getAttribute("class") ?? "");
+    });
+    expect(sortIndicators?.some((c) => c.includes("opacity-40"))).toBe(true);
   });
 });
 
