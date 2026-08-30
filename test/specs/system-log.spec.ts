@@ -231,4 +231,52 @@ describe("System log mouse scrolling", () => {
     );
     expect(followed).toBe(true);
   });
+
+  it("wheel over the log scrolls the log even with a large result set", async () => {
+    // Regression: with a big flat result set, WebKitGTK registered a phantom
+    // scrollable region for the results pane that extended over the syslog
+    // area below it — wheeling there scrolled the RESULTS instead of the log
+    // (and only in the horizontal band above the results column). A large
+    // walk is required to trigger it.
+    await selectTreeNode("mib-2");
+    await go("walk");
+    await waitForStatus(/^walk complete: \d+ binding\(s\)$/);
+
+    const s0 = await scrollState();
+    expect(s0.resultsMax).toBeGreaterThan(5000); // large enough to trigger the bug
+
+    // A syslog point that sits horizontally over the results column — exactly
+    // where the phantom region used to steal the wheel.
+    const p = await browser.execute(() => {
+      const syslog = document.querySelector("[data-testid='syslog-pane']") as HTMLElement;
+      const results = document.querySelector("[data-testid='results-body']") as HTMLElement;
+      const s = syslog.getBoundingClientRect();
+      const rb = results.getBoundingClientRect();
+      return { x: Math.round(Math.min(rb.left + 60, s.right - 20)), y: Math.round(s.top + s.height / 2) };
+    });
+    const at = await elementAt(p.x, p.y);
+    console.log(`[syslog-scroll] big-walk target: (${p.x},${p.y}) -> ${at.tag} inSyslog=${at.inSyslog}`);
+    expect(at.inSyslog).toBe(true);
+
+    // Reach an interior reading position by wheeling up over that point.
+    const interior = await wheelUntil(p, "up", (s) => s.logTop < s.logMax / 2);
+    console.log(`[syslog-scroll] big-walk interior: log=${interior.logTop}/${interior.logMax} results=${interior.resultsTop}/${interior.resultsMax}`);
+    expect(interior.logTop).toBeLessThan(interior.logMax / 2);
+
+    // Wheel down: the log scrolls, the results do not move.
+    xwheel(p.x, p.y, "down", 3, "big-walk-down");
+    await browser.pause(400);
+    const afterDown = await scrollState();
+    console.log(`[syslog-scroll] big-walk down:   log=${afterDown.logTop}/${afterDown.logMax} results=${afterDown.resultsTop}/${afterDown.resultsMax}`);
+    expect(afterDown.logTop).toBeGreaterThan(interior.logTop);
+    expect(afterDown.resultsTop).toBe(interior.resultsTop);
+
+    // Wheel up again: back toward older entries, results still unmoved.
+    xwheel(p.x, p.y, "up", 3, "big-walk-up");
+    await browser.pause(400);
+    const afterUp = await scrollState();
+    console.log(`[syslog-scroll] big-walk up:     log=${afterUp.logTop}/${afterUp.logMax} results=${afterUp.resultsTop}/${afterUp.resultsMax}`);
+    expect(afterUp.logTop).toBeLessThan(afterDown.logTop);
+    expect(afterUp.resultsTop).toBe(interior.resultsTop);
+  });
 });

@@ -637,7 +637,11 @@
     {:else if sortedRows.length === 0}
       <p class="text-base-content/60 text-sm text-center mt-8">No results match filter.</p>
     {:else}
-      <div class="overflow-x-auto relative" style="cursor: {draggingDivider ? 'col-resize' : ''}">
+      <!-- Single scroll container: results-body (overflow-auto) owns both axes.
+           A nested overflow-x-auto here makes WebKitGTK register a phantom
+           scrollable region over the area below (e.g. the system log pane),
+           stealing mouse-wheel input from it once the row set is large. -->
+      <div class="relative" style="cursor: {draggingDivider ? 'col-resize' : ''}">
 
         <div class="resize-divider absolute top-0 bottom-0 w-[5px] z-20 hover:bg-primary/50 transition-colors" style="left: {divider1Left}px;" onmousedown={onDivider1MouseDown}></div>
         <div class="resize-divider absolute top-0 bottom-0 w-[5px] z-20 hover:bg-primary/50 transition-colors" style="left: {divider2Left};" onmousedown={onDivider2MouseDown}></div>
