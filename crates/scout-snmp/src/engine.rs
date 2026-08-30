@@ -160,23 +160,38 @@ impl SnmpEngine {
             target.addr(),
             oids.len()
         );
+
+        // Parse OIDs once outside the retry loop. A bare top-level arc (e.g.
+        // "1" for iso) is normalized to "{oid}.0" — a single subidentifier is
+        // not BER-encodable. Anything still unparseable is a client-side
+        // error: no request is ever sent, so it must not be reported as an
+        // ASN.1 response failure.
+        let parsed_oids: Vec<(String, Arc<snmp2::Oid<'static>>)> = oids
+            .iter()
+            .map(|o| -> Result<(String, Arc<snmp2::Oid<'static>>), String> {
+                let normalized = Self::normalize_bare_oid(o);
+                let parsed: snmp2::Oid = normalized
+                    .parse()
+                    .map_err(|e| format!("Invalid OID '{}': {:?}", o, e))?;
+                Ok((o.clone(), Arc::new(parsed)))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
         let mut rs = ResultSet::new();
 
-        for oid_str in oids {
+        for (oid_str, parsed) in parsed_oids {
             let target = target.clone();
-            let oid = oid_str.clone();
 
             // Inline retry loop.
             let mut last_err = None;
             for attempt in 0..=MAX_RETRIES {
                 let t = target.clone();
-                let o = oid.clone();
+                let o = Arc::clone(&parsed);
                 let result: Result<(Vec<VariableBinding>, Vec<SnmpWarning>), snmp2::Error> =
                     (async {
                         let mut session =
                             Self::connect(&t).await.map_err(|_| snmp2::Error::Receive)?;
-                        let parsed: snmp2::Oid = o.parse().map_err(|_| snmp2::Error::AsnParse)?;
-                        let pdu = session.getnext(&parsed).await?;
+                        let pdu = session.getnext(o.as_ref()).await?;
                         Ok(Self::extract_bindings(pdu))
                     })
                     .await;
@@ -518,14 +533,9 @@ impl SnmpEngine {
         let mut session = Self::connect(target).await?;
         let mut rs = ResultSet::new();
 
-        let normalized = if !root_oid.contains('.') {
-            format!("{}.0", root_oid)
-        } else {
-            root_oid.to_string()
-        };
-        let root: snmp2::Oid = normalized
+        let root: snmp2::Oid = Self::normalize_bare_oid(root_oid)
             .parse()
-            .map_err(|e| format!("Invalid root OID: {:?}", e))?;
+            .map_err(|e| format!("Invalid root OID '{}': {:?}", root_oid, e))?;
         let mut current_oid = root;
         let mut retry_count: u32 = 0;
         let mut client_gone = false;
@@ -691,6 +701,19 @@ impl SnmpEngine {
     /// Checks if `oid` is within the subtree rooted at `root`.
     fn is_subtree_of(oid: &str, root: &str) -> bool {
         oid == root || oid.starts_with(&format!("{}.", root))
+    }
+
+    /// Normalizes a bare top-level arc (no dots, e.g. `"1"` for `iso`) to
+    /// `"{oid}.0"`. A single subidentifier is not representable in an ASN.1
+    /// OBJECT IDENTIFIER — the first encoded byte carries the first two arcs —
+    /// so any SNMP request for such an OID must target its `.0` extension,
+    /// the smallest encodable OID at or above it. Walk and GetNext share this.
+    fn normalize_bare_oid(oid: &str) -> String {
+        if oid.contains('.') {
+            oid.to_string()
+        } else {
+            format!("{oid}.0")
+        }
     }
 
     /// Converts our SetValue enum to a snmp2 Value.

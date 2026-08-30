@@ -76,8 +76,9 @@ export interface AppConfig {
 
 // ── SNMP Execution Types ─────────────────────────────────────────────────────
 
-/** SNMP operation mode. */
-export type SnmpOperation = "get" | "getNext" | "walk" | "bulkWalk" | "getTable" | "set";
+/** Operation mode. All but `getSubtree` are SNMP commands sent to the Target;
+ *  `getSubtree` is a local query of the MIB tree hierarchy. */
+export type SnmpOperation = "get" | "getNext" | "walk" | "bulkWalk" | "getTable" | "set" | "getSubtree";
 
 /** A single SNMP data value from the backend (tagged union matching Rust enum).
  * Note: serde serializes unit variants as their name string, so Null arrives as "Null". */

@@ -825,6 +825,38 @@ impl Resolver {
         result
     }
 
+    /// Returns all indexed nodes that are proper descendants of the given OID,
+    /// in numeric OID order (parents before children, siblings by value).
+    ///
+    /// Works for any OID prefix — including OIDs that are not themselves
+    /// indexed (e.g. an intermediate subtree) — and never includes the root
+    /// OID itself.
+    pub fn get_subtree(&self, oid: &str) -> Vec<TreeNode> {
+        let prefix = format!("{}.", oid);
+        let mut descendants: Vec<&MibNode> = self
+            .oid_index
+            .values()
+            .filter(|n| n.oid.starts_with(&prefix))
+            .collect();
+
+        if descendants.is_empty() {
+            return Vec::new();
+        }
+
+        // Numeric OID order keeps each node's subtree contiguous right after
+        // the node itself, so "has children" is a single lookahead per node.
+        descendants.sort_by(|a, b| oid_numeric_cmp(&a.oid, &b.oid));
+
+        let mut result = Vec::with_capacity(descendants.len());
+        for (i, node) in descendants.iter().enumerate() {
+            let has_children = descendants
+                .get(i + 1)
+                .is_some_and(|next| next.oid.starts_with(&format!("{}.", node.oid)));
+            result.push(self.build_tree_node_shallow(node, has_children));
+        }
+        result
+    }
+
     /// Checks whether a node has any descendants (direct children or deeper).
     fn node_has_descendants(
         &self,
@@ -1821,5 +1853,105 @@ mod tests {
     fn node_details_unknown_oid_is_none() {
         let resolver = details_fixture_resolver();
         assert!(resolver.node_details("9.9.9").is_none());
+    }
+
+    /// Fixture: a two-level subtree with siblings that expose numeric (not
+    /// lexicographic) OID ordering — `.10` sorts after `.2`.
+    fn subtree_fixture_resolver() -> Resolver {
+        let mut resolver = Resolver::default();
+
+        let nodes = [
+            ("1.3.6.1.2.1.1", "system", SyntaxType::ObjectIdentifier),
+            ("1.3.6.1.2.1.1.1", "sysDescr", SyntaxType::OctetString),
+            (
+                "1.3.6.1.2.1.1.2",
+                "sysObjectID",
+                SyntaxType::ObjectIdentifier,
+            ),
+            ("1.3.6.1.2.1.1.2.10", "deepLeafTen", SyntaxType::Integer32),
+            ("1.3.6.1.2.1.1.2.2", "deepLeafTwo", SyntaxType::Integer32),
+            ("1.3.6.1.2.1.1.10", "sysServicesTen", SyntaxType::Integer32),
+            // Sibling subtree that must NOT appear under 1.3.6.1.2.1.1 —
+            // guards against matching "1.3.6.1.2.1.1" as a bare string prefix
+            // of "1.3.6.1.2.1.10".
+            (
+                "1.3.6.1.2.1.10",
+                "otherSubtree",
+                SyntaxType::ObjectIdentifier,
+            ),
+            ("1.3.6.1.2.1.10.1", "otherLeaf", SyntaxType::Integer32),
+        ];
+
+        for (oid, name, syntax) in nodes {
+            resolver.oid_index.insert(
+                oid.to_string(),
+                MibNode {
+                    oid: oid.to_string(),
+                    name: name.to_string(),
+                    syntax_type: syntax,
+                    mib_name: "TEST-MIB".to_string(),
+                    ..Default::default()
+                },
+            );
+        }
+
+        resolver
+    }
+
+    #[test]
+    fn get_subtree_returns_descendants_in_numeric_oid_order() {
+        let resolver = subtree_fixture_resolver();
+
+        let subtree = resolver.get_subtree("1.3.6.1.2.1.1");
+        let oids: Vec<&str> = subtree.iter().map(|n| n.oid.as_str()).collect();
+
+        // Parents before children; siblings by numeric value (.2 before .10,
+        // deepLeafTwo before deepLeafTen) — not lexicographic string order.
+        assert_eq!(
+            oids,
+            vec![
+                "1.3.6.1.2.1.1.1",    // sysDescr
+                "1.3.6.1.2.1.1.2",    // sysObjectID (subtree)
+                "1.3.6.1.2.1.1.2.2",  // deepLeafTwo
+                "1.3.6.1.2.1.1.2.10", // deepLeafTen
+                "1.3.6.1.2.1.1.10",   // sysServicesTen
+            ]
+        );
+
+        // The root itself is excluded, as are sibling subtrees sharing a
+        // bare string prefix (1.3.6.1.2.1.10 is not under 1.3.6.1.2.1.1).
+        assert!(!oids.contains(&"1.3.6.1.2.1.1"));
+        assert!(!oids.iter().any(|o| o.starts_with("1.3.6.1.2.1.10")));
+
+        // has_children flags: only sysObjectID owns descendants here.
+        let by_oid: HashMap<&str, &TreeNode> =
+            subtree.iter().map(|n| (n.oid.as_str(), n)).collect();
+        assert!(!by_oid["1.3.6.1.2.1.1.1"].has_children);
+        assert!(by_oid["1.3.6.1.2.1.1.2"].has_children);
+        assert!(!by_oid["1.3.6.1.2.1.1.2.2"].has_children);
+        assert!(!by_oid["1.3.6.1.2.1.1.2.10"].has_children);
+        assert!(!by_oid["1.3.6.1.2.1.1.10"].has_children);
+    }
+
+    #[test]
+    fn get_subtree_of_leaf_is_empty() {
+        let resolver = subtree_fixture_resolver();
+        assert!(resolver.get_subtree("1.3.6.1.2.1.1.1").is_empty());
+    }
+
+    #[test]
+    fn get_subtree_works_for_unindexed_prefix() {
+        let resolver = subtree_fixture_resolver();
+
+        // 1.3.6.1.2.1 is not itself indexed, but its descendants are.
+        let subtree = resolver.get_subtree("1.3.6.1.2.1");
+        assert_eq!(subtree.len(), 8);
+        assert!(subtree.iter().all(|n| n.oid.starts_with("1.3.6.1.2.1.")));
+    }
+
+    #[test]
+    fn get_subtree_unknown_oid_is_empty() {
+        let resolver = subtree_fixture_resolver();
+        assert!(resolver.get_subtree("9.9.9").is_empty());
     }
 }

@@ -95,6 +95,61 @@ fn engine_get_returns_value() {
 }
 
 #[test]
+fn engine_get_next_from_bare_arc_returns_first_entry() {
+    // GetNext from a single-subidentifier OID ("1", the iso node) is
+    // normalized to "1.0" before parsing — a bare arc isn't BER-encodable —
+    // and returns the first entry of the Target's MIB view.
+    let rt = app_runtime();
+    let (server, target) = start_server();
+
+    let rs = rt
+        .block_on(rt.spawn(async move {
+            let engine = SnmpEngine::new();
+            let oids = vec!["1".to_string()];
+            tokio::time::timeout(Duration::from_secs(5), engine.get_next(&target, &oids))
+                .await
+                .expect("get_next timed out")
+                .expect("get_next failed")
+        }))
+        .expect("get_next task panicked");
+
+    assert_eq!(rs.bindings.len(), 1);
+    assert_eq!(rs.bindings[0].oid, "1.3.6.1.2.1.1.1.0");
+    assert_eq!(
+        rs.bindings[0].value,
+        SnmpValue::OctetString(b"Linux router".to_vec())
+    );
+    assert!(!rs.partial);
+    // The request actually reached the Target (as "1.0") instead of failing
+    // client-side.
+    assert!(server.request_count() >= 1);
+}
+
+#[test]
+fn engine_get_next_rejects_invalid_oid() {
+    // A genuinely unparseable OID fails fast with a clear client-side error —
+    // no request is sent, so it must not surface as an ASN.1 response failure.
+    let rt = app_runtime();
+    let (server, target) = start_server();
+
+    let err = rt
+        .block_on(rt.spawn(async move {
+            let engine = SnmpEngine::new();
+            let oids = vec!["not.an-oid".to_string()];
+            tokio::time::timeout(Duration::from_secs(5), engine.get_next(&target, &oids))
+                .await
+                .expect("get_next timed out")
+                .expect_err("invalid OID must fail")
+        }))
+        .expect("get_next task panicked");
+
+    assert!(err.contains("Invalid OID 'not.an-oid'"), "got: {err}");
+    assert!(!err.to_lowercase().contains("asn.1"), "got: {err}");
+    // No request was ever sent to the Target.
+    assert_eq!(server.request_count(), 0);
+}
+
+#[test]
 fn engine_walk_streams_bindings() {
     let rt = app_runtime();
     let (_server, target) = start_server();

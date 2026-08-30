@@ -44,6 +44,9 @@ const raw = $state({
   isExecuting: false,
   executionBindings: [] as VariableBinding[],
   executionResults: null as ResultSet | null,
+  // Get Subtree result — all MIB nodes under the queried OID. Null means no
+  // subtree has been fetched; an empty array is a valid (leaf) result.
+  subtreeNodes: null as TreeNode[] | null,
   walkProgress: "",
   queryRootOid: null as string | null,
   tableInfo: null as TableInfo | null,
@@ -78,6 +81,7 @@ const persistKeys: Record<string, string> = {
 export function clearResults() {
   raw.executionBindings.length = 0;
   raw.executionResults = null;
+  raw.subtreeNodes = null;
   raw.tableInfo = null;
   raw.tableResult = null;
 }

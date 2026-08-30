@@ -250,6 +250,7 @@ fn main() {
             mib_status,
             mib_tree,
             mib_children,
+            mib_subtree,
             mib_search,
             mib_unload,
             mib_loaded_list,
@@ -339,6 +340,16 @@ fn mib_children(
 ) -> Result<Vec<mib::TreeNode>, String> {
     let res = resolver.inner.read().map_err(|e| e.to_string())?;
     Ok(res.get_children(&oid))
+}
+
+/// Returns all MIB nodes under the given OID — the subtree in tree order.
+#[tauri::command]
+fn mib_subtree(
+    resolver: tauri::State<MibResolverState>,
+    oid: String,
+) -> Result<Vec<mib::TreeNode>, String> {
+    let res = resolver.inner.read().map_err(|e| e.to_string())?;
+    Ok(res.get_subtree(&oid))
 }
 
 /// Searches for MIB nodes matching the given query (autocomplete).

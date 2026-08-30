@@ -12,6 +12,10 @@
   let progress = $derived(S.walkProgress);
   let tableResult = $derived(S.tableResult);
 
+  // Get Subtree result — a local MIB query, rendered as its own flat view.
+  let subtreeNodes = $derived(S.subtreeNodes);
+  let isSubtreeView = $derived(subtreeNodes !== null);
+
   let exportMenuOpen = $state(false);
 
   let filterText = $state("");
@@ -154,6 +158,14 @@
       )
     : rows);
 
+  let filteredSubtreeNodes = $derived(
+    filterText
+      ? (subtreeNodes ?? []).filter(
+          (n) => n.name.toLowerCase().includes(filterLower) || n.oid.toLowerCase().includes(filterLower),
+        )
+      : (subtreeNodes ?? []),
+  );
+
   let sortedRows = $derived([...filteredRows].sort((a, b) => {
     const aVal = a[sortColumn];
     const bVal = b[sortColumn];
@@ -177,6 +189,13 @@
   function selectResultRow(row: ResultRow) {
     S.inspectorOid = row.fullPath;
     S.inspectorValue = { text: row.value, typeLabel: row.type };
+  }
+
+  // Subtree rows carry no live value — a click only points the Inspector at
+  // the node's metadata.
+  function selectSubtreeNode(oid: string) {
+    S.inspectorOid = oid;
+    S.inspectorValue = null;
   }
 
   function selectGridCell(colOid: string, cell: TableCell) {
@@ -521,8 +540,10 @@
             </ul>
           {/if}
         </div>
+      {/if}
+      {#if bindings.length > 0 || isGridView || isSubtreeView}
         <button data-testid="clear-btn" aria-label="Clear results" class="btn btn-sm btn-ghost" title="Clear results" onclick={clearAll}><Trash2 class="w-4 h-4" /></button>
-        {#if !isGridView}
+        {#if !isGridView && !isSubtreeView}
           <button data-testid="names-toggle" class="btn btn-sm {showResolvedNames ? 'btn-primary' : 'btn-ghost'}" onclick={() => showResolvedNames = !showResolvedNames}>{showResolvedNames ? "MIB Names" : "Raw OIDs"}</button>
           <button data-testid="wrap-toggle" title="Wrap long values" class="btn btn-sm {wrapValue ? 'btn-primary' : 'btn-ghost'}" onclick={() => wrapValue = !wrapValue}>
             <WrapText class="w-4 h-4 inline-block" /> Wrap
@@ -661,6 +682,38 @@
           <div bind:this={sentinelEl} data-testid="grid-sentinel" class="h-8"></div>
         {/if}
       {/if}
+    {:else if isSubtreeView}
+      {#if (subtreeNodes ?? []).length === 0}
+        <p data-testid="subtree-empty" class="text-base-content/60 text-sm text-center mt-12">No MIB nodes under this OID.</p>
+      {:else if filteredSubtreeNodes.length === 0}
+        <p class="text-base-content/60 text-sm text-center mt-8">No results match filter.</p>
+      {:else}
+        <div class="relative" style="min-width: max-content;">
+          <!-- /60 (not /30): 3:1 AA for the UI boundary in the light theme. -->
+          <div class="flex bg-base-200 border-b-2 border-base-content/60 sticky top-0 z-10 text-xs font-semibold uppercase tracking-wider">
+            <div class="px-2 py-1.5 truncate select-none" style="width: 240px; min-width: 240px; max-width: 240px;">Name</div>
+            <div class="flex-1 min-w-[280px] px-2 py-1.5 truncate select-none">OID</div>
+            <div class="px-2 py-1.5 truncate select-none" style="width: 140px; min-width: 140px; max-width: 140px;">Type</div>
+          </div>
+
+          {#each filteredSubtreeNodes as node (node.oid)}
+            <div
+              data-testid="subtree-row"
+              class="flex border-b border-base-300 cursor-pointer hover:bg-base-200/70"
+              class:inspector-selected={node.oid === S.inspectorOid}
+              style="min-width: max-content;"
+              title="Click to inspect {node.name}"
+              onclick={() => selectSubtreeNode(node.oid)}
+            >
+              <div class="px-2 py-1 truncate text-[13px]" style="width: 240px; min-width: 240px; max-width: 240px;" title="{node.name}">
+                {node.name}
+              </div>
+              <div class="flex-1 min-w-[280px] px-2 py-1 font-mono text-[13px] truncate" title="{node.oid}">{node.oid}</div>
+              <div class="px-2 py-1 font-mono text-[13px] text-base-content/60" style="width: 140px; min-width: 140px; max-width: 140px;">{node.syntaxType ?? ""}</div>
+            </div>
+          {/each}
+        </div>
+      {/if}
     {:else if sortedRows.length === 0 && bindings.length === 0}
       <p data-testid="results-placeholder" class="text-base-content/60 text-sm text-center mt-12">Select a MIB node and click Go to query the Target.</p>
     {:else if sortedRows.length === 0}
@@ -721,9 +774,13 @@
         <span class="text-accent">{gridMissingCells} missing cell(s)</span>
       {/if}
     </div>
-  {:else if bindings.length > 0}
+  {:else if bindings.length > 0 || isSubtreeView}
     <div data-testid="results-footer" class="px-4 py-2 text-xs text-base-content/60 border-t border-base-300 bg-base-100 flex justify-between">
-      <span>{sortedRows.length} of {bindings.length} bindings</span>
+      {#if isSubtreeView}
+        <span>{filteredSubtreeNodes.length} of {(subtreeNodes ?? []).length} nodes</span>
+      {:else}
+        <span>{sortedRows.length} of {bindings.length} bindings</span>
+      {/if}
       {#if results?.retries && results.retries > 0}
         <span>{results.retries} retries</span>
       {/if}
