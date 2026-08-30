@@ -69,6 +69,7 @@
     try {
       const { mibTree } = await import("$lib/tauriCommands");
       S.treeData = await mibTree();
+      S.treeVersion++;
     } catch (err) {
       console.error("Failed to load tree:", err);
     }

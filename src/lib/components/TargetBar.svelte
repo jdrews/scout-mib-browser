@@ -120,6 +120,9 @@
     inputValue = `${item.oid}  ${item.name}`;
     hideAutocomplete();
     trySelectInTree(item.oid);
+    // An autocomplete pick is a selection — report it in the inspector.
+    S.inspectorOid = item.oid;
+    S.inspectorValue = null;
   }
 
   function trySelectInTree(oid: string) {

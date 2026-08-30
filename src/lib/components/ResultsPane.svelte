@@ -1,7 +1,7 @@
 <script lang="ts">
   import { ArrowDown, ArrowUp, ArrowUpDown, Trash2, TriangleAlert, WrapText } from "lucide-svelte";
   import { S, clearResults } from "$lib/stores.svelte";
-  import type { VariableBinding, SnmpValue, ResultSet, TreeNode, TableResult, TableRowData, TableCell, TableIndexColumn } from "$lib/types";
+  import type { VariableBinding, SnmpValue, ResultSet, TreeNode, TableResult, TableRowData, TableCell, TableIndexColumn, ResultRow } from "$lib/types";
   import type { ExportFormat } from "$lib/export";
   import * as exportMod from "$lib/export";
   import { saveToFile } from "$lib/tauriCommands";
@@ -128,7 +128,7 @@
     return "UNKNOWN";
   }
 
-  let rows = $derived(bindings.map(b => {
+  let rows = $derived<ResultRow[]>(bindings.map((b): ResultRow => {
     const resolved = resolveOidName(b.oid);
     return {
       oid: b.oid,
@@ -145,7 +145,7 @@
   let filterLower = $derived(filterText.toLowerCase());
 
   let filteredRows = $derived(filterText
-    ? rows.filter((r: typeof rows[number]) =>
+    ? rows.filter((r: ResultRow) =>
         r.oid.toLowerCase().includes(filterLower) ||
         r.displayName.toLowerCase().includes(filterLower) ||
         r.fullPath.toLowerCase().includes(filterLower) ||
@@ -168,6 +168,22 @@
       sortColumn = col;
       sortAsc = true;
     }
+  }
+
+  // ── Inspector integration ──────────────────────────────────────────────────
+  // Clicking a Variable Binding in the flat list, or a cell in the grid,
+  // points the Inspector at that OID and hands it the live value.
+
+  function selectResultRow(row: ResultRow) {
+    S.inspectorOid = row.fullPath;
+    S.inspectorValue = { text: row.value, typeLabel: row.type };
+  }
+
+  function selectGridCell(colOid: string, cell: TableCell) {
+    S.inspectorOid = colOid;
+    S.inspectorValue = cell.value
+      ? { text: exportMod.valueDisplay(cell.value.value), typeLabel: typeLabel(cell.value.value) }
+      : null;
   }
 
   let hasWarnings = $derived(results?.warnings && results.warnings.length > 0);
@@ -589,7 +605,14 @@
                 </th>
               {/if}
               {#each visibleGridColumns as colOid (colOid)}
-                <th data-grid-col={colOid} class="sticky top-0 z-20 bg-base-100 px-2 py-1.5 text-xs cursor-pointer select-none relative" style="{overrideCss(colOid)}" onclick={() => toggleGridSort(colOid)}>
+                <th
+                  data-grid-col={colOid}
+                  class="sticky top-0 z-20 px-2 py-1.5 text-xs cursor-pointer select-none relative"
+                  class:bg-base-100={colOid !== S.inspectorOid}
+                  class:inspector-col-selected={colOid === S.inspectorOid}
+                  style="{overrideCss(colOid)}"
+                  onclick={() => toggleGridSort(colOid)}
+                >
                   <span class="flex items-center gap-1">
                     <span class="truncate">{columnName(colOid)}</span>
                     {#if gridSortKey === colOid}{#if gridSortDir === 1}<ArrowUp class="w-3 h-3 shrink-0" />{:else}<ArrowDown class="w-3 h-3 shrink-0" />{/if}{:else}<ArrowUpDown class="w-3 h-3 shrink-0 opacity-40" />{/if}
@@ -614,7 +637,13 @@
                 {/if}
                 {#each visibleGridColumns as colOid (colOid)}
                   {@const cell = row.cells[colOid]}
-                  <td class="px-2 font-mono text-[13px] {cell.missing ? 'text-accent' : ''} {gridColWidths[colOid] ? 'overflow-hidden text-ellipsis whitespace-nowrap' : ''}" style="{overrideCss(colOid)}">
+                  <td
+                    class="px-2 font-mono text-[13px] cursor-pointer hover:bg-base-200/70 {cell.missing ? 'text-accent' : ''} {gridColWidths[colOid] ? 'overflow-hidden text-ellipsis whitespace-nowrap' : ''}"
+                    class:inspector-col-selected={colOid === S.inspectorOid}
+                    style="{overrideCss(colOid)}"
+                    title="Click to inspect {columnName(colOid)}"
+                    onclick={() => selectGridCell(colOid, cell)}
+                  >
                     {#if cell.missing}
                       <span class="text-base-content/60 italic flex items-center gap-1">— missing <TriangleAlert class="w-3 h-3 shrink-0" /></span>
                     {:else if cell.value}
@@ -663,7 +692,14 @@
         </div>
 
         {#each sortedRows as row (row.oid)}
-          <div data-testid="result-row" class="flex border-b border-base-300 {row.warning ? 'text-accent' : ''}" style="min-width: max-content;">
+          <div
+            data-testid="result-row"
+            class="flex border-b border-base-300 cursor-pointer hover:bg-base-200/70 {row.warning ? 'text-accent' : ''}"
+            class:inspector-selected={row.fullPath === S.inspectorOid}
+            style="min-width: max-content;"
+            title="Click to inspect"
+            onclick={() => selectResultRow(row)}
+          >
             <div class="px-2 py-1 truncate font-mono text-[13px] relative" style="width: {colOid}px; min-width: {COL_MIN_OID}px; max-width: {COL_MAX_OID}px;" title="{row.fullPath}\n{row.oid}">
               {showResolvedNames ? row.displayName : row.oid}
             </div>
@@ -694,3 +730,14 @@
     </div>
   {/if}
 </div>
+
+<style>
+  /* Row/column highlighted while the inspector reports on it. */
+  .inspector-selected {
+    background-color: oklch(var(--p) / 0.12);
+    box-shadow: inset 2px 0 0 oklch(var(--p));
+  }
+  .inspector-col-selected {
+    background-color: oklch(var(--p) / 0.15);
+  }
+</style>

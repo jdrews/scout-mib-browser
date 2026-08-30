@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tauri dev",
+    "dev": "tauri dev --features scout-mib-browser/wdio",
     "build": "tauri build",
     "dev:web": "vite",
     "build:web": "vite build",

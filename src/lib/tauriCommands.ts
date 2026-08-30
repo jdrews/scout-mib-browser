@@ -20,6 +20,7 @@ import type {
   TableInfo,
   TableResult,
   LogEntry,
+  MibNodeDetails,
 } from "./types";
 
 /** Reads the application configuration. */
@@ -236,6 +237,12 @@ export async function mibTableColumns(tableOid: string): Promise<string[]> {
  * OID is not a known table. */
 export async function mibTableInfo(tableOid: string): Promise<TableInfo | null> {
   return invoke("mib_table_info", { tableOid });
+}
+
+/** Returns full inspector details for an OID (longest-prefix resolved), or
+ * null when the OID matches no loaded MIB node. */
+export async function mibNodeDetails(oid: string): Promise<MibNodeDetails | null> {
+  return invoke("mib_node_details", { oid });
 }
 
 /** Returns all OID → name pairs from the loaded MIB index. */

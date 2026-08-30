@@ -17,6 +17,28 @@
   // Roving tabindex: exactly one treeitem in the tree holds tabindex=0.
   let tabIndex = $derived(S.treeFocusOid === node.oid ? 0 : -1);
 
+  // When the tree is rebuilt (MIB unloaded / directory added), this branch's
+  // cached children may be stale or gone entirely — refetch so ghost nodes
+  // don't linger under an expanded branch. Plain (non-reactive) guard: the
+  // effect re-runs when loading/loaded change mid-fetch, but only a version
+  // bump should trigger work.
+  let lastSeenVersion = 0;
+  $effect(() => {
+    const version = S.treeVersion;
+    if (version === lastSeenVersion) return;
+    lastSeenVersion = version;
+    if (!hasChildren) {
+      expanded = false;
+      childrenList = [];
+      loaded = false;
+      return;
+    }
+    if (loaded && !loading) {
+      loaded = false;
+      loadChildren();
+    }
+  });
+
   let truncatedOid = $derived(truncateOid(node.oid));
 
   function truncateOid(oid: string): string {
@@ -54,6 +76,9 @@
     S.selectedNode = node;
     S.targetOidFromTree = node.oid;
     S.treeFocusOid = node.oid;
+    // Tree selections carry no live value — clear any from a prior result pick.
+    S.inspectorOid = node.oid;
+    S.inspectorValue = null;
   }
 
   /** Row click selects; branch nodes also expand (never collapse — selecting a

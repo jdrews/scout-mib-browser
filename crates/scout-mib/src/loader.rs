@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
 use super::{
-    oid_numeric_cmp, IndexColumn, IndexEncoding, LoadResult, MibNode, SyntaxType, TableInfo,
+    oid_numeric_cmp, IndexColumn, IndexEncoding, LoadResult, MibNode, NamedValueInfo, SyntaxType,
+    TableInfo,
 };
 
 /// Primary MIB loader using the mib-rs crate.
@@ -113,6 +114,36 @@ impl MibRsLoader {
                             syntax_type,
                             mib_name: module.name().to_string(),
                             is_table,
+                            description: Self::non_empty(obj.description()),
+                            access: Some(obj.access().to_string()),
+                            status: Some(obj.status().to_string()),
+                            units: Self::non_empty(obj.units()),
+                            default_value: obj
+                                .default_value()
+                                .filter(|d| !d.is_unset())
+                                .map(|d| d.raw().to_string()),
+                            reference: Self::non_empty(obj.reference()),
+                            display_hint: Self::non_empty(obj.effective_display_hint()),
+                            constraints: Self::format_constraints(
+                                obj.effective_ranges(),
+                                obj.effective_sizes(),
+                            ),
+                            enums: obj
+                                .effective_enums()
+                                .iter()
+                                .map(|n| NamedValueInfo {
+                                    label: n.label.clone(),
+                                    value: n.value,
+                                })
+                                .collect(),
+                            bits: obj
+                                .effective_bits()
+                                .iter()
+                                .map(|n| NamedValueInfo {
+                                    label: n.label.clone(),
+                                    value: n.value,
+                                })
+                                .collect(),
                         });
                     }
 
@@ -128,7 +159,10 @@ impl MibRsLoader {
                                 name,
                                 syntax_type: SyntaxType::ObjectIdentifier,
                                 mib_name: module.name().to_string(),
-                                is_table: false,
+                                description: Self::non_empty(node.description()),
+                                reference: Self::non_empty(node.reference()),
+                                status: node.status().map(|s| s.to_string()),
+                                ..Default::default()
                             });
                         }
                     }
@@ -283,6 +317,27 @@ impl MibRsLoader {
             index_columns,
             column_oids,
         })
+    }
+
+    /// Wraps non-empty clause text in `Some`, empty in `None`.
+    fn non_empty(s: &str) -> Option<String> {
+        (!s.is_empty()).then(|| s.to_string())
+    }
+
+    /// Formats value constraints from SYNTAX ranges and SIZE clauses, e.g.
+    /// `"1..255"`, `"SIZE (0..32)"`, or both joined by `", "`.
+    fn format_constraints(
+        ranges: &[mib_rs::mib::types::Range],
+        sizes: &[mib_rs::mib::types::Range],
+    ) -> Option<String> {
+        let mut parts = Vec::new();
+        for r in ranges {
+            parts.push(format!("{}..{}", r.min, r.max));
+        }
+        for s in sizes {
+            parts.push(format!("SIZE ({}..{})", s.min, s.max));
+        }
+        (!parts.is_empty()).then(|| parts.join(", "))
     }
 
     /// Maps a mib-rs [`BaseType`] to our [`SyntaxType`].
@@ -946,9 +1001,138 @@ END
 
         let _ = std::fs::remove_dir_all(&tmp_dir);
     }
-    /// The e2e grid specs depend on test/mibs/SYNTH-TABLE-MIB (Integer +
-    /// IpAddress index, IMPLIED component). Guard the fixture: if mib-rs
-    /// stops extracting its tables, the e2e tree tests fail obscurely.
+    #[test]
+    fn load_rich_mib_extracts_inspector_details() {
+        let tmp_dir = std::env::temp_dir().join("scout_loader_details_test");
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        std::fs::create_dir_all(&tmp_dir).unwrap();
+
+        let mib_content = r#"DETAILS-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, Integer32, enterprises
+        FROM SNMPv2-SMI;
+
+detailsMib MODULE-IDENTITY
+    LAST-UPDATED "202601010000Z"
+    ORGANIZATION "Test"
+    CONTACT-INFO "test@test.com"
+    DESCRIPTION "A module with rich clause coverage."
+    ::= { enterprises 99995 }
+
+detailsObjects OBJECT IDENTIFIER ::= { detailsMib 1 }
+
+MyString ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "255a"
+    STATUS current
+    DESCRIPTION "A display-hinted string."
+    SYNTAX OCTET STRING (SIZE (0..255))
+
+TestMode ::= INTEGER {
+    on(1),
+    off(0),
+    auto(2)
+}
+
+TestFlags ::= BIT STRING {
+    flagA(0),
+    flagB(1)
+}
+
+testName OBJECT-TYPE
+    SYNTAX MyString
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "A name."
+    ::= { detailsObjects 1 }
+
+testMode OBJECT-TYPE
+    SYNTAX TestMode
+    UNITS "cycles"
+    MAX-ACCESS read-write
+    STATUS deprecated
+    DESCRIPTION "A mode selector."
+    REFERENCE "RFC 1213, MIB-II"
+    DEFVAL { off }
+    ::= { detailsObjects 2 }
+
+testFlags OBJECT-TYPE
+    SYNTAX TestFlags
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "Flag bits."
+    ::= { detailsObjects 3 }
+
+testBounded OBJECT-TYPE
+    SYNTAX Integer32 (1..255)
+    MAX-ACCESS not-accessible
+    STATUS obsolete
+    DESCRIPTION "A bounded integer."
+    ::= { detailsObjects 4 }
+
+END
+"#;
+
+        let mib_path = tmp_dir.join("DETAILS-MIB.txt");
+        std::fs::write(&mib_path, mib_content).unwrap();
+
+        let mut loader = MibRsLoader::new();
+        let result = loader.load_file(&mib_path).expect("should load");
+        assert!(result.primary_success);
+
+        let by_name = |name: &str| -> &MibNode {
+            result
+                .nodes
+                .iter()
+                .find(|n| n.name == name)
+                .unwrap_or_else(|| panic!("node {} not found", name))
+        };
+
+        // TC display hint + SIZE constraint flow through to the object.
+        let name_node = by_name("testName");
+        assert_eq!(name_node.display_hint.as_deref(), Some("255a"));
+        assert_eq!(name_node.constraints.as_deref(), Some("SIZE (0..255)"));
+        assert_eq!(name_node.access.as_deref(), Some("read-only"));
+        assert_eq!(name_node.status.as_deref(), Some("current"));
+        assert_eq!(name_node.description.as_deref(), Some("A name."));
+
+        // Enum, units, reference, defval, and a non-current status.
+        let mode_node = by_name("testMode");
+        assert_eq!(mode_node.access.as_deref(), Some("read-write"));
+        assert_eq!(mode_node.status.as_deref(), Some("deprecated"));
+        assert_eq!(mode_node.units.as_deref(), Some("cycles"));
+        assert_eq!(mode_node.reference.as_deref(), Some("RFC 1213, MIB-II"));
+        assert_eq!(mode_node.default_value.as_deref(), Some("off"));
+        let enum_labels: Vec<&str> = mode_node.enums.iter().map(|e| e.label.as_str()).collect();
+        assert_eq!(enum_labels, vec!["on", "off", "auto"]);
+        assert_eq!(mode_node.enums[0].value, 1);
+        assert_eq!(mode_node.enums[2].value, 2);
+
+        // mib-rs 0.8 does not parse the standard SMIv2 `BIT STRING` type
+        // syntax (only a non-standard `BITS` keyword), so a BIT STRING
+        // typedef degrades to an unknown base type and its named bits are
+        // unavailable. The node itself must still be present — the inspector
+        // shows whatever was resolved.
+        let flags_node = by_name("testFlags");
+        assert!(matches!(flags_node.syntax_type, SyntaxType::Unknown(_)));
+        assert!(flags_node.bits.is_empty());
+
+        // Numeric range constraint.
+        let bounded_node = by_name("testBounded");
+        assert_eq!(bounded_node.constraints.as_deref(), Some("1..255"));
+        assert_eq!(bounded_node.access.as_deref(), Some("not-accessible"));
+        assert_eq!(bounded_node.status.as_deref(), Some("obsolete"));
+
+        // OBJECT IDENTIFIER subtrees carry description/status/reference too.
+        let subtree = by_name("detailsObjects");
+        assert_eq!(subtree.syntax_type, SyntaxType::ObjectIdentifier);
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    /// The e2e grid and inspector specs depend on test/mibs/SYNTH-TABLE-MIB
+    /// (Integer + IpAddress index, IMPLIED component, long enum). Guard the
+    /// fixture: if mib-rs stops extracting its tables or enums, the e2e tests
+    /// fail obscurely.
     #[test]
     fn synth_table_mib_fixture_extracts_expected_tables() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -985,5 +1169,16 @@ END
             "second component must be IMPLIED"
         );
         assert_eq!(imp.column_oids.len(), 1, "one accessible column");
+
+        // The inspector e2e spec depends on synthState's enum list.
+        let state = result
+            .nodes
+            .iter()
+            .find(|n| n.name == "synthState")
+            .expect("synthState node");
+        assert_eq!(state.enums.len(), 6, "all six enum values must extract");
+        assert_eq!(state.enums[0].label, "unknown");
+        assert_eq!(state.enums[0].value, 0);
+        assert_eq!(state.enums.last().unwrap().label, "error");
     }
 }

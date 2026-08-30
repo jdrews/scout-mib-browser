@@ -46,6 +46,52 @@ fn syntax_re() -> &'static regex::Regex {
     })
 }
 
+/// A quoted MIB string value, spanning lines and tolerating escaped quotes.
+static QUOTED_STRING_RE: OnceLock<regex::Regex> = OnceLock::new();
+fn quoted_string_re() -> &'static regex::Regex {
+    QUOTED_STRING_RE.get_or_init(|| regex::Regex::new(r#""((?:[^"\\]|\\.)*)""#).unwrap())
+}
+
+static DESCRIPTION_RE: OnceLock<regex::Regex> = OnceLock::new();
+fn description_re() -> &'static regex::Regex {
+    DESCRIPTION_RE.get_or_init(|| regex::Regex::new(r#"(?is)\bDESCRIPTION\s+"#).unwrap())
+}
+
+static MAX_ACCESS_RE: OnceLock<regex::Regex> = OnceLock::new();
+fn max_access_re() -> &'static regex::Regex {
+    MAX_ACCESS_RE.get_or_init(|| {
+        // SMIv2 MAX-ACCESS first; SMIv1 ACCESS as a secondary match.
+        regex::Regex::new(r"(?i)\bMAX-ACCESS\s+([a-z][a-z0-9-]*)|\bACCESS\s+([a-z]+)").unwrap()
+    })
+}
+
+static STATUS_RE: OnceLock<regex::Regex> = OnceLock::new();
+fn status_re() -> &'static regex::Regex {
+    STATUS_RE.get_or_init(|| regex::Regex::new(r"(?i)\bSTATUS\s+([a-z]+)").unwrap())
+}
+
+static UNITS_RE: OnceLock<regex::Regex> = OnceLock::new();
+fn units_re() -> &'static regex::Regex {
+    UNITS_RE.get_or_init(|| regex::Regex::new(r#"(?is)\bUNITS\s+"#).unwrap())
+}
+
+static REFERENCE_RE: OnceLock<regex::Regex> = OnceLock::new();
+fn reference_re() -> &'static regex::Regex {
+    REFERENCE_RE.get_or_init(|| {
+        // References are either a quoted string or a bracketed list like [1].
+        regex::Regex::new(r#"(?is)\bREFERENCE\s+("((?:[^"\\]|\\.)*)"|\[([^\]]*)\])"#).unwrap()
+    })
+}
+
+static DEFVAL_RE: OnceLock<regex::Regex> = OnceLock::new();
+fn defval_re() -> &'static regex::Regex {
+    DEFVAL_RE.get_or_init(|| {
+        // Best effort: a quoted string (kept as written) or the value up to
+        // end of line / closing brace.
+        regex::Regex::new(r#"(?i)\bDEFVAL\s+\{?\s*("(?:[^"\\]|\\.)*"|[^}\n]+)"#).unwrap()
+    })
+}
+
 static OID_FROM_ASSIGNMENT_RE: OnceLock<regex::Regex> = OnceLock::new();
 fn oid_from_assignment_re() -> &'static regex::Regex {
     OID_FROM_ASSIGNMENT_RE.get_or_init(|| {
@@ -273,16 +319,79 @@ impl FallbackExtractor {
                 _ => format!(".fallback.{}", block.name),
             };
 
+            // Clause text lives before the `::=` assignment; scanning only
+            // that head keeps a following TEXTUAL-CONVENTION's DESCRIPTION
+            // from leaking into this object (blocks run to the next header).
+            let head = block.body.split("::=").next().unwrap_or(&block.body);
+            // Keyword clauses (ACCESS/STATUS) match on string-stripped text so
+            // a description mentioning e.g. "MAX-ACCESS" can't mislead them.
+            let clause_head = Self::strip_quoted_strings(head);
+
             nodes.push(MibNode {
                 oid,
                 name: block.name.clone(),
                 syntax_type,
                 mib_name: mib_name.to_string(),
                 is_table,
+                description: Self::extract_quoted_clause(head, description_re()),
+                access: Self::extract_access(&clause_head),
+                status: status_re()
+                    .captures(&clause_head)
+                    .and_then(|c| c.get(1))
+                    .map(|m| m.as_str().to_string()),
+                units: Self::extract_quoted_clause(head, units_re()),
+                default_value: defval_re()
+                    .captures(head)
+                    .and_then(|c| c.get(1))
+                    .map(|m| m.as_str().trim().to_string()),
+                reference: Self::extract_reference(head),
+                ..Default::default()
             });
         }
 
         nodes
+    }
+
+    /// Extracts a quoted string value following a clause keyword (the regex
+    /// must end right at the opening quote).
+    fn extract_quoted_clause(body: &str, clause_re: &regex::Regex) -> Option<String> {
+        let caps = clause_re.captures(body)?;
+        let rest = &body[caps.get(0)?.end()..];
+        quoted_string_re()
+            .captures(rest)
+            .and_then(|c| c.get(1))
+            .map(|m| m.as_str().to_string())
+    }
+
+    /// Replaces quoted string contents with spaces (offsets preserved), so
+    /// keyword regexes can't match text inside DESCRIPTION/UNITS values.
+    fn strip_quoted_strings(body: &str) -> String {
+        let mut out = String::with_capacity(body.len());
+        let mut rest = body;
+        while let Some(m) = quoted_string_re().find(rest) {
+            out.push_str(&rest[..m.start()]);
+            out.push_str(&" ".repeat(m.end() - m.start()));
+            rest = &rest[m.end()..];
+        }
+        out.push_str(rest);
+        out
+    }
+
+    /// MAX-ACCESS (SMIv2) or ACCESS (SMIv1) label, best effort.
+    fn extract_access(body: &str) -> Option<String> {
+        let caps = max_access_re().captures(body)?;
+        caps.get(1)
+            .or_else(|| caps.get(2))
+            .map(|m| m.as_str().to_string())
+    }
+
+    /// REFERENCE clause: a quoted string or a bracketed list like `[1]`.
+    fn extract_reference(body: &str) -> Option<String> {
+        let caps = reference_re().captures(body)?;
+        if let Some(g) = caps.get(2) {
+            return Some(g.as_str().to_string());
+        }
+        caps.get(3).map(|m| format!("[{}]", m.as_str()))
     }
 
     /// Extracts OBJECT-TYPE definitions using regex (test-facing convenience).
@@ -333,7 +442,7 @@ impl FallbackExtractor {
                 name,
                 syntax_type: super::SyntaxType::ObjectIdentifier,
                 mib_name: mib_name.to_string(),
-                is_table: false,
+                ..Default::default()
             });
         }
 
@@ -664,6 +773,105 @@ END
         assert!(
             !names.contains(&&"This".to_string()),
             "comment keyword leaked into nodes"
+        );
+    }
+
+    /// The fallback path must recover the inspector clauses (best effort)
+    /// from a well-formed-enough OBJECT-TYPE block.
+    #[test]
+    fn extract_object_type_clauses() {
+        let content = r#"VENDOR-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    OBJECT-TYPE, enterprises FROM SNMPv2-SMI;
+
+vendorMib MODULE-IDENTITY
+    ::= { enterprises 99997 }
+
+devObjects OBJECT IDENTIFIER ::= { vendorMib 1 }
+
+devTemp OBJECT-TYPE
+    SYNTAX Integer32 (0..100)
+    MAX-ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION "The device temperature.
+        A second line in the description."
+    UNITS "degrees C"
+    REFERENCE [1]
+    DEFVAL { 0 }
+    ::= { devObjects 1 }
+
+END
+"#;
+
+        let nodes = FallbackExtractor::extract_object_types(content, "VENDOR-MIB");
+        let node = nodes
+            .iter()
+            .find(|n| n.name == "devTemp")
+            .expect("devTemp node");
+
+        assert_eq!(node.access.as_deref(), Some("read-only"));
+        assert_eq!(node.status.as_deref(), Some("deprecated"));
+        assert!(
+            node.description
+                .as_deref()
+                .is_some_and(|d| d.starts_with("The device temperature.")),
+            "multi-line description: {:?}",
+            node.description
+        );
+        assert_eq!(node.units.as_deref(), Some("degrees C"));
+        assert_eq!(node.reference.as_deref(), Some("[1]"));
+        assert_eq!(node.default_value.as_deref(), Some("0"));
+    }
+
+    /// Clause keywords inside a DESCRIPTION string must not be mistaken for
+    /// real clauses of the object.
+    #[test]
+    fn clause_keywords_inside_description_do_not_leak() {
+        let content = r#"VENDOR-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    OBJECT-TYPE, enterprises FROM SNMPv2-SMI;
+
+vendorMib MODULE-IDENTITY
+    ::= { enterprises 99997 }
+
+tricky OBJECT-TYPE
+    SYNTAX Integer32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "Set STATUS obsolete and MAX-ACCESS write-only to disable."
+    ::= { vendorMib 1 }
+
+END
+"#;
+
+        let nodes = FallbackExtractor::extract_object_types(content, "VENDOR-MIB");
+        let node = nodes
+            .iter()
+            .find(|n| n.name == "tricky")
+            .expect("tricky node");
+
+        assert_eq!(node.access.as_deref(), Some("read-only"));
+        assert_eq!(node.status.as_deref(), Some("current"));
+    }
+
+    /// Consecutive quoted strings must not duplicate the text between them,
+    /// and character offsets must be preserved.
+    #[test]
+    fn strip_quoted_strings_keeps_offsets_and_no_duplication() {
+        let input = "DESCRIPTION \"a\" STATUS current UNITS \"b\"";
+        let stripped = FallbackExtractor::strip_quoted_strings(input);
+
+        assert_eq!(stripped.len(), input.len(), "offsets must be preserved");
+        assert_eq!(
+            stripped.find("STATUS"),
+            Some(input.find("STATUS").unwrap()),
+            "keyword position must not shift"
+        );
+        assert_eq!(
+            stripped.matches("STATUS current").count(),
+            1,
+            "text between quoted strings must appear exactly once: {:?}",
+            stripped
         );
     }
 

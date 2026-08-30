@@ -255,6 +255,7 @@ fn main() {
             mib_loaded_list,
             mib_table_columns,
             mib_table_info,
+            mib_node_details,
             mib_oid_name_map,
             snmp_connect,
             snmp_get,
@@ -391,6 +392,17 @@ fn mib_table_info(
 ) -> Result<Option<mib::TableInfo>, String> {
     let res = resolver.inner.read().map_err(|e| e.to_string())?;
     Ok(res.get_table_info(&table_oid).cloned())
+}
+
+/// Returns full inspector details for an OID (longest-prefix resolved), or
+/// `None` when the OID matches no loaded MIB node.
+#[tauri::command]
+fn mib_node_details(
+    resolver: tauri::State<MibResolverState>,
+    oid: String,
+) -> Result<Option<mib::NodeDetails>, String> {
+    let res = resolver.inner.read().map_err(|e| e.to_string())?;
+    Ok(res.node_details(&oid))
 }
 
 /// Returns all OID → name pairs for frontend resolution.

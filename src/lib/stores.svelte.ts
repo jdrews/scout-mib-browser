@@ -1,4 +1,4 @@
-import type { TreeNode, MibSearchResult, TargetConfig, ConnectionState, SnmpOperation, ResultSet, VariableBinding, TableInfo, TableResult, LogEntry, LogLevel } from "./types";
+import type { TreeNode, MibSearchResult, TargetConfig, ConnectionState, SnmpOperation, ResultSet, VariableBinding, TableInfo, TableResult, LogEntry, LogLevel, InspectorValue } from "./types";
 
 // ── Single reactive app state (Svelte 5 deep reactivity) ──────────────────────
 
@@ -11,6 +11,10 @@ const raw = $state({
   // persisted — a broken MIB is still broken at next launch.
   fallbackBannerDismissed: false,
   treeData: [] as TreeNode[],
+  // Bumped every time the tree is rebuilt (startup, add directory, unload).
+  // Expanded branches watch it to refetch children, so nodes that vanished
+  // from a previously expanded subtree don't linger as ghosts.
+  treeVersion: 0,
   contextMenuTarget: null as { node: TreeNode; x: number; y: number } | null,
   statusText: "Ready",
   nodeCount: 0,
@@ -50,6 +54,15 @@ const raw = $state({
   oidNameMap: new Map<string, string>(),
   mibPanelWidth: typeof localStorage !== "undefined" ? parseInt(localStorage.getItem("scout-mib-width") || "320", 10) : 320,
   systemLogHeight: typeof localStorage !== "undefined" ? parseInt(localStorage.getItem("scout-log-height") || "200", 10) : 200,
+  // Inspector pane: open by default (UX choice), collapsed state persisted so a
+  // user who closed it gets it back closed on next launch.
+  inspectorOpen: typeof localStorage === "undefined" || localStorage.getItem("scout-inspector-open") !== "false",
+  inspectorHeight: typeof localStorage !== "undefined" ? parseInt(localStorage.getItem("scout-inspector-height") || "240", 10) : 240,
+  // The OID the inspector reports on. Set by tree selection, address-bar
+  // autocomplete picks, and result row/cell clicks (the latter also set
+  // inspectorValue with the live value from the Result Set).
+  inspectorOid: null as string | null,
+  inspectorValue: null as InspectorValue | null,
 });
 
 // ── Persistence proxy (avoids $effect which can't run at module level) ─────────
@@ -58,6 +71,8 @@ const persistKeys: Record<string, string> = {
   currentTheme: "scout-theme",
   mibPanelWidth: "scout-mib-width",
   systemLogHeight: "scout-log-height",
+  inspectorOpen: "scout-inspector-open",
+  inspectorHeight: "scout-inspector-height",
 };
 
 export function clearResults() {
