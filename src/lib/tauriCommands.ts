@@ -46,6 +46,11 @@ export async function mibChildren(oid: string): Promise<TreeNode[]> {
   return invoke("mib_children", { oid });
 }
 
+/** Returns all MIB nodes under the given OID — the subtree in tree order. */
+export async function mibSubtree(oid: string): Promise<TreeNode[]> {
+  return invoke("mib_subtree", { oid });
+}
+
 /** Searches for MIB nodes matching the given query (autocomplete). */
 export async function mibSearch(query: string): Promise<MibSearchResult[]> {
   return invoke("mib_search", { query });

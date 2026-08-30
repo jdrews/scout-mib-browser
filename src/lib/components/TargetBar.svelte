@@ -29,7 +29,7 @@
   // True while a Get Table run is in flight (drives the Stop status message).
   let tableRunActive = $state(false);
 
-  const operations: SnmpOperation[] = ["get", "getNext", "walk", "bulkWalk", "getTable", "set"];
+  const operations: SnmpOperation[] = ["get", "getNext", "walk", "bulkWalk", "getTable", "set", "getSubtree"];
 
   const operationLabels: Record<SnmpOperation, string> = {
     get: "Get",
@@ -38,6 +38,7 @@
     bulkWalk: "Bulk Walk",
     getTable: "Get Table",
     set: "Set",
+    getSubtree: "Get Subtree",
   };
 
   function onHostInput(e: Event) {
@@ -198,6 +199,12 @@
       return;
     }
 
+    // Get Subtree is a local MIB query — no Target required.
+    if (operation === "getSubtree") {
+      await executeGetSubtree(effectiveOid);
+      return;
+    }
+
     // Table Get guard: getting a table's raw OID only surfaces noSuchObject
     // noise — point the user at the operations that make sense. Covers both
     // tree selections and typed OIDs/names (resolved via mib_resolve_oid).
@@ -245,6 +252,7 @@
     S.executionBindings.length = 0;
     S.executionResults = null;
     S.tableResult = null;
+    S.subtreeNodes = null;
     S.walkProgress = "";
     S.queryRootOid = oid;
     isWalkActive = false;
@@ -365,6 +373,7 @@
     S.executionResults = null;
     S.tableInfo = info;
     S.tableResult = null;
+    S.subtreeNodes = null;
     S.walkProgress = "";
     S.queryRootOid = oid;
     isWalkActive = false;
@@ -409,6 +418,31 @@
       tableRunActive = false;
       S.statusText = `Table error: ${err}`;
       S.tableResult = null;
+    } finally {
+      S.isExecuting = false;
+    }
+  }
+
+  /** Get Subtree: a local query of the MIB tree hierarchy — lists every node
+   *  under the OID in tree order. No Target involved. */
+  async function executeGetSubtree(oid: string) {
+    S.isExecuting = true;
+    S.executionBindings.length = 0;
+    S.executionResults = null;
+    S.tableResult = null;
+    S.walkProgress = "";
+    S.queryRootOid = oid;
+    S.statusText = `Loading subtree for ${oid}...`;
+
+    try {
+      const cmds = await import("$lib/tauriCommands");
+      const nodes = await cmds.mibSubtree(oid);
+      S.subtreeNodes = nodes;
+      S.statusText = `Get Subtree complete: ${nodes.length} node(s) under ${oid}`;
+    } catch (err) {
+      console.error("Subtree retrieval failed:", err);
+      S.subtreeNodes = [];
+      S.statusText = `Subtree error: ${err}`;
     } finally {
       S.isExecuting = false;
     }
