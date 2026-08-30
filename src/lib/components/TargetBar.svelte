@@ -34,13 +34,14 @@
   // selection, typed OID, or a different operation) begins a fresh sequence.
   let getNextCursor = $state<string | null>(null);
 
-  const operations: SnmpOperation[] = ["get", "getNext", "walk", "bulkWalk", "getTable", "set", "getSubtree"];
+  // Dropdown order is alphabetical by label.
+  const operations: SnmpOperation[] = ["get", "getNext", "getSubtree", "getTable", "set", "walk", "bulkWalk"];
 
   const operationLabels: Record<SnmpOperation, string> = {
     get: "Get",
     getNext: "Get Next",
     walk: "Walk",
-    bulkWalk: "Bulk Walk",
+    bulkWalk: "Walk (Bulk)",
     getTable: "Get Table",
     set: "Set",
     getSubtree: "Get Subtree",
