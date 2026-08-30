@@ -28,6 +28,11 @@
   let isWalkActive = $state(false);
   // True while a Get Table run is in flight (drives the Stop status message).
   let tableRunActive = $state(false);
+  // Get Next stepping cursor: the OID the last Get Next run returned. A new
+  // run that starts exactly there continues the sequence — its bindings are
+  // appended to the Result Set instead of replacing it. Any other start (new
+  // selection, typed OID, or a different operation) begins a fresh sequence.
+  let getNextCursor = $state<string | null>(null);
 
   const operations: SnmpOperation[] = ["get", "getNext", "walk", "bulkWalk", "getTable", "set", "getSubtree"];
 
@@ -155,6 +160,20 @@
     return parts[0].trim();
   }
 
+  /** Longest-prefix MIB name for an OID (e.g. `…sysDescr.0` -> "sysDescr.0"). */
+  function displayNameForOid(oid: string): string {
+    const parts = oid.split(".");
+    for (let i = parts.length; i > 1; i--) {
+      const prefix = parts.slice(0, i).join(".");
+      if (S.oidNameMap.has(prefix)) {
+        const suffix = parts.slice(i).join(".");
+        const baseName = S.oidNameMap.get(prefix)!;
+        return suffix ? `${baseName}.${suffix}` : baseName;
+      }
+    }
+    return oid;
+  }
+
   /** Resolves the typed value to an unambiguous OID: numeric OIDs pass
    *  through; MIB names must match exactly (case-insensitive). */
   async function resolveEffectiveOid(val: string): Promise<string | null> {
@@ -249,7 +268,13 @@
     }
 
     S.isExecuting = true;
-    S.executionBindings.length = 0;
+    // A Get Next run that starts where the last one ended continues the
+    // sequence (appends); every other start replaces the Result Set.
+    const isNextContinuation = op === "getNext" && getNextCursor === oid;
+    if (!isNextContinuation) {
+      S.executionBindings.length = 0;
+      getNextCursor = null;
+    }
     S.executionResults = null;
     S.tableResult = null;
     S.subtreeNodes = null;
@@ -272,9 +297,21 @@
       } else if (op === "getNext") {
         const cmds = await import("$lib/tauriCommands");
         const result = await cmds.snmpGetNext(cfg, [oid]);
-        S.executionBindings.length = 0;
+        // Append: the list was cleared above unless this run continued a
+        // previous Get Next sequence.
         S.executionBindings.push(...result.bindings);
         S.executionResults = result;
+        // Advance the address bar and cursor to the returned OID: a subsequent
+        // Go with Get Next then starts from here, appending the following OID
+        // as another row. A fresh selection (tree click, autocomplete pick, or
+        // typed edit) replaces the bar and restarts the sequence.
+        const lastOid = result.bindings[result.bindings.length - 1]?.oid;
+        if (lastOid) {
+          getNextCursor = lastOid;
+          inputValue = `${lastOid}  ${displayNameForOid(lastOid)}`;
+        } else {
+          getNextCursor = null;
+        }
         S.statusText = `GetNext complete: ${result.bindings.length} binding(s)`;
       } else if (op === "walk" || op === "bulkWalk") {
         const cmds = await import("$lib/tauriCommands");

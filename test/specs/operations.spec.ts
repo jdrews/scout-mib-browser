@@ -3,6 +3,7 @@ import {
   expandTo,
   findTreeNode,
   go,
+  oidInputValue,
   oidIsGreater,
   readAppLog,
   resultsBodyHasText,
@@ -53,6 +54,40 @@ describe("Operations (executions against the mock agent)", () => {
     const returnedOid = (await oidCell.getText()) ?? "";
     expect(returnedOid).toBe("1.3.6.1.2.1.1.1.0");
     expect(oidIsGreater(returnedOid, SYSTEM_OID)).toBe(true);
+
+    // Back to resolved names for later specs.
+    await (await $("[data-testid='names-toggle']")).click();
+  });
+
+  it("Get Next steps forward and appends on each subsequent Go", async () => {
+    // The previous test's GetNext advanced the address bar to sysDescr.0 —
+    // clicking Go again must continue from there, appending the next row
+    // instead of repeating or replacing the result.
+    await go();
+    expect(await waitForStatus(/^GetNext complete: \d+ binding\(s\)$/)).toBe(
+      "GetNext complete: 1 binding(s)"
+    );
+
+    // Raw OIDs so the returned OID is visible in the rows.
+    await (await $("[data-testid='names-toggle']")).click();
+    let rows = await $$("[data-testid='result-row']");
+    // The first run's row (sysDescr.0) is kept; sysObjectID.0 is appended.
+    expect(rows.length).toBe(2);
+    let oidCell = ((await rows[rows.length - 1].$$("div")) as WebdriverIO.Element[])[0];
+    expect((await oidCell.getText()) ?? "").toBe("1.3.6.1.2.1.1.2.0");
+    // The address bar advanced to the returned OID — the new stepping cursor.
+    expect((await oidInputValue()).startsWith("1.3.6.1.2.1.1.2.0")).toBe(true);
+
+    // One more step: sysUpTime.0 follows sysObjectID.0 and is appended too.
+    await go();
+    expect(await waitForStatus(/^GetNext complete: \d+ binding\(s\)$/)).toBe(
+      "GetNext complete: 1 binding(s)"
+    );
+    rows = await $$("[data-testid='result-row']");
+    expect(rows.length).toBe(3);
+    oidCell = ((await rows[rows.length - 1].$$("div")) as WebdriverIO.Element[])[0];
+    expect((await oidCell.getText()) ?? "").toBe("1.3.6.1.2.1.1.3.0");
+    expect((await oidInputValue()).startsWith("1.3.6.1.2.1.1.3.0")).toBe(true);
 
     // Back to resolved names for later specs.
     await (await $("[data-testid='names-toggle']")).click();
