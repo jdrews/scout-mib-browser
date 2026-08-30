@@ -139,6 +139,57 @@ export interface TableInfo {
   columnOids: string[];
 }
 
+/** A named value from a MIB type definition (INTEGER enum or BITS bit). */
+export interface NamedValueInfo {
+  label: string;
+  value: number;
+}
+
+/** Full inspector details for one MIB node (camelCase from serde).
+ * Omitted fields arrive absent — the backend skips null/empty values. */
+export interface MibNodeDetails {
+  oid: string;
+  name: string;
+  mibName: string;
+  /** SYNTAX type label, e.g. "OctetString", "TABLE", "ROW". */
+  syntaxType: string;
+  isTable?: boolean;
+  description?: string;
+  /** MAX-ACCESS label, e.g. "read-only". */
+  access?: string;
+  /** STATUS label, e.g. "current", "deprecated". */
+  status?: string;
+  units?: string;
+  defaultValue?: string;
+  reference?: string;
+  displayHint?: string;
+  /** Value constraints, e.g. "1..255" or "SIZE (0..32)". */
+  constraints?: string;
+  enums?: NamedValueInfo[];
+  bits?: NamedValueInfo[];
+  /** Present when the node is a TABLE container. */
+  table?: TableInfo;
+  /** Present when the node is a row entry of a known table. */
+  indexColumns?: TableIndexColumn[];
+}
+
+/** A live value captured when a result row/cell drives the inspector. */
+export interface InspectorValue {
+  text: string;
+  typeLabel: string;
+}
+
+/** One row of the flat result list: a binding with resolved name and display text. */
+export interface ResultRow {
+  oid: string;
+  displayName: string;
+  /** OID plus any instance suffix, e.g. "1.3.6.1.2.1.1.1.0". */
+  fullPath: string;
+  type: string;
+  value: string;
+  warning: boolean;
+}
+
 /** A single cell in a table grid result. */
 export interface TableCell {
   value?: VariableBinding;

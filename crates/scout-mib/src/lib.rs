@@ -123,10 +123,22 @@ pub struct TableInfo {
     pub column_oids: Vec<String>,
 }
 
+/// A named value from a MIB type definition (INTEGER enum or BITS bit).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NamedValueInfo {
+    /// Textual label as written in the MIB (e.g., `"up"`).
+    pub label: String,
+    /// Integer value associated with the label.
+    pub value: i64,
+}
+
 /// A named entry in a MIB schema file.
 ///
 /// Represents what *could* be queried, not live data. Has an OID, name,
-/// SYNTAX type, and the MIB module it was defined in.
+/// SYNTAX type, and the MIB module it was defined in. The optional detail
+/// fields are populated when the parser provides them (always for mib-rs
+/// loads; best-effort for regex-fallback MIBs).
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MibNode {
@@ -141,6 +153,131 @@ pub struct MibNode {
     /// Whether this node is an SMI TABLE container.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub is_table: bool,
+    /// DESCRIPTION clause text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// MAX-ACCESS (or SMIv1 ACCESS) label, e.g. `"read-only"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access: Option<String>,
+    /// STATUS label, e.g. `"current"` or `"deprecated"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    /// UNITS clause text (e.g., `"seconds"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub units: Option<String>,
+    /// DEFVAL as written in the MIB source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_value: Option<String>,
+    /// REFERENCE clause text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<String>,
+    /// Effective DISPLAY-HINT for the type.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_hint: Option<String>,
+    /// Value constraints from the SYNTAX clause (ranges and/or SIZE),
+    /// e.g. `"1..255"` or `"SIZE (0..32)"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub constraints: Option<String>,
+    /// Named INTEGER values (enum) for the type, in declaration order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub enums: Vec<NamedValueInfo>,
+    /// Named BITS values for the type, in declaration order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bits: Vec<NamedValueInfo>,
+}
+
+impl Default for MibNode {
+    fn default() -> Self {
+        Self {
+            oid: String::new(),
+            name: String::new(),
+            syntax_type: SyntaxType::Unknown("unknown".to_string()),
+            mib_name: String::new(),
+            is_table: false,
+            description: None,
+            access: None,
+            status: None,
+            units: None,
+            default_value: None,
+            reference: None,
+            display_hint: None,
+            constraints: None,
+            enums: Vec::new(),
+            bits: Vec::new(),
+        }
+    }
+}
+
+/// Everything the UI inspector needs to know about one MIB node: its
+/// identity, parsed clauses, and — when applicable — the table metadata it
+/// owns (TABLE) or the index columns of the table it is a row entry of.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeDetails {
+    /// Dotted-decimal OID of the resolved node.
+    pub oid: String,
+    /// Human-readable name.
+    pub name: String,
+    /// MIB module that defines the node.
+    pub mib_name: String,
+    /// SYNTAX type label (e.g., `"OctetString"`, `"TABLE"`).
+    pub syntax_type: String,
+    /// Whether this node is an SMI TABLE container.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub is_table: bool,
+    /// DESCRIPTION clause text.
+    pub description: Option<String>,
+    /// MAX-ACCESS label.
+    pub access: Option<String>,
+    /// STATUS label.
+    pub status: Option<String>,
+    /// UNITS clause text.
+    pub units: Option<String>,
+    /// DEFVAL as written in the MIB source.
+    pub default_value: Option<String>,
+    /// REFERENCE clause text.
+    pub reference: Option<String>,
+    /// Effective DISPLAY-HINT.
+    pub display_hint: Option<String>,
+    /// Value constraints (ranges and/or SIZE).
+    pub constraints: Option<String>,
+    /// Named INTEGER values (enum).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub enums: Vec<NamedValueInfo>,
+    /// Named BITS values.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub bits: Vec<NamedValueInfo>,
+    /// Table metadata, present when the node is a TABLE container.
+    pub table: Option<TableInfo>,
+    /// Index columns of the table this node is a row entry of.
+    pub index_columns: Option<Vec<IndexColumn>>,
+}
+
+impl From<&MibNode> for NodeDetails {
+    /// Copies the node's identity and clause fields. `syntax_type` becomes its
+    /// display label (the UI shows text, not the enum). Table metadata and
+    /// index columns are attached separately by [`Resolver::node_details`].
+    fn from(node: &MibNode) -> Self {
+        Self {
+            oid: node.oid.clone(),
+            name: node.name.clone(),
+            mib_name: node.mib_name.clone(),
+            syntax_type: node.syntax_type.label().to_string(),
+            is_table: node.is_table,
+            description: node.description.clone(),
+            access: node.access.clone(),
+            status: node.status.clone(),
+            units: node.units.clone(),
+            default_value: node.default_value.clone(),
+            reference: node.reference.clone(),
+            display_hint: node.display_hint.clone(),
+            constraints: node.constraints.clone(),
+            enums: node.enums.clone(),
+            bits: node.bits.clone(),
+            table: None,
+            index_columns: None,
+        }
+    }
 }
 
 /// Result of loading a single MIB file.
@@ -390,6 +527,34 @@ impl Resolver {
     /// Returns table metadata for the given table OID, if known.
     pub fn get_table_info(&self, table_oid: &str) -> Option<&TableInfo> {
         self.table_index.get(table_oid)
+    }
+
+    /// Builds full inspector details for the given OID.
+    ///
+    /// Uses longest-prefix resolution like [`resolve`], so instance OIDs
+    /// (e.g. `…ifIndex.1`) report on their base object. Table metadata is
+    /// attached when the resolved node is a TABLE container; index columns
+    /// are attached when it is a row entry of a known table. Returns `None`
+    /// for OIDs with no matching node.
+    pub fn node_details(&self, oid: &str) -> Option<NodeDetails> {
+        let node = self.resolve(oid)?;
+        let mut details = NodeDetails::from(node);
+
+        // TABLE container: attach its parsed metadata (INDEX/AUGMENTS/columns).
+        let is_table_container = node.is_table || matches!(node.syntax_type, SyntaxType::Table);
+        if is_table_container {
+            details.table = self.table_index.get(&node.oid).cloned();
+        } else {
+            // Row entry: the index columns of the table it belongs to (base row
+            // or an augmented one — both appear in `row_entry_oids`).
+            details.index_columns = self
+                .table_index
+                .values()
+                .find(|t| t.row_entry_oids.iter().any(|r| r == &node.oid))
+                .map(|t| t.index_columns.clone());
+        }
+
+        Some(details)
     }
 
     /// Returns information about all currently loaded MIB modules.
@@ -899,6 +1064,7 @@ mod tests {
                 syntax_type: SyntaxType::OctetString,
                 mib_name: "SNMPv2-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
         resolver
@@ -920,6 +1086,7 @@ mod tests {
                 syntax_type: SyntaxType::ObjectIdentifier,
                 mib_name: "SNMPv2-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
 
@@ -939,6 +1106,7 @@ mod tests {
                 syntax_type: SyntaxType::ObjectIdentifier,
                 mib_name: "ROOT".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
 
@@ -970,6 +1138,7 @@ mod tests {
                 syntax_type: SyntaxType::OctetString,
                 mib_name: "SNMPv2-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
 
@@ -996,6 +1165,7 @@ mod tests {
                 syntax_type: SyntaxType::ObjectIdentifier,
                 mib_name: "SNMPv2-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
 
@@ -1020,6 +1190,7 @@ mod tests {
                 syntax_type: SyntaxType::ObjectIdentifier,
                 mib_name: "SNMPv2-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
 
@@ -1032,6 +1203,7 @@ mod tests {
                 syntax_type: SyntaxType::OctetString,
                 mib_name: "SNMPv2-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
 
@@ -1056,6 +1228,7 @@ mod tests {
                 syntax_type: SyntaxType::ObjectIdentifier,
                 mib_name: "SNMPv2-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
 
@@ -1067,6 +1240,7 @@ mod tests {
                 syntax_type: SyntaxType::OctetString,
                 mib_name: "SNMPv2-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
 
@@ -1078,6 +1252,7 @@ mod tests {
                 syntax_type: SyntaxType::ObjectIdentifier,
                 mib_name: "SNMPv2-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
 
@@ -1100,6 +1275,7 @@ mod tests {
                 syntax_type: SyntaxType::OctetString,
                 mib_name: "SNMPv2-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
 
@@ -1122,6 +1298,7 @@ mod tests {
                 syntax_type: SyntaxType::OctetString,
                 mib_name: "SNMPv2-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
 
@@ -1141,6 +1318,7 @@ mod tests {
                 syntax_type: SyntaxType::OctetString,
                 mib_name: "SNMPv2-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
 
@@ -1158,6 +1336,7 @@ mod tests {
                 syntax_type: SyntaxType::OctetString,
                 mib_name: "SNMPv2-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
         resolver
@@ -1183,6 +1362,7 @@ mod tests {
                 syntax_type: SyntaxType::OctetString,
                 mib_name: "SNMPv2-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
         resolver
@@ -1197,6 +1377,7 @@ mod tests {
                 syntax_type: SyntaxType::Integer32,
                 mib_name: "VENDOR-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
         resolver
@@ -1230,6 +1411,7 @@ mod tests {
                 syntax_type: SyntaxType::OctetString,
                 mib_name: "SNMPv2-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
 
@@ -1259,6 +1441,7 @@ mod tests {
                 syntax_type: SyntaxType::TableRow,
                 mib_name: "IF-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
 
@@ -1271,6 +1454,7 @@ mod tests {
                 syntax_type: SyntaxType::Integer32,
                 mib_name: "IF-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
 
@@ -1283,6 +1467,7 @@ mod tests {
                 syntax_type: SyntaxType::OctetString,
                 mib_name: "IF-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
 
@@ -1295,6 +1480,7 @@ mod tests {
                 syntax_type: SyntaxType::Integer32,
                 mib_name: "IF-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
 
@@ -1307,6 +1493,7 @@ mod tests {
                 syntax_type: SyntaxType::ObjectIdentifier,
                 mib_name: "IF-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
         resolver.oid_index.insert(
@@ -1317,6 +1504,7 @@ mod tests {
                 syntax_type: SyntaxType::Integer32,
                 mib_name: "IF-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
 
@@ -1342,6 +1530,7 @@ mod tests {
                 syntax_type: SyntaxType::TableRow,
                 mib_name: "IF-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
 
@@ -1355,6 +1544,7 @@ mod tests {
                 syntax_type: SyntaxType::ObjectIdentifier,
                 mib_name: "IF-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
 
@@ -1375,6 +1565,7 @@ mod tests {
                 syntax_type: SyntaxType::TableRow,
                 mib_name: "IF-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
 
@@ -1386,6 +1577,7 @@ mod tests {
                 syntax_type: SyntaxType::Integer32,
                 mib_name: "IF-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
 
@@ -1398,6 +1590,7 @@ mod tests {
                 syntax_type: SyntaxType::Integer32,
                 mib_name: "IP-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
 
@@ -1419,6 +1612,7 @@ mod tests {
                 syntax_type: SyntaxType::Table,
                 mib_name: "TABLE-META-MIB".to_string(),
                 is_table: true,
+                ..Default::default()
             },
         );
         resolver.oid_index.insert(
@@ -1429,6 +1623,7 @@ mod tests {
                 syntax_type: SyntaxType::Integer32,
                 mib_name: "TABLE-META-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
         resolver.oid_index.insert(
@@ -1439,6 +1634,7 @@ mod tests {
                 syntax_type: SyntaxType::Integer32,
                 mib_name: "TABLE-META-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
 
@@ -1452,6 +1648,7 @@ mod tests {
                 syntax_type: SyntaxType::Integer32,
                 mib_name: "TABLE-META-MIB".to_string(),
                 is_table: false,
+                ..Default::default()
             },
         );
 
@@ -1492,5 +1689,137 @@ mod tests {
         // Unloading the module prunes the table metadata.
         resolver.unload_mib("TABLE-META-MIB");
         assert!(resolver.get_table_info("1.3.6.1.4.1.99996.1.3").is_none());
+    }
+
+    /// Resolver fixture with one scalar, one table, and its row entry.
+    fn details_fixture_resolver() -> Resolver {
+        let mut resolver = Resolver::default();
+
+        resolver.oid_index.insert(
+            "1.3.6.1.4.1.99994.1.1".to_string(),
+            MibNode {
+                oid: "1.3.6.1.4.1.99994.1.1".to_string(),
+                name: "gadgetLevel".to_string(),
+                syntax_type: SyntaxType::Integer32,
+                mib_name: "GADGET-MIB".to_string(),
+                description: Some("How loud the gadget is.".to_string()),
+                access: Some("read-write".to_string()),
+                status: Some("current".to_string()),
+                units: Some("percent".to_string()),
+                default_value: Some("50".to_string()),
+                constraints: Some("0..100".to_string()),
+                ..Default::default()
+            },
+        );
+
+        resolver.oid_index.insert(
+            "1.3.6.1.4.1.99994.2".to_string(),
+            MibNode {
+                oid: "1.3.6.1.4.1.99994.2".to_string(),
+                name: "gadgetTable".to_string(),
+                syntax_type: SyntaxType::Table,
+                mib_name: "GADGET-MIB".to_string(),
+                is_table: true,
+                ..Default::default()
+            },
+        );
+
+        resolver.oid_index.insert(
+            "1.3.6.1.4.1.99994.2.1".to_string(),
+            MibNode {
+                oid: "1.3.6.1.4.1.99994.2.1".to_string(),
+                name: "gadgetEntry".to_string(),
+                syntax_type: SyntaxType::TableRow,
+                mib_name: "GADGET-MIB".to_string(),
+                ..Default::default()
+            },
+        );
+
+        let info = TableInfo {
+            table_oid: "1.3.6.1.4.1.99994.2".to_string(),
+            name: "gadgetTable".to_string(),
+            row_entry_oids: vec!["1.3.6.1.4.1.99994.2.1".to_string()],
+            index_columns: vec![IndexColumn {
+                name: "gadgetIndex".to_string(),
+                oid: "1.3.6.1.4.1.99994.2.1.1".to_string(),
+                implied: false,
+                encoding: IndexEncoding::Integer,
+            }],
+            column_oids: vec![
+                "1.3.6.1.4.1.99994.2.1.1".to_string(),
+                "1.3.6.1.4.1.99994.2.1.2".to_string(),
+            ],
+        };
+        resolver.table_index.insert(info.table_oid.clone(), info);
+
+        resolver
+    }
+
+    #[test]
+    fn node_details_scalar_carries_clause_fields() {
+        let resolver = details_fixture_resolver();
+        let d = resolver
+            .node_details("1.3.6.1.4.1.99994.1.1")
+            .expect("details");
+
+        assert_eq!(d.name, "gadgetLevel");
+        assert_eq!(d.mib_name, "GADGET-MIB");
+        assert_eq!(d.syntax_type, "Integer32");
+        assert!(!d.is_table);
+        assert_eq!(d.description.as_deref(), Some("How loud the gadget is."));
+        assert_eq!(d.access.as_deref(), Some("read-write"));
+        assert_eq!(d.status.as_deref(), Some("current"));
+        assert_eq!(d.units.as_deref(), Some("percent"));
+        assert_eq!(d.default_value.as_deref(), Some("50"));
+        assert_eq!(d.constraints.as_deref(), Some("0..100"));
+        assert!(d.table.is_none());
+        assert!(d.index_columns.is_none());
+    }
+
+    #[test]
+    fn node_details_table_attaches_table_info() {
+        let resolver = details_fixture_resolver();
+        let d = resolver
+            .node_details("1.3.6.1.4.1.99994.2")
+            .expect("details");
+
+        assert!(d.is_table);
+        assert_eq!(d.syntax_type, "TABLE");
+        let table = d.table.expect("table metadata attached");
+        assert_eq!(table.name, "gadgetTable");
+        assert_eq!(table.column_oids.len(), 2);
+        assert!(d.index_columns.is_none());
+    }
+
+    #[test]
+    fn node_details_row_entry_attaches_index_columns() {
+        let resolver = details_fixture_resolver();
+        let d = resolver
+            .node_details("1.3.6.1.4.1.99994.2.1")
+            .expect("details");
+
+        assert_eq!(d.name, "gadgetEntry");
+        assert_eq!(d.syntax_type, "ROW");
+        let idx = d.index_columns.expect("index columns attached");
+        assert_eq!(idx.len(), 1);
+        assert_eq!(idx[0].name, "gadgetIndex");
+        assert!(d.table.is_none());
+    }
+
+    #[test]
+    fn node_details_instance_oid_resolves_to_base_node() {
+        let resolver = details_fixture_resolver();
+        // A live instance OID reports on its base object (longest prefix).
+        let d = resolver
+            .node_details("1.3.6.1.4.1.99994.1.1.7")
+            .expect("details");
+        assert_eq!(d.oid, "1.3.6.1.4.1.99994.1.1");
+        assert_eq!(d.name, "gadgetLevel");
+    }
+
+    #[test]
+    fn node_details_unknown_oid_is_none() {
+        let resolver = details_fixture_resolver();
+        assert!(resolver.node_details("9.9.9").is_none());
     }
 }

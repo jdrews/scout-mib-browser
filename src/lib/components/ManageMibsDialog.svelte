@@ -58,6 +58,7 @@
       const data = await mibTree();
       S.treeData.length = 0;
       S.treeData.push(...data);
+      S.treeVersion++;
 
       mibs = mibs.filter(m => m.mibName !== mibName);
       S.statusText = `Unloaded ${mibName}`;

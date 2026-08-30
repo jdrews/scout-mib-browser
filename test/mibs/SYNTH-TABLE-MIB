@@ -15,6 +15,23 @@ synthTableMib MODULE-IDENTITY
 
 synthObjects OBJECT IDENTIFIER ::= { synthTableMib 1 }
 
+-- A status with a long inline enum list (inspector Values coverage).
+SynthState ::= INTEGER {
+    unknown(0),
+    idle(1),
+    active(2),
+    draining(3),
+    suspended(4),
+    error(5)
+}
+
+synthState OBJECT-TYPE
+    SYNTAX      SynthState
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "A synthetic status with a long enum list."
+    ::= { synthObjects 3 }
+
 -- Two-attribute index: Integer + IpAddress.
 synthIpTable OBJECT-TYPE
     SYNTAX      SEQUENCE OF SynthIpEntry

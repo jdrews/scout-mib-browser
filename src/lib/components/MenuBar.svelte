@@ -136,6 +136,7 @@
       const data = await mibTree();
       S.treeData.length = 0;
       S.treeData.push(...data);
+      S.treeVersion++;
       S.statusText = `Loaded ${status.nodeCount} nodes`;
     } catch (err) {
       S.statusText = `Error: ${err}`;

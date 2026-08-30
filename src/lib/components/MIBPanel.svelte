@@ -1,6 +1,7 @@
 <script lang="ts">
   import { X } from "lucide-svelte";
   import TreeNode from "./TreeNode.svelte";
+  import InspectorPane from "./InspectorPane.svelte";
   import { S } from "$lib/stores.svelte";
   import { pluralize } from "$lib/format";
 
@@ -21,6 +22,7 @@
   $effect(() => {
     const focus = S.treeFocusOid;
     void S.treeData.length;
+    void S.treeVersion;
     if (S.treeData.length === 0) return;
     let found = false;
     for (const el of document.querySelectorAll("[role='treeitem']")) {
@@ -87,4 +89,7 @@
       </button>
     </div>
   {/if}
+
+  <!-- The inspector owns the bottom-left corner, even when the banner shows. -->
+  <InspectorPane />
 </nav>

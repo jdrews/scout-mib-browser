@@ -18,6 +18,10 @@ _Avoid_: Schema node, definition, tree item
 An OID paired with its live value returned from a Target by an SNMP operation. The actual data, not the schema.
 _Avoid_: Result row, binding, response entry
 
+**Inspector**:
+The pane that reports on one OID — its MIB Node metadata (name, type, clauses) and, when the OID was chosen from a Result Set, the live value too. Its subject comes from a Selection or from clicking a Variable Binding, so it may be an *instance* OID (e.g. `…sysDescr.0`) that is not itself a MIB Node; such OIDs resolve to their base node for metadata.
+_Avoid_: Details panel, node info, properties
+
 ### Operations
 
 **Selection**:
