@@ -136,12 +136,10 @@ done
 # ── WDIO under Xvfb ──────────────────────────────────────────────────────────
 echo "Running E2E tests (wdio config: $WDIO_CONFIG, app config: $XDG_CONFIG_HOME)..."
 set +e
-# Optional larger Xvfb screen (set by the UX suite so full-window screenshot
-# captures via `import` aren't clipped; feature suite keeps the default size).
-XVFB_ARGS=(--auto-servernum)
-if [ -n "${E2E_XVFB_SCREEN:-}" ]; then
-  XVFB_ARGS+=(-s "-screen 0 ${E2E_XVFB_SCREEN}x24")
-fi
+# The Tauri window is 1200x800, so the Xvfb screen must be at least that large:
+# pointer-based input (e.g. mouse-wheel tests) is clamped to the screen edge
+# otherwise. The UX suite exports a larger value for unclipped screenshots.
+XVFB_ARGS=(--auto-servernum -s "-screen 0 ${E2E_XVFB_SCREEN:-1280x900}x24")
 xvfb-run "${XVFB_ARGS[@]}" npx wdio run "$WDIO_CONFIG"
 RESULT=$?
 set -e

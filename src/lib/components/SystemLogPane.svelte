@@ -1,15 +1,20 @@
 <script lang="ts">
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, tick } from "svelte";
   import { S } from "$lib/stores.svelte";
   import { logRead, logClear } from "$lib/tauriCommands";
   import type { LogEntry, LogLevel } from "$lib/types";
 
   const MIN_HEIGHT = 100;
   const MAX_HEIGHT = 800;
+  // While the user is this close (px) to the bottom, new entries keep the
+  // view pinned to the newest line (live tail). Scrolling further away stops
+  // the auto-follow so history can be read.
+  const STICK_PX = 32;
 
   let isResizing = $state(false);
   let startY = $state(0);
   let startHeight = $state(0);
+  let stickToBottom = $state(true);
 
   let intervalId: ReturnType<typeof setInterval> | null = null;
   let logContainer: HTMLDivElement;
@@ -50,14 +55,40 @@
     document.removeEventListener("mouseup", onResizeEnd);
     document.body.style.cursor = "";
     document.body.style.userSelect = "";
+    updateStick();
   }
+
+  /** True while the view sits at (or near) the bottom — the only state in
+   *  which new entries may auto-scroll. Updated by the container's scroll
+   *  event, so user wheeling takes over immediately. */
+  function updateStick() {
+    if (!logContainer) return;
+    stickToBottom =
+      logContainer.scrollTop + logContainer.clientHeight >=
+      logContainer.scrollHeight - STICK_PX;
+  }
+
+  // Fingerprint of the newest entry. A poll that finds nothing new must not
+  // re-render the list or touch the scroll position.
+  function fingerprint(entries: LogEntry[]): string {
+    if (entries.length === 0) return "";
+    const e = entries[entries.length - 1];
+    return `${entries.length}:${e.timestamp}|${e.level}|${e.target}|${e.message}`;
+  }
+
+  let lastFingerprint = "";
 
   async function loadEntries() {
     try {
       const entries = await logRead();
+      if (fingerprint(entries) === lastFingerprint) return;
+      lastFingerprint = fingerprint(entries);
       S.logEntries.length = 0;
       S.logEntries.push(...entries.slice(-maxEntries));
-      scrollToBottom();
+      if (stickToBottom) {
+        await tick();
+        scrollToBottom();
+      }
     } catch (err) {
       console.error("Failed to read logs:", err);
     }
@@ -121,6 +152,7 @@
     bind:this={logContainer}
     tabindex="0"
     aria-label="System log entries"
+    onscroll={updateStick}
     class="flex-1 overflow-y-auto font-mono text-[13px] py-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
   >
     {#each filteredEntries as entry, i (i)}
