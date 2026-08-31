@@ -555,15 +555,30 @@
     }
   }
 
-  function hideOnOutsideClick(e: MouseEvent) {
-    const target = e.target as HTMLElement;
-    if (!target.closest("[data-address-bar]")) {
+  let oidInputEl: HTMLInputElement;
+
+  // While the dropdown is visible, a press anywhere except the OID input and
+  // the result list dismisses it. (The old handler only fired on clicks
+  // landing in the bar's own padding, so clicking elsewhere left it stuck open.)
+  // mousedown covers real pointer use; click covers synthetic drivers that
+  // dispatch click without a preceding mousedown.
+  $effect(() => {
+    if (!results.length) return;
+    function onDocPress(e: MouseEvent) {
+      const target = e.target as HTMLElement;
+      if (target === oidInputEl || target.closest("[data-testid='autocomplete-list']")) return;
       hideAutocomplete();
     }
-  }
+    document.addEventListener("mousedown", onDocPress);
+    document.addEventListener("click", onDocPress);
+    return () => {
+      document.removeEventListener("mousedown", onDocPress);
+      document.removeEventListener("click", onDocPress);
+    };
+  });
 </script>
 
-<div data-address-bar class="flex items-center gap-2 px-4 py-2 bg-base-200 border-b border-base-300 flex-shrink-0 relative" onclick={(e) => { if (e.target === e.currentTarget) hideOnOutsideClick(e); }}>
+<div data-address-bar class="flex items-center gap-2 px-4 py-2 bg-base-200 border-b border-base-300 flex-shrink-0 relative">
   <label for="target-host" class="text-xs font-semibold uppercase tracking-wide text-base-content/60 whitespace-nowrap">Target</label>
 
   <div class="join">
@@ -608,6 +623,7 @@
     type="text"
     placeholder="Enter OID or MIB name (e.g., sysDescr)"
     autocomplete="off"
+    bind:this={oidInputEl}
     class="flex-1 input input-bordered input-sm font-mono"
     bind:value={inputValue}
     oninput={onInput}

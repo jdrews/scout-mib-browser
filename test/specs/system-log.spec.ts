@@ -121,6 +121,17 @@ describe("System log mouse scrolling", () => {
   });
 
   it("wheel over the log pane scrolls the log (not the results)", async () => {
+    // Spec files share one app session; a previous file may leave the pane
+    // open, which would make the View-menu toggle below CLOSE it. Normalize.
+    if (await (await $("[data-testid='syslog-pane']")).isExisting()) {
+      await (await $("[data-testid='menu-view']")).click();
+      await (await $("[data-testid='menu-system-log']")).click();
+      await (await $("[data-testid='syslog-pane']")).waitForExist({ reverse: true, timeout: 5000 });
+    }
+    // The View menu stays open after the toggle (the item stops propagation),
+    // and a previous file may have left another menu open — close everything.
+    await (await $("nav")).click();
+
     // Open the system log via the View menu.
     await (await $("[data-testid='menu-view']")).click();
     await (await $("[data-testid='menu-system-log']")).click();
@@ -278,5 +289,38 @@ describe("System log mouse scrolling", () => {
     console.log(`[syslog-scroll] big-walk up:     log=${afterUp.logTop}/${afterUp.logMax} results=${afterUp.resultsTop}/${afterUp.resultsMax}`);
     expect(afterUp.logTop).toBeLessThan(afterDown.logTop);
     expect(afterUp.resultsTop).toBe(interior.resultsTop);
+  });
+});
+
+describe("System log open/close controls", () => {
+  before(async () => {
+    await waitForAppReady();
+  });
+
+  it("footer button toggles the pane", async () => {
+    const toggle = await $("[data-testid='syslog-toggle']");
+    // The scrolling specs above leave the pane open; normalize to closed first.
+    if (await (await $("[data-testid='syslog-pane']")).isExisting()) {
+      await toggle.click();
+      await (await $("[data-testid='syslog-pane']")).waitForExist({ reverse: true, timeout: 5000 });
+    }
+
+    // Closed -> open; the button reflects state via aria-pressed.
+    expect(await toggle.getAttribute("aria-pressed")).toBe("false");
+    await toggle.click();
+    await expect(await $("[data-testid='syslog-pane']")).toBeExisting();
+    expect(await (await $("[data-testid='syslog-toggle']")).getAttribute("aria-pressed")).toBe("true");
+
+    // Open -> closed from the footer.
+    await (await $("[data-testid='syslog-toggle']")).click();
+    await (await $("[data-testid='syslog-pane']")).waitForExist({ reverse: true, timeout: 5000 });
+  });
+
+  it("X button in the pane header closes it", async () => {
+    await (await $("[data-testid='syslog-toggle']")).click();
+    await expect(await $("[data-testid='syslog-pane']")).toBeExisting();
+
+    await (await $("[data-testid='syslog-close']")).click();
+    await (await $("[data-testid='syslog-pane']")).waitForExist({ reverse: true, timeout: 5000 });
   });
 });
