@@ -49,6 +49,28 @@ describe("Address bar (autocomplete)", () => {
     expect(await oidInputValue()).toBe(before);
   });
 
+  it("clicking outside dismisses the dropdown", async () => {
+    await typeOid("sysdescr");
+    await browser.pause(600);
+    await expect(await $("[data-testid='autocomplete-list']")).toBeExisting();
+
+    const before = await oidInputValue();
+
+    // A click in a neutral spot (the menu bar) must close the dropdown.
+    await (await $("nav")).click();
+    await expect(await $("[data-testid='autocomplete-list']")).not.toBeExisting();
+    expect(await oidInputValue()).toBe(before);
+
+    // Reopen and click another control of the address bar itself (host input):
+    // still "outside" the dropdown, so it must close too.
+    await typeOid("sysdescr");
+    await browser.pause(600);
+    await expect(await $("[data-testid='autocomplete-list']")).toBeExisting();
+
+    await (await $("[data-testid='host-input']")).click();
+    await expect(await $("[data-testid='autocomplete-list']")).not.toBeExisting();
+  });
+
   it("Go is disabled with empty input", async () => {
     await typeOid("");
     const goBtn = await $("[data-testid='go-btn']");
