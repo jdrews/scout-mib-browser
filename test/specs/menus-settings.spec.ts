@@ -15,6 +15,18 @@ describe("Menus & settings (app-level settings)", () => {
     await expect(await $("[data-testid='menu-add-mib-dir']")).not.toBeExisting();
   });
 
+  it("File and Settings menus use compact separators", async () => {
+    await (await $("[data-testid='menu-file']")).click();
+    expect((await $$("[data-menu='file'] li[role='separator']")).length).toBe(1);
+    await (await $("nav")).click();
+
+    await (await $("[data-testid='menu-settings']")).click();
+    expect((await $$("[data-menu='settings'] li[role='separator']")).length).toBe(1);
+    // The old daisyUI .divider elements (with their large default margins) are gone.
+    expect((await $$("ul.menu .divider")).length).toBe(0);
+    await (await $("nav")).click();
+  });
+
   it("Manage MIBs dialog", async () => {
     await (await $("[data-testid='menu-file']")).click();
     await (await $("[data-testid='menu-manage-mibs']")).click();
