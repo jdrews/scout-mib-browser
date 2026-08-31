@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Moon, Sun } from "lucide-svelte";
+  import { Moon, PanelBottom, PanelBottomClose, Sun } from "lucide-svelte";
   import MenuBar from "./MenuBar.svelte";
   import TargetBar from "./TargetBar.svelte";
   import MainContent from "./MainContent.svelte";
@@ -94,6 +94,21 @@
       <span data-testid="status-text">{S.statusText}</span>
     </div>
     <div class="flex items-center gap-3 ml-auto">
+      <button
+        data-testid="syslog-toggle"
+        aria-label={S.systemLogOpen ? "Close system log" : "Open system log"}
+        aria-pressed={S.systemLogOpen}
+        title={S.systemLogOpen ? "Close system log" : "Open system log"}
+        class="btn btn-ghost btn-circle btn-sm {S.systemLogOpen ? 'btn-active' : ''}"
+        onclick={() => (S.systemLogOpen = !S.systemLogOpen)}
+      >
+        {#if S.systemLogOpen}
+          <PanelBottomClose class="w-4 h-4" />
+        {:else}
+          <PanelBottom class="w-4 h-4" />
+        {/if}
+      </button>
+
       <button data-testid="theme-toggle" aria-label={S.currentTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"} class="btn btn-ghost btn-circle btn-sm" onclick={() => S.currentTheme = S.currentTheme === "dark" ? "light" : "dark"} title={S.currentTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
         {#if S.currentTheme === "dark"}
           <Sun class="w-4 h-4" />

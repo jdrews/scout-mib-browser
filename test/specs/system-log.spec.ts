@@ -291,3 +291,28 @@ describe("System log mouse scrolling", () => {
     expect(afterUp.resultsTop).toBe(interior.resultsTop);
   });
 });
+
+describe("System log open/close controls", () => {
+  before(async () => {
+    await waitForAppReady();
+  });
+
+  it("footer button toggles the pane", async () => {
+    const toggle = await $("[data-testid='syslog-toggle']");
+    // The scrolling specs above leave the pane open; normalize to closed first.
+    if (await (await $("[data-testid='syslog-pane']")).isExisting()) {
+      await toggle.click();
+      await (await $("[data-testid='syslog-pane']")).waitForExist({ reverse: true, timeout: 5000 });
+    }
+
+    // Closed -> open; the button reflects state via aria-pressed.
+    expect(await toggle.getAttribute("aria-pressed")).toBe("false");
+    await toggle.click();
+    await expect(await $("[data-testid='syslog-pane']")).toBeExisting();
+    expect(await (await $("[data-testid='syslog-toggle']")).getAttribute("aria-pressed")).toBe("true");
+
+    // Open -> closed from the footer.
+    await (await $("[data-testid='syslog-toggle']")).click();
+    await (await $("[data-testid='syslog-pane']")).waitForExist({ reverse: true, timeout: 5000 });
+  });
+});
