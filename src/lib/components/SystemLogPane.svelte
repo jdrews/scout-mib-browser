@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from "svelte";
+  import { X } from "lucide-svelte";
   import { S } from "$lib/stores.svelte";
   import { logRead, logClear } from "$lib/tauriCommands";
   import type { LogEntry, LogLevel } from "$lib/types";
@@ -144,6 +145,15 @@
         onclick={handleClear}
       >
         Clear
+      </button>
+      <button
+        data-testid="syslog-close"
+        aria-label="Close system log"
+        title="Close system log"
+        class="btn btn-ghost btn-circle btn-sm"
+        onclick={() => (S.systemLogOpen = false)}
+      >
+        <X class="w-4 h-4" />
       </button>
     </div>
   </div>

@@ -315,4 +315,12 @@ describe("System log open/close controls", () => {
     await (await $("[data-testid='syslog-toggle']")).click();
     await (await $("[data-testid='syslog-pane']")).waitForExist({ reverse: true, timeout: 5000 });
   });
+
+  it("X button in the pane header closes it", async () => {
+    await (await $("[data-testid='syslog-toggle']")).click();
+    await expect(await $("[data-testid='syslog-pane']")).toBeExisting();
+
+    await (await $("[data-testid='syslog-close']")).click();
+    await (await $("[data-testid='syslog-pane']")).waitForExist({ reverse: true, timeout: 5000 });
+  });
 });
