@@ -121,6 +121,17 @@ describe("System log mouse scrolling", () => {
   });
 
   it("wheel over the log pane scrolls the log (not the results)", async () => {
+    // Spec files share one app session; a previous file may leave the pane
+    // open, which would make the View-menu toggle below CLOSE it. Normalize.
+    if (await (await $("[data-testid='syslog-pane']")).isExisting()) {
+      await (await $("[data-testid='menu-view']")).click();
+      await (await $("[data-testid='menu-system-log']")).click();
+      await (await $("[data-testid='syslog-pane']")).waitForExist({ reverse: true, timeout: 5000 });
+    }
+    // The View menu stays open after the toggle (the item stops propagation),
+    // and a previous file may have left another menu open — close everything.
+    await (await $("nav")).click();
+
     // Open the system log via the View menu.
     await (await $("[data-testid='menu-view']")).click();
     await (await $("[data-testid='menu-system-log']")).click();
