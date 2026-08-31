@@ -15,6 +15,12 @@ const raw = $state({
   // Expanded branches watch it to refetch children, so nodes that vanished
   // from a previously expanded subtree don't linger as ghosts.
   treeVersion: 0,
+  // Find-in-tree (search bar under the MIB Browser header). Search runs over
+  // oidNameMap — the OIDs already loaded — so it works on a collapsed tree.
+  // treeFindOid is the currently highlighted match; null when none.
+  treeFindOpen: false,
+  treeFindQuery: "",
+  treeFindOid: null as string | null,
   contextMenuTarget: null as { node: TreeNode; x: number; y: number } | null,
   statusText: "Ready",
   nodeCount: 0,

@@ -1,7 +1,9 @@
 <script lang="ts">
   import { FileText, Folder, FolderOpen } from "lucide-svelte";
+  import { onMount, onDestroy } from "svelte";
   import type { TreeNode as TreeNodeType } from "$lib/types";
   import { S } from "$lib/stores.svelte";
+  import { registerTreeNode } from "$lib/treeRegistry";
   import Self from "./TreeNode.svelte";
 
   let { node }: { node: TreeNodeType } = $props();
@@ -41,6 +43,18 @@
 
   let truncatedOid = $derived(truncateOid(node.oid));
 
+  // Find-in-tree: while the find bar is open, every rendered entry whose name
+  // contains the query shows the matched substring marked (like a text-search
+  // hit). The current hit (treeFindOid) additionally gets the row tint.
+  let nameMark = $derived.by(() => {
+    if (!S.treeFindOpen) return null;
+    const q = S.treeFindQuery.trim().toLowerCase();
+    if (!q) return null;
+    const idx = node.name.toLowerCase().indexOf(q);
+    if (idx < 0) return null;
+    return [node.name.slice(0, idx), node.name.slice(idx, idx + q.length), node.name.slice(idx + q.length)];
+  });
+
   function truncateOid(oid: string): string {
     const segments = oid.split(".");
     if (segments.length <= 5) return oid;
@@ -48,25 +62,53 @@
     return `...${tail}`;
   }
 
-  async function loadChildren() {
-    if (loading || loaded || !hasChildren) return;
-    loading = true;
-    try {
-      const { mibChildren } = await import("$lib/tauriCommands");
-      const data = await mibChildren(node.oid);
-      childrenList = data;
-      loaded = true;
-    } catch (err) {
-      console.error("Failed to load children for", node.oid, err);
-    } finally {
-      loading = false;
+  // In-flight fetch is shared so concurrent callers (user click + find) await
+  // the same load instead of racing a second one.
+  let loadPromise: Promise<void> | null = null;
+
+  function loadChildren(): Promise<void> {
+    if (loaded || !hasChildren) return Promise.resolve();
+    if (!loadPromise) {
+      loading = true;
+      loadPromise = (async () => {
+        try {
+          const { mibChildren } = await import("$lib/tauriCommands");
+          const data = await mibChildren(node.oid);
+          childrenList = data;
+          loaded = true;
+        } catch (err) {
+          console.error("Failed to load children for", node.oid, err);
+        } finally {
+          loading = false;
+          // Drop the shared promise so a later expand retries after a failure.
+          loadPromise = null;
+        }
+      })();
     }
+    return loadPromise;
   }
 
   function expandNode() {
     expanded = true;
     loadChildren();
   }
+
+  /** Expands and waits until children are loaded — used by find to walk a
+   *  chain of ancestors in a collapsed tree. */
+  async function ensureExpanded() {
+    if (!hasChildren || expanded) return;
+    expanded = true;
+    await loadChildren();
+  }
+
+  let unregister: (() => void) | undefined;
+
+  onMount(() => {
+    unregister = registerTreeNode(node.oid, { el: nodeEl, expand: ensureExpanded });
+  });
+  onDestroy(() => {
+    unregister?.();
+  });
 
   function collapseNode() {
     expanded = false;
@@ -169,6 +211,7 @@
     class="tree-row flex items-center gap-1.5 px-2 py-1 text-sm cursor-pointer select-none whitespace-nowrap rounded hover:bg-base-300/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
     class:selected={isSelected}
     class:fallback-node={isFallbackNode}
+    class:find-hit={S.treeFindOid === node.oid}
     onclick={onClick}
     onkeydown={onKeydown}
     oncontextmenu={showContextMenu}
@@ -188,7 +231,13 @@
     {:else}
       <FileText class="h-4 w-4 shrink-0" />
     {/if}
-    <span class="truncate">{node.name}</span>
+    <span class="truncate">
+      {#if nameMark}
+        {nameMark[0]}<mark class="find-mark">{nameMark[1]}</mark>{nameMark[2]}
+      {:else}
+        {node.name}
+      {/if}
+    </span>
     {#if isFallbackNode}
       <span class="badge badge-outline badge-warning badge-xs">unresolved</span>
     {/if}
@@ -215,5 +264,22 @@
 
   .tree-row.fallback-node {
     opacity: 0.55;
+  }
+
+  /* Find-in-tree highlight. daisyUI 5 exposes theme colors as full values
+     (--color-warning), so alpha tints go through color-mix — the legacy
+     oklch(var(--w) / a) form references variables that no longer exist.
+     The current hit gets a primary-tinted row band (a different hue, so it
+     doesn't stack into a block with the mark); every match carries the
+     warning-yellow mark with its paired content color for contrast. */
+  .tree-row.find-hit {
+    background-color: color-mix(in oklab, var(--color-primary) 25%, transparent);
+  }
+
+  mark.find-mark {
+    background-color: color-mix(in oklab, var(--color-warning) 70%, transparent);
+    color: var(--color-warning-content);
+    border-radius: 2px;
+    padding: 0 1px;
   }
 </style>
