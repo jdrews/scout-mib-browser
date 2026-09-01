@@ -281,17 +281,30 @@ fn main() {
 // ── MIB Commands ─────────────────────────────────────────────────────────────
 
 /// Loads all MIB files from the given directories.
+///
+/// The parse runs on a cloned working copy *outside* the resolver lock; only
+/// the final index swap is serialized. Read commands (tree, search, Manage
+/// MIBs list) therefore stay responsive while a load is in flight.
 #[tauri::command]
 fn mib_load_directories(
     resolver: tauri::State<MibResolverState>,
     directories: Vec<String>,
 ) -> Result<MibLoadStatus, String> {
+    let mut working = {
+        let res = resolver.inner.read().map_err(|e| e.to_string())?;
+        res.clone()
+    };
+
+    let stats = working.load_directories(&directories);
+
     let mut res = resolver.inner.write().map_err(|e| e.to_string())?;
-    res.load_directories(&directories);
+    *res = working;
 
     Ok(MibLoadStatus {
         node_count: res.node_count(),
         fallback_mibs: res.fallback_mib_names().cloned().collect(),
+        files_parsed: Some(stats.parsed),
+        files_cached: Some(stats.cached),
     })
 }
 
@@ -319,10 +332,7 @@ fn mib_reverse_lookup(
 #[tauri::command]
 fn mib_status(resolver: tauri::State<MibResolverState>) -> Result<MibLoadStatus, String> {
     let res = resolver.inner.read().map_err(|e| e.to_string())?;
-    Ok(MibLoadStatus {
-        node_count: res.node_count(),
-        fallback_mibs: res.fallback_mib_names().cloned().collect(),
-    })
+    Ok(mib_status_of(&res))
 }
 
 /// Returns the hierarchical MIB tree for rendering in the UI.
@@ -370,10 +380,7 @@ fn mib_unload(
 ) -> Result<MibLoadStatus, String> {
     let mut res = resolver.inner.write().map_err(|e| e.to_string())?;
     res.unload_mib(&mib_name);
-    Ok(MibLoadStatus {
-        node_count: res.node_count(),
-        fallback_mibs: res.fallback_mib_names().cloned().collect(),
-    })
+    Ok(mib_status_of(&res))
 }
 
 /// Returns metadata about all currently loaded MIB modules.
@@ -784,7 +791,8 @@ fn parse_set_value(value_type: &str, value: &serde_json::Value) -> Result<snmp::
     }
 }
 
-/// Status response for MIB loading operations.
+/// Status response for MIB loading operations. The `files_*` stats are only
+/// present after a directory load pass (not after unload/status queries).
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct MibLoadStatus {
@@ -792,4 +800,20 @@ struct MibLoadStatus {
     node_count: usize,
     /// Names of MIB modules loaded via regex fallback.
     fallback_mibs: Vec<String>,
+    /// Files (re)parsed by the load pass.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    files_parsed: Option<usize>,
+    /// Files served from the parse cache by the load pass.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    files_cached: Option<usize>,
+}
+
+/// Builds a status response without load-pass stats.
+fn mib_status_of(res: &mib::Resolver) -> MibLoadStatus {
+    MibLoadStatus {
+        node_count: res.node_count(),
+        fallback_mibs: res.fallback_mib_names().cloned().collect(),
+        files_parsed: None,
+        files_cached: None,
+    }
 }

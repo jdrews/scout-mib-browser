@@ -137,7 +137,9 @@
       S.treeData.length = 0;
       S.treeData.push(...data);
       S.treeVersion++;
-      S.statusText = `Loaded ${status.nodeCount} nodes`;
+      S.statusText = status.filesCached !== undefined
+        ? `Loaded ${status.nodeCount} nodes (${status.filesParsed} parsed, ${status.filesCached} cached)`
+        : `Loaded ${status.nodeCount} nodes`;
     } catch (err) {
       S.statusText = `Error: ${err}`;
       console.error("Failed to add MIB directory:", err);
