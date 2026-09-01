@@ -26,10 +26,13 @@ export interface LoadedMib {
   isFallback: boolean;
 }
 
-/** Status response from MIB loading operations. */
+/** Status response from MIB loading operations. The files* stats are only
+ * present after a directory load pass (not after unload/status queries). */
 export interface LoadDirectoriesStatus {
   nodeCount: number;
   fallbackMibs: string[];
+  filesParsed?: number;
+  filesCached?: number;
 }
 
 /** SNMP version for Target connections. */

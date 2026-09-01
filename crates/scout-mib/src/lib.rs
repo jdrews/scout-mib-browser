@@ -2,7 +2,7 @@ mod fallback;
 mod loader;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use tracing::{error, info, warn};
 
@@ -335,12 +335,47 @@ pub struct LoadedMibInfo {
     pub is_fallback: bool,
 }
 
+/// File change-detection stamp: modification time plus size. A file whose
+/// stamp is unchanged since the last load is served from the parse cache
+/// without being re-read or re-parsed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FileStamp {
+    /// (seconds since UNIX epoch, sub-second nanos) of the last modification.
+    mtime: (u64, u32),
+    /// File size in bytes.
+    size: u64,
+}
+
+/// Cached parse result for one MIB file. Kept per file so that unchanged
+/// files survive across `load_directories` calls without re-parsing.
+#[derive(Debug, Clone)]
+struct FileEntry {
+    stamp: FileStamp,
+    /// MIB module name the file was loaded as (empty when undetermined).
+    module_name: String,
+    /// Whether the file was loaded via regex fallback.
+    is_fallback: bool,
+    /// Nodes extracted from the file.
+    nodes: Vec<MibNode>,
+    /// Table metadata extracted from the file.
+    tables: Vec<TableInfo>,
+}
+
+/// Outcome of one directory load pass.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LoadStats {
+    /// Files (re)parsed this pass.
+    pub parsed: usize,
+    /// Files served from the parse cache (unchanged since the last load).
+    pub cached: usize,
+}
+
 /// Unified MIB resolver that loads files from directories using mib-rs as the
 /// primary parser and a regex-based fallback for malformed vendor MIBs.
 ///
 /// Parser errors are logged but never block loading other MIBs. Partially
 /// parsed MIBs contribute whatever data was extracted.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Resolver {
     /// OID -> MibNode (mib-rs results take precedence).
     oid_index: HashMap<String, MibNode>,
@@ -354,23 +389,23 @@ pub struct Resolver {
     table_index: HashMap<String, TableInfo>,
     /// Table OID -> MIB module name that contributed its metadata.
     table_mibs: HashMap<String, String>,
+    /// File path -> cached parse result (change detection across loads).
+    file_cache: BTreeMap<String, FileEntry>,
 }
 
 impl Resolver {
-    /// Loads all MIB files from the given directories.
+    /// Loads all MIB files from the given directories, incrementally.
     ///
-    /// Binary and non-text files are pre-filtered before any parse attempt.
-    /// mib-rs is tried first; on failure, a regex-based fallback extracts
-    /// whatever OBJECT-TYPE blocks it can find. mib-rs results take precedence
-    /// in the merged index.
-    pub fn load_directories(&mut self, directories: &[String]) {
-        let mut all_nodes = Vec::new();
-        let mut primary_nodes = Vec::new();
-        // Table metadata from successful mib-rs loads, paired with their module.
-        let mut primary_tables: Vec<(String, TableInfo)> = Vec::new();
-        // Track file -> MIB module name for loaded files management.
-        let mut file_mib_map: HashMap<String, String> = HashMap::new();
-
+    /// Files are keyed by path with an mtime+size stamp; a file whose stamp
+    /// is unchanged since the last load is served from the parse cache without
+    /// being re-read or re-parsed. Changed and new files are parsed (mib-rs
+    /// first, regex fallback for what it cannot close), and files that
+    /// disappeared from disk drop out of the index. Binary and non-text files
+    /// are pre-filtered before any parse attempt; mib-rs results take
+    /// precedence in the merged index.
+    pub fn load_directories(&mut self, directories: &[String]) -> LoadStats {
+        // Collect candidate files across all directories, deduped by path.
+        let mut present: BTreeMap<String, (PathBuf, FileStamp)> = BTreeMap::new();
         for dir_str in directories {
             let dir = Path::new(dir_str);
             if !dir.is_dir() {
@@ -380,103 +415,171 @@ impl Resolver {
 
             info!("Scanning MIB directory: {}", dir_str);
             let files = Self::collect_mib_files(dir);
-            let total_candidate = files.len();
-            info!(
-                "Found {} candidate files in {}",
-                total_candidate,
-                dir.display()
-            );
+            info!("Found {} candidate files in {}", files.len(), dir.display());
 
-            // Pre-filter binary/non-text files.
-            let text_files: Vec<_> = files.into_iter().filter(|p| is_text_file(p)).collect();
-
-            if text_files.len() < total_candidate {
-                warn!(
-                    "Filtered out {} binary/non-text files from {}",
-                    total_candidate - text_files.len(),
-                    dir_str
-                );
-            }
-
-            // Primary: mib-rs loader for all files.
-            let mut mib_rs = MibRsLoader::new();
-            for file in &text_files {
-                match mib_rs.load_file(file) {
-                    Ok(result) => {
-                        if result.primary_success {
-                            // Track file -> MIB name so modules that contribute
-                            // no queryable nodes (e.g. pure TEXTUAL-CONVENTION
-                            // MIBs) still show up in Manage MIBs.
-                            if !result.module_name.is_empty() {
-                                file_mib_map.insert(
-                                    file.to_string_lossy().to_string(),
-                                    result.module_name.clone(),
-                                );
-                            }
-                            primary_tables.extend(
-                                result
-                                    .tables
-                                    .into_iter()
-                                    .map(|t| (result.module_name.clone(), t)),
-                            );
-                            primary_nodes.extend(result.nodes);
-                        } else {
-                            all_nodes.push(result);
-                        }
+            for path in files {
+                match file_stamp(&path) {
+                    Some(stamp) => {
+                        present
+                            .entry(path.to_string_lossy().to_string())
+                            .or_insert_with(|| (path, stamp));
                     }
-                    Err(e) => {
-                        error!("Failed to load MIB file {}: {}", file.display(), e);
-                    }
-                }
-            }
-
-            // Fallback: regex extractor for files that mib-rs couldn't fully parse.
-            let mut fallback = FallbackExtractor::new();
-            for file in &text_files {
-                if !mib_rs.has_module_for_file(file) {
-                    info!(
-                        "Running regex fallback for (mib-rs did not produce results): {}",
-                        file.display()
-                    );
-                    match fallback.extract_from_file(file) {
-                        Ok((nodes, tables)) => {
-                            let mib_name = fallback.last_mib_name().to_string();
-                            if !nodes.is_empty() || !tables.is_empty() {
-                                self.fallback_mibs.insert(mib_name.clone());
-                                file_mib_map
-                                    .insert(file.to_string_lossy().to_string(), mib_name.clone());
-                                all_nodes.push(LoadResult {
-                                    module_name: mib_name.clone(),
-                                    nodes,
-                                    tables,
-                                    primary_success: false,
-                                });
-                            }
-                        }
-                        Err(e) => {
-                            warn!("Regex fallback also failed for {}: {}", file.display(), e);
-                        }
-                    }
+                    None => warn!("Cannot stat MIB file: {}", path.display()),
                 }
             }
         }
 
-        // Merge: primary nodes first (take precedence), then fallback fills gaps.
+        // Parse only new or changed files; unchanged ones keep their cache entry.
+        let mut stats = LoadStats::default();
+        for (path_str, (path, stamp)) in &present {
+            if self
+                .file_cache
+                .get(path_str)
+                .is_some_and(|e| e.stamp == *stamp)
+            {
+                stats.cached += 1;
+                continue;
+            }
+            stats.parsed += 1;
+            let entry = Self::parse_file(path, *stamp);
+            self.file_cache.insert(path_str.clone(), entry);
+        }
+
+        // Drop cache entries for files that no longer exist.
+        self.file_cache
+            .retain(|path_str, _| present.contains_key(path_str));
+
+        // Rebuild the merged indexes from the per-file cache.
+        self.rebuild_indexes();
+
+        info!(
+            "Resolver loaded {} nodes ({} tables, {} fallback MIBs, {} tracked files; {} parsed, {} cached)",
+            self.oid_index.len(),
+            self.table_index.len(),
+            self.fallback_mibs.len(),
+            self.loaded_files.len(),
+            stats.parsed,
+            stats.cached
+        );
+
+        stats
+    }
+
+    /// Parses one MIB file into a cache entry: mib-rs first, regex fallback
+    /// for what it cannot close. A file that yields nothing (binary, no
+    /// module name, or both parsers empty) still gets an entry so the next
+    /// load skips re-attempting it while its stamp is unchanged.
+    fn parse_file(path: &Path, stamp: FileStamp) -> FileEntry {
+        if !is_text_file(path) {
+            return FileEntry {
+                stamp,
+                module_name: String::new(),
+                is_fallback: false,
+                nodes: Vec::new(),
+                tables: Vec::new(),
+            };
+        }
+
+        match MibRsLoader::new().load_file(path) {
+            Ok(result) if result.primary_success => FileEntry {
+                stamp,
+                module_name: result.module_name,
+                is_fallback: false,
+                nodes: result.nodes,
+                tables: result.tables,
+            },
+            Ok(_) => {
+                info!(
+                    "Running regex fallback for (mib-rs did not produce results): {}",
+                    path.display()
+                );
+                Self::fallback_entry(path, stamp)
+            }
+            Err(e) => {
+                error!("Failed to load MIB file {}: {}", path.display(), e);
+                // mib-rs could not read the file; the fallback gets one try too.
+                Self::fallback_entry(path, stamp)
+            }
+        }
+    }
+
+    /// Regex-fallback cache entry; empty when the extractor finds nothing.
+    fn fallback_entry(path: &Path, stamp: FileStamp) -> FileEntry {
+        let mut extractor = FallbackExtractor::new();
+        match extractor.extract_from_file(path) {
+            Ok((nodes, tables)) if !nodes.is_empty() || !tables.is_empty() => FileEntry {
+                stamp,
+                module_name: extractor.last_mib_name().to_string(),
+                is_fallback: true,
+                nodes,
+                tables,
+            },
+            Ok(_) => FileEntry {
+                stamp,
+                module_name: String::new(),
+                is_fallback: false,
+                nodes: Vec::new(),
+                tables: Vec::new(),
+            },
+            Err(e) => {
+                warn!("Regex fallback also failed for {}: {}", path.display(), e);
+                FileEntry {
+                    stamp,
+                    module_name: String::new(),
+                    is_fallback: false,
+                    nodes: Vec::new(),
+                    tables: Vec::new(),
+                }
+            }
+        }
+    }
+
+    /// Rebuilds all merged indexes from the per-file parse cache.
+    ///
+    /// Primary (mib-rs) entries take precedence; fallback entries fill gaps.
+    /// Entries are visited in path order, so the merge is deterministic.
+    fn rebuild_indexes(&mut self) {
         let mut merged_oid: HashMap<String, MibNode> = HashMap::new();
-        for node in primary_nodes {
-            merged_oid.insert(node.oid.clone(), node);
+        // Table metadata from successful mib-rs loads, paired with their module.
+        let mut primary_tables: Vec<(String, TableInfo)> = Vec::new();
+        // Track file -> MIB module name for loaded files management.
+        let mut file_mib_map: BTreeMap<String, String> = BTreeMap::new();
+        let mut fallback_entries: Vec<(&String, &FileEntry)> = Vec::new();
+
+        for (path, entry) in &self.file_cache {
+            if entry.is_fallback {
+                if !entry.nodes.is_empty() || !entry.tables.is_empty() {
+                    fallback_entries.push((path, entry));
+                }
+                continue;
+            }
+            // Track file -> MIB name so modules that contribute no queryable
+            // nodes (e.g. pure TEXTUAL-CONVENTION MIBs) still show up in
+            // Manage MIBs.
+            if !entry.module_name.is_empty() {
+                file_mib_map.insert(path.clone(), entry.module_name.clone());
+            }
+            primary_tables.extend(
+                entry
+                    .tables
+                    .iter()
+                    .cloned()
+                    .map(|t| (entry.module_name.clone(), t)),
+            );
+            for node in &entry.nodes {
+                merged_oid.insert(node.oid.clone(), node.clone());
+            }
         }
 
         let mut merged_name: HashMap<String, String> = HashMap::new();
-
-        // Index primary nodes by name too.
         for node in merged_oid.values() {
             merged_name.insert(node.name.clone(), node.oid.clone());
         }
 
         // Fallback nodes fill gaps (only if OID not already present).
-        for result in &all_nodes {
-            for node in &result.nodes {
+        for (path, entry) in &fallback_entries {
+            file_mib_map.insert((*path).clone(), entry.module_name.clone());
+            for node in &entry.nodes {
                 if !merged_oid.contains_key(&node.oid) {
                     merged_oid.insert(node.oid.clone(), node.clone());
                 } else {
@@ -496,32 +599,30 @@ impl Resolver {
         // Merge table metadata: primary first (takes precedence), then fallback fills gaps.
         let mut table_index: HashMap<String, TableInfo> = HashMap::new();
         let mut table_mibs: HashMap<String, String> = HashMap::new();
-        for (mib_name, table) in primary_tables {
-            table_mibs.insert(table.table_oid.clone(), mib_name);
-            table_index.insert(table.table_oid.clone(), table);
+        for (mib_name, table) in &primary_tables {
+            table_mibs.insert(table.table_oid.clone(), mib_name.clone());
+            table_index.insert(table.table_oid.clone(), table.clone());
         }
-        for result in &all_nodes {
-            for table in &result.tables {
+        for (_, entry) in &fallback_entries {
+            for table in &entry.tables {
                 if !table_index.contains_key(&table.table_oid) {
-                    table_mibs.insert(table.table_oid.clone(), result.module_name.clone());
+                    table_mibs.insert(table.table_oid.clone(), entry.module_name.clone());
                     table_index.insert(table.table_oid.clone(), table.clone());
                 }
             }
         }
 
+        let mut fallback_mibs: HashSet<String> = HashSet::new();
+        for (_, entry) in &fallback_entries {
+            fallback_mibs.insert(entry.module_name.clone());
+        }
+
         self.oid_index = merged_oid;
         self.name_index = merged_name;
-        self.loaded_files = file_mib_map.into_iter().collect();
+        self.loaded_files = file_mib_map;
         self.table_index = table_index;
         self.table_mibs = table_mibs;
-
-        info!(
-            "Resolver loaded {} nodes ({} tables, {} fallback MIBs, {} tracked files)",
-            self.oid_index.len(),
-            self.table_index.len(),
-            self.fallback_mibs.len(),
-            self.loaded_files.len()
-        );
+        self.fallback_mibs = fallback_mibs;
     }
 
     /// Returns table metadata for the given table OID, if known.
@@ -609,6 +710,10 @@ impl Resolver {
 
         // Remove from loaded files tracking.
         self.loaded_files.retain(|_, mn| mn != mib_name);
+
+        // Drop the parse cache for this module so the next load re-parses its
+        // file(s) (mirrors the previous full-reload resurrection behavior).
+        self.file_cache.retain(|_, e| e.module_name != mib_name);
 
         // Drop table metadata contributed by this module.
         let tables_to_remove: Vec<String> = self
@@ -1021,26 +1126,47 @@ pub(crate) fn oid_numeric_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     key(a).cmp(&key(b))
 }
 
+/// Returns the file's mtime+size stamp for change detection, or `None` when
+/// the metadata is unavailable.
+fn file_stamp(path: &Path) -> Option<FileStamp> {
+    let meta = std::fs::metadata(path).ok()?;
+    let mtime = meta.modified().ok()?;
+    let since_epoch = mtime
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    Some(FileStamp {
+        mtime: (since_epoch.as_secs(), since_epoch.subsec_nanos()),
+        size: meta.len(),
+    })
+}
+
 /// Checks whether a file appears to be a text file by reading the first 8KB
 /// and looking for null bytes or other binary indicators.
 fn is_text_file(path: &Path) -> bool {
-    let data = match std::fs::read(path) {
-        Ok(d) => d,
+    use std::io::Read;
+
+    let mut file = match std::fs::File::open(path) {
+        Ok(f) => f,
         Err(e) => {
             warn!("Cannot read file {} for text check: {}", path.display(), e);
             return false;
         }
     };
 
-    if data.is_empty() {
+    let mut buf = [0u8; 8192];
+    let len = match file.read(&mut buf) {
+        Ok(n) => n,
+        Err(e) => {
+            warn!("Cannot read file {} for text check: {}", path.display(), e);
+            return false;
+        }
+    };
+
+    if len == 0 {
         return false;
     }
 
-    let chunk = if data.len() > 8192 {
-        &data[..8192]
-    } else {
-        &data
-    };
+    let chunk = &buf[..len];
 
     // Check for null bytes (strong indicator of binary).
     if chunk.contains(&0u8) {
@@ -1082,6 +1208,18 @@ mod tests {
         let tmp = std::env::temp_dir().join("scout_mib_test_empty");
         std::fs::write(&tmp, "").unwrap();
         assert!(!is_text_file(&tmp));
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn is_text_file_only_inspects_first_8kb() {
+        // A null byte past the 8KB inspection window does not disqualify the
+        // file (the check reads only the first 8KB, not the whole file).
+        let tmp = std::env::temp_dir().join("scout_mib_test_long");
+        let mut content = vec![b'a'; 10 * 1024];
+        content[9000] = 0x00;
+        std::fs::write(&tmp, &content).unwrap();
+        assert!(is_text_file(&tmp));
         let _ = std::fs::remove_file(&tmp);
     }
 

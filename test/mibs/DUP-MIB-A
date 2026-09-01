@@ -1,0 +1,29 @@
+-- DUP-MIB (part 1 of 2) — e2e regression fixture.
+--
+-- Both DUP-MIB-A and DUP-MIB-B define the SAME MIB module name "DUP-MIB".
+-- This mirrors real directories that contain several versions of one module
+-- (e.g. RFC1623.MIB + RFC1643.MIB + EtherLike-MIB all defining EtherLike-MIB).
+-- The Manage MIBs dialog must list BOTH rows without hanging on "Loading...":
+-- its {#each} key must be unique per row (file path), not per module name.
+
+DUP-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, Integer32, enterprises
+        FROM SNMPv2-SMI;
+
+dupMibA MODULE-IDENTITY
+    LAST-UPDATED "202601010000Z"
+    ORGANIZATION "Test"
+    CONTACT-INFO "test@test.com"
+    DESCRIPTION "Duplicate-module fixture, part A."
+    ::= { enterprises 99201 }
+
+dupMibAObjects OBJECT IDENTIFIER ::= { dupMibA 1 }
+
+dupThingA OBJECT-TYPE
+    SYNTAX Integer32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "Fixture object A."
+    ::= { dupMibAObjects 1 }
+END

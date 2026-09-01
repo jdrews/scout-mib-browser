@@ -95,7 +95,7 @@
         {:else if mibs.length === 0}
           <p class="text-base-content/60 text-sm text-center mt-12">No MIBs currently loaded.</p>
         {:else}
-          {#each mibs as mib (mib.mibName)}
+          {#each mibs as mib (mib.filePath)}
             <div data-testid="mib-row" class="flex items-center px-4 py-2.5 rounded gap-3 hover:bg-base-200">
               <span class="flex-1 text-sm">{mib.mibName}</span>
               <span class="text-xs text-base-content/60 font-mono max-w-[240px] overflow-hidden text-ellipsis whitespace-nowrap" title="{mib.filePath}">
