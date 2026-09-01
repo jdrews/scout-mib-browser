@@ -42,6 +42,16 @@ describe("Menus & settings (app-level settings)", () => {
       expect(found).toBe(true);
     }
 
+    // Regression: DUP-MIB-A and DUP-MIB-B define the same module name. Both
+    // rows must render — rows are keyed by file path, so duplicate module
+    // names cannot trip Svelte's each_key_duplicate check (which would kill
+    // the update flush and hang the dialog on "Loading...").
+    let dupCount = 0;
+    for (const r of await $$("[data-testid='mib-row']")) {
+      if (((await r.getText()) ?? "").includes("DUP-MIB")) dupCount++;
+    }
+    expect(dupCount).toBe(2);
+
     const before = await nodeCount();
 
     // Unload IF-MIB.

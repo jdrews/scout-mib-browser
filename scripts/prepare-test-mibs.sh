@@ -51,5 +51,61 @@ brokenThing OBJECT-TYPE
     ::= { brokenMibObjects 1 }
 EOF
 
+# Two files that define the SAME module name ("DUP-MIB") under different file
+# names. Regression fixture for the Manage MIBs dialog: its row list must be
+# keyed per file (not per module name) or duplicate names hang the dialog on
+# "Loading..." (Svelte each_key_duplicate).
+cat > "$DST_MIBS/DUP-MIB-A" <<'EOF'
+-- DUP-MIB (part 1 of 2) — e2e regression fixture. See DUP-MIB-B.
+
+DUP-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, Integer32, enterprises
+        FROM SNMPv2-SMI;
+
+dupMibA MODULE-IDENTITY
+    LAST-UPDATED "202601010000Z"
+    ORGANIZATION "Test"
+    CONTACT-INFO "test@test.com"
+    DESCRIPTION "Duplicate-module fixture, part A."
+    ::= { enterprises 99201 }
+
+dupMibAObjects OBJECT IDENTIFIER ::= { dupMibA 1 }
+
+dupThingA OBJECT-TYPE
+    SYNTAX Integer32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "Fixture object A."
+    ::= { dupMibAObjects 1 }
+END
+EOF
+
+cat > "$DST_MIBS/DUP-MIB-B" <<'EOF'
+-- DUP-MIB (part 2 of 2) — e2e regression fixture. See DUP-MIB-A.
+
+DUP-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, Integer32, enterprises
+        FROM SNMPv2-SMI;
+
+dupMibB MODULE-IDENTITY
+    LAST-UPDATED "202601010000Z"
+    ORGANIZATION "Test"
+    CONTACT-INFO "test@test.com"
+    DESCRIPTION "Duplicate-module fixture, part B."
+    ::= { enterprises 99202 }
+
+dupMibBObjects OBJECT IDENTIFIER ::= { dupMibB 1 }
+
+dupThingB OBJECT-TYPE
+    SYNTAX Integer32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "Fixture object B."
+    ::= { dupMibBObjects 1 }
+END
+EOF
+
 echo "Prepared test MIBs in $DST_MIBS:"
 ls -1 "$DST_MIBS"

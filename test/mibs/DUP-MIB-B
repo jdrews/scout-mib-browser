@@ -1,0 +1,28 @@
+-- DUP-MIB (part 2 of 2) — e2e regression fixture.
+--
+-- See DUP-MIB-A: this file defines the SAME module name "DUP-MIB" under a
+-- different file name, so loaded_mibs() reports two entries sharing one
+-- mibName. The Manage MIBs dialog must render both rows (keyed by file
+-- path) instead of hanging on "Loading...".
+
+DUP-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, Integer32, enterprises
+        FROM SNMPv2-SMI;
+
+dupMibB MODULE-IDENTITY
+    LAST-UPDATED "202601010000Z"
+    ORGANIZATION "Test"
+    CONTACT-INFO "test@test.com"
+    DESCRIPTION "Duplicate-module fixture, part B."
+    ::= { enterprises 99202 }
+
+dupMibBObjects OBJECT IDENTIFIER ::= { dupMibB 1 }
+
+dupThingB OBJECT-TYPE
+    SYNTAX Integer32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "Fixture object B."
+    ::= { dupMibBObjects 1 }
+END
