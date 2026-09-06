@@ -1,6 +1,6 @@
 <script lang="ts">
   import { FileText, Folder, FolderOpen } from "lucide-svelte";
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, tick } from "svelte";
   import type { TreeNode as TreeNodeType } from "$lib/types";
   import { S } from "$lib/stores.svelte";
   import { registerTreeNode } from "$lib/treeRegistry";
@@ -43,16 +43,53 @@
 
   let truncatedOid = $derived(truncateOid(node.oid));
 
+  // Long dot-joined names (collapsed empty-folder runs) overflow the row. The
+  // CSS ellipsis would cut the END — where sibling names differ — so once the
+  // full name doesn't fit, truncate in the middle instead ("a.b...c.d"). The
+  // title attribute keeps the full name for hover.
+  let displayName = $state(node.name);
+  let nameEl: HTMLSpanElement;
+
+  $effect(() => {
+    void node.name;
+    void S.mibPanelWidth;
+    fitName(); // stale runs self-abort via the name guard inside
+  });
+
+  /** Renders the full name and, if it overflows the row, swaps in a
+   *  suffix-weighted middle-truncated form until it fits. */
+  async function fitName() {
+    const full = node.name;
+    displayName = full;
+    await tick();
+    if (node.name !== full) return; // replaced mid-measure
+    const el = nameEl;
+    if (!el || el.scrollWidth <= el.clientWidth + 1) return;
+    let budget = Math.floor(((el.clientWidth - 4) / el.scrollWidth) * full.length);
+    for (let attempt = 0; attempt < 5 && budget > 6; attempt++) {
+      const suffixLen = Math.ceil(budget / 2); // keep more of the end
+      const prefixLen = budget - suffixLen;
+      displayName = `${full.slice(0, prefixLen)}...${full.slice(full.length - suffixLen)}`;
+      await tick();
+      if (node.name !== full) return;
+      if (el.scrollWidth <= el.clientWidth + 1) return;
+      budget = Math.floor(budget * 0.75);
+    }
+  }
+
   // Find-in-tree: while the find bar is open, every rendered entry whose name
   // contains the query shows the matched substring marked (like a text-search
-  // hit). The current hit (treeFindOid) additionally gets the row tint.
+  // hit). The current hit (treeFindOid) additionally gets the row tint. Matching
+  // uses the full name — a hit inside an elided middle still tints the row; the
+  // mark only renders when the match is in the visible part.
   let nameMark = $derived.by(() => {
     if (!S.treeFindOpen) return null;
     const q = S.treeFindQuery.trim().toLowerCase();
     if (!q) return null;
-    const idx = node.name.toLowerCase().indexOf(q);
+    if (!node.name.toLowerCase().includes(q)) return null;
+    const idx = displayName.toLowerCase().indexOf(q);
     if (idx < 0) return null;
-    return [node.name.slice(0, idx), node.name.slice(idx, idx + q.length), node.name.slice(idx + q.length)];
+    return [displayName.slice(0, idx), displayName.slice(idx, idx + q.length), displayName.slice(idx + q.length)];
   });
 
   function truncateOid(oid: string): string {
@@ -94,11 +131,12 @@
   }
 
   /** Expands and waits until children are loaded — used by find to walk a
-   *  chain of ancestors in a collapsed tree. */
-  async function ensureExpanded() {
-    if (!hasChildren || expanded) return;
+   *  chain of ancestors in a collapsed tree. Resolves true when it did work. */
+  async function ensureExpanded(): Promise<boolean> {
+    if (!hasChildren || expanded) return false;
     expanded = true;
     await loadChildren();
+    return true;
   }
 
   let unregister: (() => void) | undefined;
@@ -231,11 +269,11 @@
     {:else}
       <FileText class="h-4 w-4 shrink-0" />
     {/if}
-    <span class="truncate">
+    <span class="truncate" bind:this={nameEl}>
       {#if nameMark}
         {nameMark[0]}<mark class="find-mark">{nameMark[1]}</mark>{nameMark[2]}
       {:else}
-        {node.name}
+        {displayName}
       {/if}
     </span>
     {#if isFallbackNode}

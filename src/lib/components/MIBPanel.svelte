@@ -6,7 +6,7 @@
   import { S } from "$lib/stores.svelte";
   import { pluralize } from "$lib/format";
   import { searchOids, findChain } from "$lib/treeSearch";
-  import { getTreeNode } from "$lib/treeRegistry";
+  import { getTreeNode, findRenderedDescendant } from "$lib/treeRegistry";
 
   let hasTree = $derived(S.treeData.length > 0);
   let showFallback = $derived(S.fallbackMibs.length > 0 && !S.fallbackBannerDismissed);
@@ -55,6 +55,9 @@
   let lastMatches: string[] | null = null;
   // Bumped on every navigation so a slow reveal chain can't clobber a newer one.
   let revealSeq = 0;
+  // Max passes of the reveal walk: one per tree level, capped well beyond any
+  // realistic MIB tree depth.
+  const MAX_REVEAL_PASSES = 20;
 
   let findMatches = $derived(S.treeFindQuery.trim() ? searchOids(S.oidNameMap, S.treeFindQuery) : []);
 
@@ -122,32 +125,68 @@
     }
   }
 
-  /** Expands every ancestor of `oid` (top-down), then scrolls the row into
-   *  view. Never collapses anything, and doesn't change selection/focus. */
+  /** True when `oid` is a single-segment leaf root — the only rows that render
+   *  inside the "other" folder. A single-segment root with indexed descendants
+   *  renders as its own (possibly absorbed) top-level row instead. */
+  function isOtherFolderRoot(oid: string): boolean {
+    if (oid.includes(".")) return false;
+    const prefix = `${oid}.`;
+    for (const o of S.oidNameMap.keys()) {
+      if (o.startsWith(prefix)) return false;
+    }
+    return true;
+  }
+
+  /** Expands every rendered ancestor of `oid` (top-down), then scrolls the row
+   *  into view. Nodes absorbed by empty-folder collapse have no row of their
+   *  own — the rendered representative is a descendant carrying the dot-joined
+   *  name — so an unrendered target is re-aimed at that descendant and the walk
+   *  repeats until it renders. Never collapses anything; doesn't change
+   *  selection/focus. */
   async function goToMatch(oid: string) {
     const seq = ++revealSeq;
     S.treeFindOid = oid;
-    const chain = findChain(oid, S.oidNameMap);
-    for (let i = 0; i < chain.length - 1; i++) {
+    let target = oid;
+
+    // One pass per tree level at most: each redirect re-aims at a deeper
+    // rendered representative, and each expansion loads one more level.
+    for (let pass = 0; pass < MAX_REVEAL_PASSES; pass++) {
       if (seq !== revealSeq) return;
-      let handle = getTreeNode(chain[i]);
-      if (!handle && i === 0) {
-        // Single-segment leaf roots render inside the "other" folder.
+      if (getTreeNode(target)) break;
+      let expanded = false;
+      const chain = findChain(target, S.oidNameMap);
+      // Single-segment leaf roots render inside the "other" folder — expand it
+      // so their rows exist before the ancestor walk (also covers a target
+      // that is itself such a root, whose chain has no ancestors to walk).
+      if (isOtherFolderRoot(chain[0])) {
         const other = getTreeNode("__other__");
         if (other) {
-          await other.expand();
+          if (await other.expand()) expanded = true;
           if (seq !== revealSeq) return;
           await tick();
         }
-        handle = getTreeNode(chain[i]);
       }
-      if (!handle) return;
-      await handle.expand();
-      if (seq !== revealSeq) return;
-      await tick();
+      for (let i = 0; i < chain.length - 1; i++) {
+        if (seq !== revealSeq) return;
+        const handle = getTreeNode(chain[i]);
+        // Absorbed ancestors have no row — their representative is a later
+        // chain element, so skip instead of aborting.
+        if (!handle) continue;
+        if (await handle.expand()) expanded = true;
+        if (seq !== revealSeq) return;
+        await tick();
+      }
+      const rep = findRenderedDescendant(target);
+      if (rep && rep !== target) {
+        // The match sits in an absorbed node — follow the hit tint to the row.
+        target = rep;
+        S.treeFindOid = rep;
+        continue;
+      }
+      if (!expanded) break; // nothing new to expand — give up
     }
     if (seq !== revealSeq) return;
-    getTreeNode(oid)?.el.scrollIntoView({ block: "center" });
+    getTreeNode(target)?.el.scrollIntoView({ block: "center" });
   }
 </script>
 

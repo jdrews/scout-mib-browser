@@ -99,6 +99,25 @@ describe("MIB tree find", () => {
     expect(mark).toBe("ifType");
   });
 
+  it("tints the right row when hits sit in absorbed or other-folder nodes", async () => {
+    await freshTree();
+
+    await openFind();
+    // "iso" matches two loaded OIDs: 1 ("iso") and 2 ("joint-iso-ccitt").
+    // OID 1 is absorbed into the "iso.org" root, so its hit has no row of its
+    // own — the reveal must re-aim the current-hit tint at the representative
+    // row (OID 1.3).
+    await typeFind("iso");
+    await waitForCount("1/2");
+    await waitForHighlight("1.3");
+
+    // Enter steps to the second hit: a single-segment leaf root that renders
+    // inside the "other" folder — the reveal must expand it and tint its row.
+    await browser.keys(["Enter"]);
+    await waitForCount("2/2");
+    await waitForHighlight("2");
+  });
+
   it("Enter steps to the next finding, Shift+Enter back", async () => {
     await freshTree();
 

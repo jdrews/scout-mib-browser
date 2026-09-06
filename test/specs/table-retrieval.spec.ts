@@ -1,5 +1,8 @@
 import type { TableResult } from "../../src/lib/types";
 import {
+  CHAIN_TO_INTERFACES,
+  CHAIN_TO_MIB2,
+  CHAIN_TO_SYSTEM,
   expandTo,
   go,
   restoreTargetPort,
@@ -39,7 +42,7 @@ describe("Table retrieval (Get Table)", () => {
   it("Get Table on a table node produces the grid", async () => {
     // ifTable (1.3.6.1.2.1.2.2) is a child of the interfaces subtree, not of
     // mib-2 directly — interfaces must be expanded too.
-    await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2", "interfaces"]);
+    await expandTo(CHAIN_TO_INTERFACES);
     await selectTreeNode("ifTable");
     await go("getTable");
 
@@ -97,7 +100,7 @@ describe("Table retrieval (Get Table)", () => {
   });
 
   it("Get Table on a non-table is rejected with guidance", async () => {
-    await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2", "system"]);
+    await expandTo(CHAIN_TO_SYSTEM);
     await selectTreeNode("sysDescr");
     await go("getTable");
 
@@ -306,7 +309,7 @@ describe("Table retrieval (multi-component index, synthetic agent)", () => {
 
   it("retrieves a two-index table as a grid", async () => {
     // ifStackTable (1.3.6.1.2.1.31.1.2) — INDEX { ifStackHigherLayer, ifStackLowerLayer }.
-    await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2", "ifMIB", "ifMIBObjects"]);
+    await expandTo([...CHAIN_TO_MIB2, "ifMIB.ifMIBObjects"]);
     await selectTreeNode("ifStackTable");
     await go("getTable");
 
@@ -394,7 +397,7 @@ describe("Table retrieval (multi-component index, synthetic agent)", () => {
   it("decodes an Integer + IpAddress index and flags missing cells", async () => {
     // synthIpTable (SYNTH-TABLE-MIB) — INDEX { synthIpRow, synthIpAddr };
     // synthIpNote is absent on row 7 in the recording.
-    await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2", "synthTableMib", "synthObjects"]);
+    await expandTo([...CHAIN_TO_MIB2, "synthTableMib.synthObjects"]);
     await selectTreeNode("synthIpTable");
     await go("getTable");
 

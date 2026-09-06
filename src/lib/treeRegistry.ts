@@ -4,8 +4,9 @@
 
 export interface TreeNodeHandle {
   el: HTMLElement;
-  /** Expands the node, fetching children if needed. Resolves once loaded. */
-  expand: () => Promise<void>;
+  /** Expands the node, fetching children if needed. Resolves once loaded;
+   *  true when it actually expanded (false if already expanded or a leaf). */
+  expand: () => Promise<boolean>;
 }
 
 const registry = new Map<string, TreeNodeHandle>();
@@ -22,4 +23,17 @@ export function registerTreeNode(oid: string, handle: TreeNodeHandle): () => voi
 
 export function getTreeNode(oid: string): TreeNodeHandle | undefined {
   return registry.get(oid);
+}
+
+/** Shallowest registered OID that is a proper descendant of `oid`, or null.
+ *  A node absorbed by empty-folder collapse has no row of its own — its
+ *  rendered representative is the descendant carrying the dot-joined name. */
+export function findRenderedDescendant(oid: string): string | null {
+  const prefix = `${oid}.`;
+  let best: string | null = null;
+  for (const o of registry.keys()) {
+    if (!o.startsWith(prefix)) continue;
+    if (best === null || o.split(".").length < best.split(".").length) best = o;
+  }
+  return best;
 }

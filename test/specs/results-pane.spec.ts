@@ -1,4 +1,4 @@
-import { expandTo, findTreeNode, go, resultsBodyHasText, selectTreeNode, waitForAppReady, waitForStatus } from "../support/helpers";
+import { CHAIN_TO_SYSTEM, expandTo, findTreeNode, go, resultsBodyHasText, selectTreeNode, waitForAppReady, waitForStatus } from "../support/helpers";
 
 const SYSTEM_WALK_COUNT = 31; // pinned to the linux-full-walk.snmprec recording
 
@@ -6,7 +6,7 @@ describe("Results pane (result set manipulation)", () => {
   before(async () => {
     await waitForAppReady();
     // Deterministic setup: walk the system subtree once.
-    await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2", "system"]);
+    await expandTo(CHAIN_TO_SYSTEM);
     await selectTreeNode("system");
     await go("walk");
     await waitForStatus(new RegExp(`^walk complete: ${SYSTEM_WALK_COUNT} binding\\(s\\)$`), 60000);

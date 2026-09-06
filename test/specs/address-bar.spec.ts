@@ -1,4 +1,4 @@
-import { expandTo, oidInputValue, resultsBodyHasText, selectTreeNode, typeOid, waitForAppReady, waitForStatus, waitForTreeNode } from "../support/helpers";
+import { CHAIN_TO_SYSTEM, expandTo, oidInputValue, resultsBodyHasText, selectTreeNode, typeOid, waitForAppReady, waitForStatus, waitForTreeNode } from "../support/helpers";
 
 describe("Address bar (autocomplete)", () => {
   before(async () => {
@@ -58,7 +58,7 @@ describe("Address bar (autocomplete)", () => {
 
   it("typing an OID clears the stale tree selection and wins at Go time", async () => {
     // Select a node in the tree; the address bar is populated from it.
-    await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2", "system"]);
+    await expandTo(CHAIN_TO_SYSTEM);
     await waitForTreeNode("sysDescr");
     await selectTreeNode("sysDescr");
     expect(await oidInputValue()).toBe("1.3.6.1.2.1.1.1  sysDescr");

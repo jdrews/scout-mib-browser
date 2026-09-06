@@ -172,6 +172,12 @@ export async function selectTreeNode(name: string): Promise<void> {
   await (await waitForTreeNode(name)).click();
 }
 
+/** Dot-joined folder names down the standard test MIB tree: empty-folder
+ *  collapse merges each empty run's front pair into a single row. */
+export const CHAIN_TO_MIB2 = ["iso.org", "dod.internet", "mgmt.mib-2"];
+export const CHAIN_TO_SYSTEM = [...CHAIN_TO_MIB2, "system"];
+export const CHAIN_TO_INTERFACES = [...CHAIN_TO_MIB2, "interfaces"];
+
 /** Expands successive tree nodes by name, waiting for lazy children between steps. */
 export async function expandTo(names: string[]): Promise<void> {
   for (const name of names) {

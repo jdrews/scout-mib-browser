@@ -80,3 +80,47 @@ describe("TreeNode find highlighting", () => {
     );
   });
 });
+
+describe("middle truncation of overflowing names", () => {
+  const LONG = "applicationMib.applicationMibObjects.applChannelGroup.applOpenConnectionTable";
+
+  /** Simulates a narrow pane: every character is ~8px wide, 120px are visible. */
+  function fakeWidths(span: HTMLElement) {
+    Object.defineProperty(span, "scrollWidth", {
+      configurable: true,
+      get: () => (span.textContent ?? "").length * 8,
+    });
+    Object.defineProperty(span, "clientWidth", {
+      configurable: true,
+      get: () => 120,
+    });
+  }
+
+  it("elides the middle and keeps the end when a long name overflows", async () => {
+    const view = render(TreeNode, { props: { node: node("1.3.6.1.2.1.99", LONG) } });
+    const span = view.container.querySelector("[data-tree-node] span.truncate") as HTMLElement;
+    expect(span.textContent).toBe(LONG); // full name until it is measured
+
+    fakeWidths(span);
+    S.mibPanelWidth = 300; // retrigger the fit effect, like a pane resize
+    for (let i = 0; i < 12; i++) await tick();
+
+    const text = span.textContent ?? "";
+    expect(text).not.toBe(LONG);
+    const [head, tail] = text.split("...");
+    expect(head.length).toBeGreaterThan(0);
+    expect(tail.length).toBeGreaterThan(0);
+    // True middle truncation: head is a prefix, tail is a suffix of the full name.
+    expect(LONG.startsWith(head)).toBe(true);
+    expect(LONG.endsWith(tail)).toBe(true);
+  });
+
+  it("leaves names that fit untouched", async () => {
+    const view = render(TreeNode, { props: { node: node("1.3.6.1.2.1.99", "sysDescr") } });
+    const span = view.container.querySelector("[data-tree-node] span.truncate") as HTMLElement;
+    fakeWidths(span); // 8 chars * 8px = 64px — fits in 120px
+    S.mibPanelWidth = 300;
+    for (let i = 0; i < 12; i++) await tick();
+    expect(span.textContent).toBe("sysDescr");
+  });
+});

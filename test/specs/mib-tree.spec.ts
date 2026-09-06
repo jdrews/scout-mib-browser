@@ -1,4 +1,4 @@
-import { expandTo, findTreeNode, oidInputValue, selectTreeNode, waitForAppReady, waitForTreeNode } from "../support/helpers";
+import { CHAIN_TO_SYSTEM, expandTo, findTreeNode, oidInputValue, selectTreeNode, waitForAppReady, waitForTreeNode } from "../support/helpers";
 
 describe("MIB tree (browsing and selection)", () => {
   before(async () => {
@@ -22,7 +22,7 @@ describe("MIB tree (browsing and selection)", () => {
     expect(systemVisible).toBe(false);
 
     // Expand down to the system subtree; children load on demand.
-    await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2", "system"]);
+    await expandTo(CHAIN_TO_SYSTEM);
     await expect(await findTreeNode("system")).toBeExisting();
   });
 
@@ -103,10 +103,33 @@ describe("MIB tree (browsing and selection)", () => {
     expect(backOnParent).toBe(second?.oid);
   });
 
+  it("caps merged folder names at two parts", async () => {
+    // Fresh collapsed tree: only roots render. The iso > org > dod > internet
+    // run holds no leaf OIDs at any level, so its front pair merges into one
+    // root — the tail of the run stays as nested rows with full names.
+    await browser.url("http://localhost:5173");
+    await waitForAppReady();
+
+    await expect(await findTreeNode("iso.org")).toBeExisting();
+    const titles = await $$("[data-tree-node]");
+    let absorbedVisible = false;
+    for (const n of titles) {
+      const t = (await n.getAttribute("title")) ?? "";
+      if (t.startsWith("org (") || t.startsWith("internet (") || t.startsWith("mgmt (")) {
+        absorbedVisible = true;
+      }
+    }
+    expect(absorbedVisible).toBe(false);
+
+    // Expanding down the run reveals its next front pair, then mgmt > mib-2.
+    await expandTo(["iso.org", "dod.internet"]);
+    await expect(await findTreeNode("mgmt.mib-2")).toBeExisting();
+  });
+
   it("context menu offers copy actions", async () => {
     // Self-contained: earlier tests may have reloaded the page and collapsed
     // the tree, so expand down to sysDescr explicitly (children load lazily).
-    await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2", "system"]);
+    await expandTo(CHAIN_TO_SYSTEM);
     await waitForTreeNode("sysDescr");
 
     // element.dispatchEvent() is not part of this WDIO build — dispatch the

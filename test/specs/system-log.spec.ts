@@ -1,5 +1,5 @@
 import { execFileSync } from "child_process";
-import { expandTo, go, selectTreeNode, waitForAppReady, waitForStatus } from "../support/helpers";
+import { CHAIN_TO_SYSTEM, expandTo, go, selectTreeNode, waitForAppReady, waitForStatus } from "../support/helpers";
 
 /**
  * Sends a REAL mouse-wheel notch to the X server via XTEST on the display
@@ -127,7 +127,7 @@ describe("System log mouse scrolling", () => {
     await expect(await $("[data-testid='syslog-pane']")).toBeExisting();
 
     // A walk fills both the results pane and the log, like in the bug report.
-    await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2", "system"]);
+    await expandTo(CHAIN_TO_SYSTEM);
     await selectTreeNode("system");
     await go("walk");
     await waitForStatus(/^walk complete: \d+ binding\(s\)$/);
@@ -238,7 +238,7 @@ describe("System log mouse scrolling", () => {
     // area below it — wheeling there scrolled the RESULTS instead of the log
     // (and only in the horizontal band above the results column). A large
     // walk is required to trigger it.
-    await selectTreeNode("mib-2");
+    await selectTreeNode("mgmt.mib-2");
     await go("walk");
     await waitForStatus(/^walk complete: \d+ binding\(s\)$/);
 

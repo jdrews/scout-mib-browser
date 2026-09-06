@@ -1,4 +1,4 @@
-import { AGENT_HOST, AGENT_PORT, expandTo, go, selectTreeNode, setOperation, typeOid, waitForStatus } from "../support/helpers";
+import { AGENT_HOST, AGENT_PORT, CHAIN_TO_INTERFACES, CHAIN_TO_SYSTEM, expandTo, go, selectTreeNode, setOperation, typeOid, waitForStatus } from "../support/helpers";
 import { accessibleNameAudit, collectUserStrings, freshWindow, injectAxe, runAxe, setTheme, shot, tabOrderWalk, writeJson, type AxeViolation, type NameAuditRow, type TabStop } from "../support/ux";
 
 // A6 — Accessibility / DOM audit per state (axe-core devDependency + manual DOM
@@ -34,7 +34,7 @@ describe("UX A6/A7 — axe + DOM audit + terminology collection", function () {
     await axeState("launch-ready");
 
     // ── State: tree selected + autocomplete open ─────────────────────────────
-    await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2", "system"]);
+    await expandTo(CHAIN_TO_SYSTEM);
     await selectTreeNode("sysDescr");
     await typeOid("sysdescr");
     await (await $("[data-testid='autocomplete-list']")).waitForExist({ timeout: 5000 });
@@ -53,7 +53,7 @@ describe("UX A6/A7 — axe + DOM audit + terminology collection", function () {
     await axeState("results-list");
 
     // ── State: grid view (ifTable) ───────────────────────────────────────────
-    await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2", "interfaces"]);
+    await expandTo(CHAIN_TO_INTERFACES);
     await selectTreeNode("ifTable");
     await setOperation("getTable");
     await go();
