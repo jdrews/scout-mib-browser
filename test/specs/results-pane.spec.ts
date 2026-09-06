@@ -83,14 +83,17 @@ describe("Results pane (result set manipulation)", () => {
     // First row is sysDescr.0 — a long OctetString, truncated by default.
     let rows = await $$("[data-testid='result-row']");
     const valueCell = (await ((await rows[0]).$$("div")))[1];
-    expect((await valueCell.getCSSProperty("white-space")).value).toBe("nowrap");
+    // The truncation classes live on the inner value span — the cell div is a
+    // container so it can also host a hex dump in Raw mode.
+    const valueSpan = (await valueCell.$$("span"))[0];
+    expect((await valueSpan.getCSSProperty("white-space")).value).toBe("nowrap");
 
     await (await $("[data-testid='wrap-toggle']")).click();
-    expect((await valueCell.getCSSProperty("word-break")).value).toBe("break-all");
+    expect((await valueSpan.getCSSProperty("word-break")).value).toBe("break-all");
 
     // Toggle back.
     await (await $("[data-testid='wrap-toggle']")).click();
-    expect((await valueCell.getCSSProperty("white-space")).value).toBe("nowrap");
+    expect((await valueSpan.getCSSProperty("white-space")).value).toBe("nowrap");
   });
 
   it("Clear resets the Result Set", async () => {

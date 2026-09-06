@@ -3,9 +3,13 @@
   import { S } from "$lib/stores.svelte";
   import { mibNodeDetails } from "$lib/tauriCommands";
   import type { MibNodeDetails, NamedValueInfo, TableIndexColumn } from "$lib/types";
+  import { hexDumpLines, interpretBytes, interpretationLabel, asn1TypeCodeText, BYTES_PER_ROW } from "$lib/hexdump";
 
   const MIN_HEIGHT = 120;
   const MAX_HEIGHT = 800;
+  /** The inspector is the detail view, so it shows more of a long dump than
+   *  the results list does. */
+  const INSPECTOR_DUMP_MAX_ROWS = 64;
 
   let isResizing = $state(false);
   let startY = $state(0);
@@ -191,6 +195,30 @@
               <p class="text-[10px] font-semibold uppercase tracking-wide text-base-content/60 mb-1">Live value</p>
               <p class="font-mono text-xs break-all">{liveValue.text}</p>
               <p class="text-[10px] text-base-content/60 mt-0.5">{liveValue.typeLabel}</p>
+              {#if liveValue.bytes && liveValue.bytes.length > 0}
+                {@const bytes = liveValue.bytes}
+                {@const dumpBytes = bytes.slice(0, INSPECTOR_DUMP_MAX_ROWS * BYTES_PER_ROW)}
+                {@const hiddenBytes = bytes.length - dumpBytes.length}
+                {@const interp = interpretBytes(bytes)}
+                <div data-testid="inspector-hexdump" class="mt-2">
+                  {#if liveValue.typeCode !== undefined}
+                    <p class="text-[10px] text-base-content/60 mb-1">type: {asn1TypeCodeText(liveValue.typeCode)}</p>
+                  {/if}
+                  {#if interp && interp.kind !== "text"}
+                    <p class="text-[10px] text-base-content/60 mb-1">recognized as {interpretationLabel(interp.kind).toLowerCase()}</p>
+                  {/if}
+                  {#each hexDumpLines(dumpBytes) as r (r.offset)}
+                    <div class="flex gap-2 leading-tight font-mono text-[11px]">
+                      <span class="w-8 shrink-0 text-right text-base-content/40">{r.offset}</span>
+                      <span class="shrink-0">{r.hex}</span>
+                      <span class="text-base-content/70">{r.ascii}</span>
+                    </div>
+                  {/each}
+                  {#if hiddenBytes > 0}
+                    <p class="text-[10px] text-base-content/40 mt-0.5">… {hiddenBytes} more bytes</p>
+                  {/if}
+                </div>
+              {/if}
             </div>
           {/if}
 

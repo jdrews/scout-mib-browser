@@ -58,6 +58,10 @@ _Avoid_: Fetch table, pull table, table query
 The output of an Execution — contains Variable Bindings plus any non-fatal warnings or errors collected during tolerance handling. What gets displayed in the results view and exported to files.
 _Avoid_: Query result, response payload, data set
 
+**Raw View**:
+A display mode of a Result Set that shows byte values as a hex + ASCII dump (offset, space-separated hex pairs, printable column with `.` for non-printable bytes) and scalars alongside their wire encoding (hex form, BER OID bytes, packed IP bytes). Byte values are also recognized by shape wherever they display: 6 bytes as a MAC address, 4 as IPv4, 16 as compressed IPv6; text wins over length-based matches.
+_Avoid_: Hex mode, packet view, byte view
+
 **Execution**:
 Triggering an Operation against a Target via the Go button. Takes the current Selection and Operation to produce a Result Set.
 _Avoid_: Run, fire, query (too generic)
