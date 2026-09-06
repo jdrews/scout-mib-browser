@@ -36,7 +36,7 @@
     "@wdio/tauri-plugin": "^1.2.0",
     "@wdio/tauri-service": "^1.3.0",
     "axe-core": "^4.10.2",
-    "daisyui": "^5.7.16",
+    "daisyui": "^5.7.27",
     "expect-webdriverio": "^6.0.5",
     "happy-dom": "^20.12.0",
     "jsdom": "^30.0.1",
