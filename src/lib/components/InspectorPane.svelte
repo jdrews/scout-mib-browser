@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { ChevronDown, ChevronUp } from "lucide-svelte";
+  import { Binary, ChevronDown, ChevronUp } from "lucide-svelte";
   import { S } from "$lib/stores.svelte";
   import { mibNodeDetails } from "$lib/tauriCommands";
-  import type { MibNodeDetails, NamedValueInfo, TableIndexColumn } from "$lib/types";
+  import type { MibNodeDetails, NamedValueInfo, SnmpValue, TableIndexColumn } from "$lib/types";
   import { hexDumpLines, interpretBytes, interpretationLabel, asn1TypeCodeText, BYTES_PER_ROW } from "$lib/hexdump";
 
   const MIN_HEIGHT = 120;
@@ -109,6 +109,17 @@
   function indexColumnLabel(c: TableIndexColumn): string {
     return c.implied ? `${c.name} (implied)` : c.name;
   }
+
+  /** Opens the hex view modal for the live value's bytes, rebuilt from the
+   *  inspector payload (Raw values keep their BER type code). */
+  function openHexView() {
+    if (!oid || !liveValue?.bytes || liveValue.bytes.length === 0) return;
+    const value: SnmpValue =
+      liveValue.typeCode !== undefined
+        ? { Raw: { type_code: liveValue.typeCode, data: liveValue.bytes } }
+        : { OctetString: liveValue.bytes };
+    S.hexViewTarget = { oid, displayName: details?.name ?? oid, value };
+  }
 </script>
 
 <section data-testid="inspector-pane" class="flex flex-col flex-shrink-0 bg-base-100">
@@ -192,7 +203,14 @@
         <div class="flex-1 overflow-y-auto">
           {#if liveValue}
             <div data-testid="inspector-live-value" class="px-4 py-2 border-b border-base-300 bg-base-200/60">
-              <p class="text-[10px] font-semibold uppercase tracking-wide text-base-content/60 mb-1">Live value</p>
+              <div class="flex items-center justify-between gap-2 mb-1">
+                <p class="text-[10px] font-semibold uppercase tracking-wide text-base-content/60">Live value</p>
+                {#if liveValue.bytes && liveValue.bytes.length > 0}
+                  <button data-testid="inspector-hex-view-btn" class="btn btn-ghost btn-xs gap-1" title="Open full hex view" onclick={openHexView}>
+                    <Binary class="w-3 h-3 shrink-0" /> Hex view
+                  </button>
+                {/if}
+              </div>
               <p class="font-mono text-xs break-all">{liveValue.text}</p>
               <p class="text-[10px] text-base-content/60 mt-0.5">{liveValue.typeLabel}</p>
               {#if liveValue.bytes && liveValue.bytes.length > 0}

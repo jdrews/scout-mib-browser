@@ -64,13 +64,14 @@ beforeEach(() => {
   mockedInvoke.mockReset();
 });
 
-afterEach(() => {
-  S.inspectorOid = null;
-  S.inspectorValue = null;
-  S.inspectorOpen = true;
-  S.inspectorHeight = 240;
-  S.treeVersion = 0;
-});
+  afterEach(() => {
+    S.inspectorOid = null;
+    S.inspectorValue = null;
+    S.inspectorOpen = true;
+    S.inspectorHeight = 240;
+    S.treeVersion = 0;
+    S.hexViewTarget = null;
+  });
 
 describe("InspectorPane", () => {
   it("shows a placeholder when nothing is selected", () => {
@@ -149,8 +150,43 @@ describe("InspectorPane", () => {
     const live = view.getByTestId("inspector-live-value");
     expect(live.textContent).toContain("Linux cray 2.6.21.5-smp");
     expect(live.textContent).toContain("OCTET STRING");
-    // No bytes captured, so no hex dump section.
+    // No bytes captured, so no hex dump section and no hex view button.
     expect(view.queryByTestId("inspector-hexdump")).toBeNull();
+    expect(view.queryByTestId("inspector-hex-view-btn")).toBeNull();
+  });
+
+  it("opens the hex view modal from the live value button", async () => {
+    mockDetails(sysDescrDetails);
+    S.inspectorOid = "1.3.6.1.2.1.1.1.0";
+    S.inspectorValue = {
+      text: "00:12:79:62:f9:40",
+      typeLabel: "OCTET STRING",
+      bytes: [0x00, 0x12, 0x79, 0x62, 0xf9, 0x40],
+    };
+
+    const view = render(InspectorPane);
+    await waitFor(() => expect(view.getByTestId("inspector-hex-view-btn")).toBeTruthy());
+
+    await fireEvent.click(view.getByTestId("inspector-hex-view-btn"));
+
+    expect(S.hexViewTarget).toEqual({
+      oid: "1.3.6.1.2.1.1.1.0",
+      displayName: "sysDescr",
+      value: { OctetString: [0x00, 0x12, 0x79, 0x62, 0xf9, 0x40] },
+    });
+  });
+
+  it("keeps the BER type code when opening hex view for Raw live values", async () => {
+    mockDetails(sysDescrDetails);
+    S.inspectorOid = "9.9.9";
+    S.inspectorValue = { text: "<raw>", typeLabel: "RAW", bytes: [0xde, 0xad], typeCode: 0x82 };
+
+    const view = render(InspectorPane);
+    await waitFor(() => expect(view.getByTestId("inspector-hex-view-btn")).toBeTruthy());
+
+    await fireEvent.click(view.getByTestId("inspector-hex-view-btn"));
+
+    expect(S.hexViewTarget?.value).toEqual({ Raw: { type_code: 0x82, data: [0xde, 0xad] } });
   });
 
   it("shows a hex dump for live byte values with a recognized pattern", async () => {

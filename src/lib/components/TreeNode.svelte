@@ -179,7 +179,7 @@
   function showContextMenu(e: MouseEvent) {
     e.preventDefault();
     selectNode();
-    S.contextMenuTarget = { node, x: e.clientX, y: e.clientY };
+    S.contextMenuTarget = { kind: "node", node, x: e.clientX, y: e.clientY };
   }
 
   let nodeEl: HTMLDivElement;
