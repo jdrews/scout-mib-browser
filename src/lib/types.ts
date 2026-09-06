@@ -177,10 +177,14 @@ export interface MibNodeDetails {
   indexColumns?: TableIndexColumn[];
 }
 
-/** A live value captured when a result row/cell drives the inspector. */
+/** A live value captured when a result row/cell drives the inspector.
+ * `bytes`/`typeCode` are present only for byte-carrying values (OctetString,
+ * Raw) and enable the inspector's hex-dump view. */
 export interface InspectorValue {
   text: string;
   typeLabel: string;
+  bytes?: number[];
+  typeCode?: number;
 }
 
 /** One row of the flat result list: a binding with resolved name and display text. */
@@ -192,6 +196,8 @@ export interface ResultRow {
   type: string;
   value: string;
   warning: boolean;
+  /** The binding's live value — used by raw-mode rendering and the inspector. */
+  snmpValue: SnmpValue;
 }
 
 /** A single cell in a table grid result. */

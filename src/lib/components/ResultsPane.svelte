@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { ArrowDown, ArrowUp, ArrowUpDown, Trash2, TriangleAlert, WrapText } from "lucide-svelte";
+  import { ArrowDown, ArrowUp, ArrowUpDown, Binary, Trash2, TriangleAlert, WrapText } from "lucide-svelte";
   import { S, clearResults } from "$lib/stores.svelte";
   import type { VariableBinding, SnmpValue, ResultSet, TreeNode, TableResult, TableRowData, TableCell, TableIndexColumn, ResultRow } from "$lib/types";
+  import { hexDumpLines, interpretBytes, interpretationLabel, asn1TypeCodeText, BYTES_PER_ROW } from "$lib/hexdump";
   import type { ExportFormat } from "$lib/export";
   import * as exportMod from "$lib/export";
   import { saveToFile } from "$lib/tauriCommands";
@@ -24,6 +25,11 @@
 
   let showResolvedNames = $state(true);
   let wrapValue = $state(false);
+  // Raw mode: byte values render as a Wireshark-style hex + ASCII dump, and
+  // scalars show their wire encoding alongside the decoded value.
+  let showRaw = $state(false);
+  /** Inline dumps are capped; longer values continue in the inspector. */
+  const RAW_DUMP_MAX_ROWS = 16;
 
   const COL_MIN_OID = 100;
   const COL_MAX_OID = 500;
@@ -141,6 +147,7 @@
       type: typeLabel(b.value),
       value: exportMod.valueDisplay(b.value),
       warning: !!b.warning,
+      snmpValue: b.value,
     };
   }));
 
@@ -188,7 +195,7 @@
 
   function selectResultRow(row: ResultRow) {
     S.inspectorOid = row.fullPath;
-    S.inspectorValue = { text: row.value, typeLabel: row.type };
+    S.inspectorValue = exportMod.inspectorValueOf(row.snmpValue);
   }
 
   // Subtree rows carry no live value — a click only points the Inspector at
@@ -200,9 +207,7 @@
 
   function selectGridCell(colOid: string, cell: TableCell) {
     S.inspectorOid = colOid;
-    S.inspectorValue = cell.value
-      ? { text: exportMod.valueDisplay(cell.value.value), typeLabel: typeLabel(cell.value.value) }
-      : null;
+    S.inspectorValue = cell.value ? exportMod.inspectorValueOf(cell.value.value) : null;
   }
 
   let hasWarnings = $derived(results?.warnings && results.warnings.length > 0);
@@ -548,6 +553,9 @@
           <button data-testid="wrap-toggle" title="Wrap long values" class="btn btn-sm {wrapValue ? 'btn-primary' : 'btn-ghost'}" onclick={() => wrapValue = !wrapValue}>
             <WrapText class="w-4 h-4 inline-block" /> Wrap
           </button>
+          <button data-testid="raw-toggle" title="Show values as raw bytes: hex + ASCII dump (byte values) and wire encoding (scalars)" class="btn btn-sm {showRaw ? 'btn-primary' : 'btn-ghost'}" onclick={() => showRaw = !showRaw}>
+            <Binary class="w-4 h-4 inline-block" /> Raw
+          </button>
         {/if}
       {/if}
       <input data-testid="filter-input" aria-label="Filter results" type="text" placeholder="Filter..." class="input input-bordered input-sm w-40 font-mono" bind:value={filterText} />
@@ -756,9 +764,37 @@
             <div class="px-2 py-1 truncate font-mono text-[13px] relative" style="width: {colOid}px; min-width: {COL_MIN_OID}px; max-width: {COL_MAX_OID}px;" title="{row.fullPath}\n{row.oid}">
               {showResolvedNames ? row.displayName : row.oid}
             </div>
-            <div class="flex-1 min-w-[120px] px-2 py-1 font-mono text-[13px] {wrapValue ? 'break-all' : 'truncate'}">
-              {row.value}
-              {#if row.warning} <TriangleAlert class="w-3.5 h-3.5 inline-block text-accent" />{/if}
+            <div class="flex-1 min-w-[120px] px-2 py-1 font-mono text-[13px]">
+              {#if showRaw && exportMod.isByteValue(row.snmpValue)}
+                {@const bytes = exportMod.byteData(row.snmpValue)}
+                {@const dumpBytes = bytes.slice(0, RAW_DUMP_MAX_ROWS * BYTES_PER_ROW)}
+                {@const hiddenBytes = bytes.length - dumpBytes.length}
+                {@const interp = interpretBytes(bytes)}
+                {@const typeCode = exportMod.rawTypeCode(row.snmpValue)}
+                <div data-testid="raw-hexdump" class="my-0.5">
+                  {#if typeCode !== undefined}
+                    <p class="text-[11px] text-base-content/60 mb-0.5">type: {asn1TypeCodeText(typeCode)}</p>
+                  {/if}
+                  {#if interp && interp.kind !== "text"}
+                    <p class="text-[11px] text-base-content/60 mb-0.5">{interpretationLabel(interp.kind)}: {interp.text}</p>
+                  {/if}
+                  {#each hexDumpLines(dumpBytes) as r (r.offset)}
+                    <div class="flex gap-2 leading-tight">
+                      <span class="w-8 shrink-0 text-right text-base-content/40">{r.offset}</span>
+                      <span class="shrink-0">{r.hex}</span>
+                      <span class="text-base-content/70">{r.ascii}</span>
+                    </div>
+                  {/each}
+                  {#if hiddenBytes > 0}
+                    <p class="text-[11px] text-base-content/40">… {hiddenBytes} more bytes — click to inspect</p>
+                  {/if}
+                </div>
+              {:else}
+                <span class="block {wrapValue ? 'break-all' : 'truncate'}">
+                  {showRaw ? exportMod.rawValueDisplay(row.snmpValue) : row.value}
+                </span>
+                {#if row.warning} <TriangleAlert class="w-3.5 h-3.5 inline-block text-accent" />{/if}
+              {/if}
             </div>
             <div class="px-2 py-1 font-mono text-[13px] text-base-content/60" style="width: {colType}px; min-width: {COL_MIN_TYPE}px; max-width: {COL_MAX_TYPE}px;">{row.type}</div>
           </div>

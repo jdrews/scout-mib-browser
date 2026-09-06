@@ -6,7 +6,9 @@ import type {
   TableIndexColumn,
   TableRowData,
   TableResult,
+  InspectorValue,
 } from "./types";
+import { interpretBytes, hexPairs, ipv4ToBytes, oidBerBytes } from "./hexdump";
 
 export type ExportFormat = "tsv" | "json" | "csv";
 
@@ -31,31 +33,91 @@ export interface JsonExportEnvelope {
   errors: SnmpWarning[];
 }
 
-/** Display string for a SnmpValue (matches ResultsPane logic). */
+/** Display for a byte payload: recognized patterns (MAC, IP, text) render
+ *  nicely; anything else is binary and falls back to space-separated hex. */
+function displayBytes(bytes: number[]): string {
+  if (bytes.length === 0) return '""';
+  const interp = interpretBytes(bytes);
+  if (!interp) return hexPairs(bytes);
+  return interp.kind === "text" ? `"${interp.text}"` : interp.text;
+}
+
+/** Display string for a SnmpValue (matches ResultsPane logic). The type is
+ *  never repeated in the value — the Type column carries it. */
 export function valueDisplay(v: SnmpValue): string {
   if (v === "Null") return "NULL";
   if (typeof v !== "object" || v === null) return String(v);
   if ("Integer" in v) return String(v.Integer);
   if ("Unsigned" in v) return String(v.Unsigned);
-  if ("Counter32" in v) return `${v.Counter32} (counter32)`;
-  if ("Counter64" in v) return `${v.Counter64} (counter64)`;
-  if ("OctetString" in v) {
-    try {
-      const s = new TextDecoder().decode(new Uint8Array(v.OctetString));
-      return `"${s}"`;
-    } catch {
-      return `0x${v.OctetString.map(b => b.toString(16).padStart(2, "0")).join("")}`;
-    }
-  }
+  if ("Counter32" in v) return String(v.Counter32);
+  if ("Counter64" in v) return String(v.Counter64);
+  if ("OctetString" in v) return displayBytes(v.OctetString);
   if ("ObjectIdentifier" in v) return v.ObjectIdentifier;
   if ("IpAddress" in v) return v.IpAddress;
-  if ("TimeTicks" in v) return `${v.TimeTicks} (timeticks)`;
+  if ("TimeTicks" in v) return String(v.TimeTicks);
   if ("TruthValue" in v) return v.TruthValue ? "true" : "false";
-  if ("Raw" in v) {
-    const r = v.Raw;
-    return `<raw type=0x${r.type_code.toString(16).padStart(2, "0")} data=0x${r.data.map(b => b.toString(16).padStart(2, "0")).join("")}>`;
-  }
+  // Unknown ASN.1 type — present the bytes like any other binary value; the
+  // type code stays visible in raw mode and the inspector.
+  if ("Raw" in v) return displayBytes(v.Raw.data);
   return String(v);
+}
+
+/** Inspector payload for a live value: display text plus the raw bytes when
+ *  the value carries them (OctetString/Raw), so the inspector can show a
+ *  hex dump. */
+export function inspectorValueOf(v: SnmpValue): InspectorValue {
+  const base: InspectorValue = { text: valueDisplay(v), typeLabel: typeLabel(v) };
+  if (typeof v === "object" && v !== null) {
+    if ("OctetString" in v) return { ...base, bytes: v.OctetString };
+    if ("Raw" in v) return { ...base, bytes: v.Raw.data, typeCode: v.Raw.type_code };
+  }
+  return base;
+}
+
+/** True when the value carries raw bytes (rendered as a hex dump in raw mode). */
+export function isByteValue(v: SnmpValue): boolean {
+  return typeof v === "object" && v !== null && ("OctetString" in v || "Raw" in v);
+}
+
+/** The byte payload of a byte-carrying value. */
+export function byteData(v: SnmpValue): number[] {
+  if (typeof v !== "object" || v === null) return [];
+  if ("OctetString" in v) return v.OctetString;
+  if ("Raw" in v) return v.Raw.data;
+  return [];
+}
+
+/** The ASN.1 type code when the value is a Raw variant, else undefined. */
+export function rawTypeCode(v: SnmpValue): number | undefined {
+  return typeof v === "object" && v !== null && "Raw" in v ? v.Raw.type_code : undefined;
+}
+
+/** Raw-mode display for scalar values: the decoded value plus its wire
+ *  representation (hex bytes / BER encoding). Byte-carrying values are
+ *  rendered as a hex dump by the caller instead. */
+export function rawValueDisplay(v: SnmpValue): string {
+  if (v === "Null") return "NULL";
+  if (typeof v !== "object" || v === null) return String(v);
+  if ("Integer" in v) return `${rawIntHex(v.Integer)} (${v.Integer})`;
+  if ("Unsigned" in v) return `0x${v.Unsigned.toString(16).padStart(8, "0")} (${v.Unsigned})`;
+  if ("Counter32" in v) return `0x${v.Counter32.toString(16).padStart(8, "0")} (${v.Counter32})`;
+  if ("Counter64" in v) return `0x${v.Counter64.toString(16)} (${v.Counter64})`;
+  if ("TimeTicks" in v) return `0x${v.TimeTicks.toString(16).padStart(8, "0")} (${v.TimeTicks})`;
+  if ("TruthValue" in v) return v.TruthValue ? "true" : "false";
+  if ("IpAddress" in v) {
+    const bytes = ipv4ToBytes(v.IpAddress);
+    return bytes ? `${v.IpAddress} (${hexPairs(bytes)})` : v.IpAddress;
+  }
+  if ("ObjectIdentifier" in v) {
+    const ber = oidBerBytes(v.ObjectIdentifier);
+    return ber.length > 0 ? `${v.ObjectIdentifier} [${hexPairs(ber)}]` : v.ObjectIdentifier;
+  }
+  return valueDisplay(v);
+}
+
+function rawIntHex(n: number): string {
+  if (n < 0) return `-0x${(-n).toString(16)}`;
+  return `0x${n.toString(16).padStart(8, "0")}`;
 }
 
 /** Type label for a SnmpValue (matches ResultsPane logic). */

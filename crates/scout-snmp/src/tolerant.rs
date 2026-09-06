@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use tracing::warn;
+use tracing::{debug, warn};
 
 use super::types::*;
 
@@ -29,13 +29,15 @@ pub fn value_to_snmp_value(v: snmp2::Value<'_>) -> (SnmpValue, bool) {
         ),
         snmp2::Value::Timeticks(t) => (SnmpValue::TimeTicks(t), false),
         snmp2::Value::Opaque(bytes) => {
-            warn!("Received Opaque ASN.1 type, storing as raw");
+            // Unknown ASN.1 type with intact bytes — presented as raw data
+            // (hex dump), not a fault, so the binding is not flagged.
+            debug!("Received unknown ASN.1 type, storing as raw");
             (
                 SnmpValue::Raw {
                     type_code: 0x44,
                     data: bytes.to_vec(),
                 },
-                true,
+                false,
             )
         }
         snmp2::Value::Null => (SnmpValue::Null, false),
@@ -392,7 +394,30 @@ mod tests {
             type_code: 0xAB,
             data: vec![1, 2, 3],
         };
-        assert_eq!(v.display(), "<raw type=0xab data=0x010203>");
+        // Raw values present their bytes like any other binary value.
+        assert_eq!(v.display(), "01 02 03");
+    }
+
+    #[test]
+    fn snmp_value_display_counters_unsuffixed() {
+        // The type column carries the counter/timeticks label; the value is bare.
+        assert_eq!(SnmpValue::Counter32(7).display(), "7");
+        assert_eq!(SnmpValue::Counter64(8).display(), "8");
+        assert_eq!(SnmpValue::TimeTicks(9).display(), "9");
+    }
+
+    #[test]
+    fn value_to_snmp_value_opaque_is_raw_not_warned() {
+        // An unknown ASN.1 type with intact bytes is data, not a fault.
+        let (v, w) = value_to_snmp_value(snmp2::Value::Opaque(&[0xde, 0xad]));
+        assert!(!w);
+        match v {
+            SnmpValue::Raw { type_code, data } => {
+                assert_eq!(type_code, 0x44);
+                assert_eq!(data, vec![0xde, 0xad]);
+            }
+            other => panic!("expected Raw, got {:?}", other),
+        }
     }
 
     #[test]

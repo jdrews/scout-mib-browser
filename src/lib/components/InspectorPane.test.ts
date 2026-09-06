@@ -149,6 +149,60 @@ describe("InspectorPane", () => {
     const live = view.getByTestId("inspector-live-value");
     expect(live.textContent).toContain("Linux cray 2.6.21.5-smp");
     expect(live.textContent).toContain("OCTET STRING");
+    // No bytes captured, so no hex dump section.
+    expect(view.queryByTestId("inspector-hexdump")).toBeNull();
+  });
+
+  it("shows a hex dump for live byte values with a recognized pattern", async () => {
+    mockDetails(sysDescrDetails);
+    S.inspectorOid = "1.3.6.1.2.1.2.2.1.6.2";
+    S.inspectorValue = {
+      text: "00:12:79:62:f9:40",
+      typeLabel: "OCTET STRING",
+      bytes: [0x00, 0x12, 0x79, 0x62, 0xf9, 0x40],
+    };
+
+    const view = render(InspectorPane);
+    await waitFor(() => expect(view.getByTestId("inspector-hexdump")).toBeTruthy());
+    const dump = view.getByTestId("inspector-hexdump");
+    expect(dump.textContent).toContain("recognized as mac address");
+    expect(dump.textContent).toContain("00 12 79 62 f9 40");
+    // The ascii column renders printable bytes verbatim and the rest as dots:
+    // 0x00, 0x12, 0xf9 are non-printable; 0x79='y', 0x62='b', 0x40='@'.
+    expect(dump.textContent).toContain("..yb.@");
+  });
+
+  it("shows the type code and raw dump for Raw live values", async () => {
+    mockDetails(sysDescrDetails);
+    S.inspectorOid = "9.9.9";
+    S.inspectorValue = {
+      text: "<raw type=0x82 (endOfMibView) data=de ad>",
+      typeLabel: "RAW",
+      bytes: [0xde, 0xad],
+      typeCode: 0x82,
+    };
+
+    const view = render(InspectorPane);
+    await waitFor(() => expect(view.getByTestId("inspector-hexdump")).toBeTruthy());
+    const dump = view.getByTestId("inspector-hexdump");
+    expect(dump.textContent).toContain("type: 0x82 (endOfMibView)");
+    expect(dump.textContent).toContain("de ad");
+  });
+
+  it("caps long live dumps and reports the hidden remainder", async () => {
+    mockDetails(sysDescrDetails);
+    S.inspectorOid = "1.3.6.1.2.1.1.1.0";
+    // 64 rows x 16 bytes + 5 — only the first 1024 bytes render inline.
+    const bytes = new Array(64 * 16 + 5).fill(0x41);
+    S.inspectorValue = { text: "…", typeLabel: "OCTET STRING", bytes };
+
+    const view = render(InspectorPane);
+    await waitFor(() => expect(view.getByTestId("inspector-hexdump")).toBeTruthy());
+    const dump = view.getByTestId("inspector-hexdump");
+    expect(dump.textContent).toContain("… 5 more bytes");
+    // The last rendered row starts at offset 0x3f0.
+    expect(dump.textContent).toContain("03f0");
+    expect(dump.textContent).not.toContain("0400");
   });
 
   it("reports OIDs that are not in the loaded MIBs", async () => {

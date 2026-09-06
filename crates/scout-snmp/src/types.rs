@@ -175,8 +175,8 @@ impl SnmpValue {
         match self {
             SnmpValue::Integer(v) => format!("{}", v),
             SnmpValue::Unsigned(v) => format!("{}", v),
-            SnmpValue::Counter32(v) => format!("{} (counter32)", v),
-            SnmpValue::Counter64(v) => format!("{} (counter64)", v),
+            SnmpValue::Counter32(v) => format!("{}", v),
+            SnmpValue::Counter64(v) => format!("{}", v),
             SnmpValue::OctetString(bytes) => {
                 if let Ok(s) = String::from_utf8(bytes.clone()) {
                     format!("\"{}\"", s)
@@ -192,7 +192,7 @@ impl SnmpValue {
             }
             SnmpValue::ObjectIdentifier(oid) => oid.clone(),
             SnmpValue::IpAddress(ip) => ip.clone(),
-            SnmpValue::TimeTicks(v) => format!("{} (timeticks)", v),
+            SnmpValue::TimeTicks(v) => format!("{}", v),
             SnmpValue::TruthValue(v) => {
                 if *v {
                     "true".to_string()
@@ -201,13 +201,11 @@ impl SnmpValue {
                 }
             }
             SnmpValue::Null => "NULL".to_string(),
-            SnmpValue::Raw { type_code, data } => format!(
-                "<raw type=0x{:02x} data=0x{}>",
-                type_code,
-                data.iter()
-                    .map(|b| format!("{:02x}", b))
-                    .collect::<String>()
-            ),
+            SnmpValue::Raw { data, .. } => data
+                .iter()
+                .map(|b| format!("{:02x}", b))
+                .collect::<Vec<_>>()
+                .join(" "),
         }
     }
 
