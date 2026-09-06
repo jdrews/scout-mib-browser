@@ -1,4 +1,4 @@
-import { expandTo, go, oidInputValue, selectTreeNode, typeOid, waitForAppReady, waitForStatus } from "../support/helpers";
+import { CHAIN_TO_INTERFACES, CHAIN_TO_MIB2, CHAIN_TO_SYSTEM, expandTo, go, oidInputValue, selectTreeNode, typeOid, waitForAppReady, waitForStatus } from "../support/helpers";
 
 describe("Inspector pane", () => {
   before(async () => {
@@ -24,7 +24,7 @@ describe("Inspector pane", () => {
   });
 
   it("shows MIB details for a tree-selected node", async () => {
-    await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2", "system"]);
+    await expandTo(CHAIN_TO_SYSTEM);
     await selectTreeNode("sysDescr");
 
     const name = await $("[data-testid='inspector-name']");
@@ -50,7 +50,7 @@ describe("Inspector pane", () => {
   });
 
   it("shows table metadata for a TABLE node", async () => {
-    await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2", "interfaces"]);
+    await expandTo(CHAIN_TO_INTERFACES);
     await selectTreeNode("ifTable");
 
     const section = await $("[data-testid='inspector-table-section']");
@@ -61,7 +61,7 @@ describe("Inspector pane", () => {
   });
 
   it("shows enum values as a value → name list", async () => {
-    await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2", "synthTableMib", "synthObjects"]);
+    await expandTo([...CHAIN_TO_MIB2, "synthTableMib.synthObjects"]);
     await selectTreeNode("synthState");
 
     const section = await $("[data-testid='inspector-enums']");
@@ -121,7 +121,7 @@ describe("Inspector pane", () => {
   });
 
   it("shows the live value when a result row is selected", async () => {
-    await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2", "system"]);
+    await expandTo(CHAIN_TO_SYSTEM);
     await selectTreeNode("sysDescr");
     await go();
     await waitForStatus(/Get complete: \d+ binding\(s\)/, 30000);

@@ -1,4 +1,4 @@
-import { expandTo, go, selectTreeNode, setOperation, waitForAppReady, waitForStatus } from "../support/helpers";
+import { CHAIN_TO_SYSTEM, expandTo, go, selectTreeNode, setOperation, waitForAppReady, waitForStatus } from "../support/helpers";
 
 const SYSTEM_OID = "1.3.6.1.2.1.1";
 
@@ -12,7 +12,7 @@ describe("Get Subtree (MIB tree hierarchy query)", () => {
     await waitForAppReady();
     // Earlier specs leave the tree expanded, but re-expand to be safe —
     // expandTo only clicks collapsed branches.
-    await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2", "system"]);
+    await expandTo(CHAIN_TO_SYSTEM);
   });
 
   it("lists every MIB node under the selected OID in tree order", async () => {

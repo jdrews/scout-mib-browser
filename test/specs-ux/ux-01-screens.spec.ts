@@ -1,5 +1,5 @@
 import { execSync } from "child_process";
-import { AGENT_HOST, AGENT_PORT, expandTo, go, selectTreeNode, setOperation, typeOid, waitForStatus } from "../support/helpers";
+import { AGENT_HOST, AGENT_PORT, CHAIN_TO_INTERFACES, CHAIN_TO_MIB2, CHAIN_TO_SYSTEM, expandTo, go, selectTreeNode, setOperation, typeOid, waitForStatus } from "../support/helpers";
 import { freshWindow, setTheme, shot, statusText, writeJson } from "../support/ux";
 
 // A1 — State screenshot pass. Every key state once per theme (dark first — the
@@ -61,9 +61,11 @@ describe("UX A1 — state screenshot pass (both themes)", function () {
   }
 
   async function walkIfTable() {
-    await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2", "interfaces"]);
+    // Get Table is the only grid path (since single-pass streaming table
+    // retrieval) — a plain walk on a table stays flat.
+    await expandTo(CHAIN_TO_INTERFACES);
     await selectTreeNode("ifTable");
-    await go("walk");
+    await go("getTable");
     await waitForStatus(/^Table complete: \d+ row\(s\), \d+ column\(s\)$/, 60000);
   }
 
@@ -82,8 +84,8 @@ describe("UX A1 — state screenshot pass (both themes)", function () {
   async function midStreamAttempt(): Promise<void> {
     // Walk the largest cancellable subtree (mib-2) to maximize the window in
     // which "walk running" is visible, and screenshot on first sight.
-    await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2"]);
-    await selectTreeNode("mib-2");
+    await expandTo(CHAIN_TO_MIB2);
+    await selectTreeNode("mgmt.mib-2");
     await setOperation("walk");
     const t0 = Date.now();
     await (await $("[data-testid='go-btn']")).click();
@@ -122,7 +124,7 @@ describe("UX A1 — state screenshot pass (both themes)", function () {
     await shot("01-launch-ready-dark");
 
     // 02 — tree expanded to system, node selected (address bar populated)
-    await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2", "system"]);
+    await expandTo(CHAIN_TO_SYSTEM);
     await selectTreeNode("sysDescr");
     await shot("02-tree-selected-dark");
 
@@ -214,7 +216,7 @@ describe("UX A1 — state screenshot pass (both themes)", function () {
     await shot("01-launch-ready-light");
 
     // 02/08 — tree selected + fallback banner
-    await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2", "system"]);
+    await expandTo(CHAIN_TO_SYSTEM);
     await selectTreeNode("sysDescr");
     await shot("02-tree-selected-light");
     await shot("08-fallback-banner-light");

@@ -1,4 +1,4 @@
-import { AGENT_HOST, AGENT_PORT, expandTo, go, selectTreeNode, typeOid, waitForStatus } from "../support/helpers";
+import { AGENT_HOST, AGENT_PORT, CHAIN_TO_MIB2, expandTo, go, selectTreeNode, typeOid, waitForStatus } from "../support/helpers";
 import { freshWindow, setTheme, shot, statusText, writeJson } from "../support/ux";
 
 // A5 — Error-path walkthrough. Drives the known failure scenarios against the
@@ -132,8 +132,8 @@ describe("UX A5 — error-path wording", function () {
   });
 
   it("walk cancellation wording", async () => {
-    await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2"]);
-    await selectTreeNode("mib-2");
+    await expandTo(CHAIN_TO_MIB2);
+    await selectTreeNode("mgmt.mib-2");
     await go("walk");
     let cancelled = false;
     try {

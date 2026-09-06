@@ -1,4 +1,4 @@
-import { expandTo, nodeCount, waitForAppReady, waitForStatus } from "../support/helpers";
+import { CHAIN_TO_MIB2, expandTo, nodeCount, waitForAppReady, waitForStatus } from "../support/helpers";
 
 describe("Menus & settings (app-level settings)", () => {
   before(async () => {
@@ -79,7 +79,7 @@ describe("Menus & settings (app-level settings)", () => {
     expect(await nodeCount()).toBe(before - ifRowCount);
 
     // ifTable is no longer in the tree.
-    await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2"]);
+    await expandTo(CHAIN_TO_MIB2);
     let hasIfTable = false;
     for (const n of await $$("[data-tree-node]")) {
       if (((await n.getAttribute("title")) ?? "").startsWith("ifTable (")) hasIfTable = true;

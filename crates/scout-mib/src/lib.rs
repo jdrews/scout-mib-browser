@@ -738,22 +738,17 @@ impl Resolver {
         );
     }
 
-    /// Builds a hierarchical tree of all loaded MIB nodes (shallow — no children).
-    ///
-    /// The tree is organized by OID hierarchy: each node's parent is determined
-    /// by removing the last numeric segment from its OID. Root-level OIDs become
-    /// top-level tree entries. Children are NOT included — use `get_children()`
-    /// to fetch them lazily when a node is expanded.
-    ///
-    /// Root-level leaf nodes (no children) are grouped into an "other" folder
-    /// at the bottom to reduce clutter.
-    pub fn build_tree(&self) -> Vec<TreeNode> {
-        if self.oid_index.is_empty() {
-            return Vec::new();
-        }
-
+    /// Root-level nodes (direct roots + orphans) with the grouping context they
+    /// need to render — shared by `build_tree` and `get_children("__other__")`.
+    fn root_nodes<'a>(
+        &'a self,
+    ) -> (
+        HashMap<String, Vec<&'a MibNode>>,
+        HashSet<String>,
+        Vec<&'a MibNode>,
+    ) {
         // Group nodes by parent OID.
-        let mut children_map: HashMap<String, Vec<&MibNode>> = HashMap::new();
+        let mut children_map: HashMap<String, Vec<&'a MibNode>> = HashMap::new();
         for node in self.oid_index.values() {
             let parent_oid = Self::parent_oid(&node.oid);
             children_map.entry(parent_oid).or_default().push(node);
@@ -782,16 +777,40 @@ impl Resolver {
             }
         }
 
-        // Split into subtrees (have children/descendants) and leaves.
+        (children_map, indexed_oids, roots)
+    }
+
+    /// Builds a hierarchical tree of all loaded MIB nodes (shallow — no children).
+    ///
+    /// The tree is organized by OID hierarchy: each node's parent is determined
+    /// by removing the last numeric segment from its OID. Root-level OIDs become
+    /// top-level tree entries. Children are NOT included — use `get_children()`
+    /// to fetch them lazily when a node is expanded.
+    ///
+    /// Runs of empty folders (nodes whose children are all subfolders) are
+    /// collapsed into dot-joined entries — see `render_entries`.
+    ///
+    /// Root-level leaf nodes (no children) are grouped into an "other" folder
+    /// at the bottom to reduce clutter.
+    pub fn build_tree(&self) -> Vec<TreeNode> {
+        if self.oid_index.is_empty() {
+            return Vec::new();
+        }
+
+        let (children_map, indexed_oids, roots) = self.root_nodes();
+
+        // Split into subtrees (have children/descendants) and leaves. Each root
+        // renders through empty-folder collapse, which may contribute several
+        // dot-joined entries in place of one nested folder.
         let mut subtrees: Vec<TreeNode> = Vec::new();
         let mut leaves: Vec<TreeNode> = Vec::new();
         for node in &roots {
-            let has_children = self.node_has_descendants(node.oid.as_str(), &children_map);
-            let tree_node = self.build_tree_node_shallow(node, has_children);
-            if has_children {
-                subtrees.push(tree_node);
-            } else {
-                leaves.push(tree_node);
+            for entry in self.render_entries(node, "", &children_map, &indexed_oids) {
+                if entry.has_children {
+                    subtrees.push(entry);
+                } else {
+                    leaves.push(entry);
+                }
             }
         }
 
@@ -880,11 +899,100 @@ impl Resolver {
         }
     }
 
-    /// Returns direct children of the given OID for lazy loading.
-    /// For the special "__other__" folder, returns empty (children are pre-populated).
+    /// The direct children a node would render in the tree: indexed nodes whose
+    /// parent is `oid` (excluding self-references), or — when there are none —
+    /// orphaned descendants (indexed nodes under `oid` whose own parent is not
+    /// indexed). Mirrors how `get_children` populates a level.
+    fn effective_children<'a>(
+        &'a self,
+        oid: &'a str,
+        children_map: &HashMap<String, Vec<&'a MibNode>>,
+        indexed_oids: &HashSet<String>,
+    ) -> Vec<&'a MibNode> {
+        if let Some(children) = children_map.get(oid) {
+            let direct: Vec<&MibNode> = children.iter().copied().filter(|c| c.oid != oid).collect();
+            if !direct.is_empty() {
+                return direct;
+            }
+        }
+        if oid.is_empty() {
+            return Vec::new();
+        }
+        let child_prefix = format!("{}.", oid);
+        self.oid_index
+            .values()
+            .filter(|n| {
+                n.oid.starts_with(&child_prefix)
+                    && !indexed_oids.contains(&Self::parent_oid(&n.oid))
+            })
+            .collect()
+    }
+
+    /// Expands one node into its rendered tree entries, collapsing runs of empty
+    /// folders: a node whose effective children are all subfolders is absorbed
+    /// into them — each child takes the parent's place with a dot-joined display
+    /// name ("parent.child"). Absorption only happens at the start of a run
+    /// (`name_prefix` empty), so a rendered row carries at most two name parts:
+    /// longer runs merge their front pair and keep the rest as nested rows,
+    /// which keeps meaningful tail names (tables, objects) fully visible.
+    /// Surviving entries keep the innermost real node's OID, so selection, the
+    /// inspector, and lazy child loading behave as if that node were rendered
+    /// directly.
+    fn render_entries<'a>(
+        &self,
+        node: &'a MibNode,
+        name_prefix: &str,
+        children_map: &HashMap<String, Vec<&'a MibNode>>,
+        indexed_oids: &HashSet<String>,
+    ) -> Vec<TreeNode> {
+        let kids = self.effective_children(&node.oid, children_map, indexed_oids);
+        // TABLE containers are first-class rows (Get Table targets them by OID)
+        // — never absorb one into its row entry. An empty run *above* a table
+        // still merges into it ("grp.myTable").
+        let is_table_container = node.is_table || matches!(node.syntax_type, SyntaxType::Table);
+        // Only absorb at the start of a run: with a non-empty prefix the merged
+        // row would exceed two name parts, so render this node as its own row.
+        let all_folders = name_prefix.is_empty()
+            && !is_table_container
+            && !kids.is_empty()
+            && kids
+                .iter()
+                .all(|c| self.node_has_descendants(c.oid.as_str(), children_map));
+        if !all_folders {
+            let mut entry = self
+                .build_tree_node_shallow(node, self.node_has_descendants(&node.oid, children_map));
+            if !name_prefix.is_empty() {
+                entry.name = format!("{}{}", name_prefix, node.name);
+            }
+            return vec![entry];
+        }
+        let mut out = Vec::new();
+        for child in self.sort_nodes(&kids) {
+            let prefix = format!("{}{}.", name_prefix, node.name);
+            out.extend(self.render_entries(child, &prefix, children_map, indexed_oids));
+        }
+        out
+    }
+
+    /// Returns direct children of the given OID for lazy loading. Each child
+    /// renders through empty-folder collapse, so a run of subfolder-only nodes
+    /// arrives as dot-joined entries carrying the innermost real node's OID.
+    /// For the special "__other__" folder, returns its root-level leaf rows —
+    /// the same entries `build_tree` pre-populates, recomputed so a frontend
+    /// refetch after a tree rebuild restores them instead of wiping them.
     pub fn get_children(&self, parent_oid: &str) -> Vec<TreeNode> {
         if parent_oid == "__other__" {
-            return Vec::new();
+            let (children_map, indexed_oids, roots) = self.root_nodes();
+            let mut leaves: Vec<TreeNode> = Vec::new();
+            for node in &roots {
+                for entry in self.render_entries(node, "", &children_map, &indexed_oids) {
+                    if !entry.has_children {
+                        leaves.push(entry);
+                    }
+                }
+            }
+            leaves.sort_by(|a, b| a.name.cmp(&b.name));
+            return leaves;
         }
 
         let mut children_map: HashMap<String, Vec<&MibNode>> = HashMap::new();
@@ -895,38 +1003,12 @@ impl Resolver {
 
         let indexed_oids: HashSet<_> = self.oid_index.keys().cloned().collect();
 
-        // Get direct children (excluding self-references).
         let mut result: Vec<TreeNode> = Vec::new();
-        if let Some(child_nodes) = children_map.get(parent_oid) {
-            for child in self.sort_nodes(child_nodes) {
-                if child.oid != parent_oid {
-                    let has_children = self.node_has_descendants(child.oid.as_str(), &children_map);
-                    result.push(self.build_tree_node_shallow(child, has_children));
-                }
-            }
+        for child in
+            self.sort_nodes(&self.effective_children(parent_oid, &children_map, &indexed_oids))
+        {
+            result.extend(self.render_entries(child, "", &children_map, &indexed_oids));
         }
-
-        // If no direct children but deeper descendants exist (orphans), include them.
-        if result.is_empty() && !parent_oid.is_empty() {
-            let child_prefix = format!("{}.", parent_oid);
-            let mut orphans: Vec<&MibNode> = Vec::new();
-            for node in self.oid_index.values() {
-                if node.oid.starts_with(&child_prefix)
-                    && !indexed_oids.contains(&Self::parent_oid(&node.oid))
-                {
-                    orphans.push(node);
-                }
-            }
-
-            if !orphans.is_empty() {
-                orphans.sort_by(|a, b| a.name.cmp(&b.name));
-                for node in orphans {
-                    let has_children = self.node_has_descendants(node.oid.as_str(), &children_map);
-                    result.push(self.build_tree_node_shallow(node, has_children));
-                }
-            }
-        }
-
         result
     }
 
@@ -988,7 +1070,7 @@ impl Resolver {
 
     /// Sorts nodes by a stable order: OBJECT IDENTIFIER subtrees first (alphabetical),
     /// then leaf objects (alphabetical). TABLE and ROW are treated as subtrees.
-    fn sort_nodes<'a>(&self, nodes: &'a [&'a MibNode]) -> Vec<&'a MibNode> {
+    fn sort_nodes<'s, 'e>(&'s self, nodes: &[&'e MibNode]) -> Vec<&'e MibNode> {
         let mut sorted: Vec<_> = nodes.to_vec();
         sorted.sort_by(|a, b| {
             let a_is_subtree = matches!(
@@ -1186,6 +1268,21 @@ fn is_text_file(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Inserts a minimal MibNode into the resolver's index.
+    fn insert(resolver: &mut Resolver, oid: &str, name: &str, syntax: SyntaxType) {
+        resolver.oid_index.insert(
+            oid.to_string(),
+            MibNode {
+                oid: oid.to_string(),
+                name: name.to_string(),
+                syntax_type: syntax,
+                mib_name: "TEST-MIB".to_string(),
+                is_table: false,
+                ..Default::default()
+            },
+        );
+    }
 
     #[test]
     fn is_text_file_rejects_binary() {
@@ -1432,6 +1529,284 @@ mod tests {
         assert!(!children[0].has_children); // no grandchildren indexed
         assert_eq!(children[1].name, "sysDescr");
         assert!(!children[1].has_children);
+    }
+
+    #[test]
+    fn build_tree_collapses_empty_folder_run() {
+        let mut resolver = Resolver::default();
+        // folder1 > folder2/folder3; only folder2 holds leaf OIDs.
+        insert(
+            &mut resolver,
+            "1.0",
+            "folder1",
+            SyntaxType::ObjectIdentifier,
+        );
+        insert(
+            &mut resolver,
+            "1.0.1",
+            "folder2",
+            SyntaxType::ObjectIdentifier,
+        );
+        insert(&mut resolver, "1.0.1.1", "oidA", SyntaxType::OctetString);
+        insert(
+            &mut resolver,
+            "1.0.2",
+            "folder3",
+            SyntaxType::ObjectIdentifier,
+        );
+        insert(&mut resolver, "1.0.2.1", "oidB", SyntaxType::OctetString);
+
+        let tree = resolver.build_tree();
+        // folder1 has no leaf children — it is absorbed into both subfolders.
+        assert_eq!(tree.len(), 2);
+        assert_eq!(tree[0].name, "folder1.folder2");
+        assert_eq!(tree[0].oid, "1.0.1"); // innermost real node keeps its OID
+        assert!(tree[0].has_children);
+        assert_eq!(tree[1].name, "folder1.folder3");
+        assert_eq!(tree[1].oid, "1.0.2");
+        assert!(tree[1].has_children);
+    }
+
+    #[test]
+    fn build_tree_caps_merged_rows_at_two_parts() {
+        let mut resolver = Resolver::default();
+        // a > b > c > leaf: three empty folders in a row. Only the front pair
+        // merges; the rest stays as nested rows so tail names stay visible.
+        insert(&mut resolver, "1", "a", SyntaxType::ObjectIdentifier);
+        insert(&mut resolver, "1.2", "b", SyntaxType::ObjectIdentifier);
+        insert(&mut resolver, "1.2.3", "c", SyntaxType::ObjectIdentifier);
+        insert(&mut resolver, "1.2.3.4", "leaf", SyntaxType::OctetString);
+
+        let tree = resolver.build_tree();
+        assert_eq!(tree.len(), 1);
+        assert_eq!(tree[0].name, "a.b");
+        assert_eq!(tree[0].oid, "1.2"); // innermost real node of the merged pair
+        assert!(tree[0].has_children);
+
+        // Lazy loading continues the run: "c" renders on its own (its child is
+        // a leaf, so nothing merges into it).
+        let children = resolver.get_children("1.2");
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].name, "c");
+        assert_eq!(children[0].oid, "1.2.3");
+
+        let grandchildren = resolver.get_children("1.2.3");
+        assert_eq!(grandchildren.len(), 1);
+        assert_eq!(grandchildren[0].name, "leaf");
+    }
+
+    #[test]
+    fn build_tree_caps_run_above_table_at_two_parts() {
+        let mut resolver = Resolver::default();
+        // a > b > c > myTable (TABLE): the front pair merges, and the table's
+        // own row keeps its full name as the tail of the run.
+        insert(&mut resolver, "1", "a", SyntaxType::ObjectIdentifier);
+        insert(&mut resolver, "1.2", "b", SyntaxType::ObjectIdentifier);
+        insert(&mut resolver, "1.2.3", "c", SyntaxType::ObjectIdentifier);
+        resolver.oid_index.insert(
+            "1.2.3.4".to_string(),
+            MibNode {
+                oid: "1.2.3.4".to_string(),
+                name: "myTable".to_string(),
+                syntax_type: SyntaxType::Table,
+                mib_name: "TEST-MIB".to_string(),
+                is_table: true,
+                ..Default::default()
+            },
+        );
+        insert(&mut resolver, "1.2.3.4.1", "myEntry", SyntaxType::TableRow);
+
+        let tree = resolver.build_tree();
+        assert_eq!(tree.len(), 1);
+        assert_eq!(tree[0].name, "a.b");
+        assert_eq!(tree[0].oid, "1.2");
+
+        let children = resolver.get_children("1.2");
+        assert_eq!(children.len(), 1);
+        // c merges into the table (front pair of the remaining run) — never past it.
+        assert_eq!(children[0].name, "c.myTable");
+        assert_eq!(children[0].oid, "1.2.3.4");
+        assert!(children[0].is_table);
+
+        let rows = resolver.get_children("1.2.3.4");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "myEntry");
+    }
+
+    #[test]
+    fn build_tree_keeps_folder_with_direct_leaves() {
+        let mut resolver = Resolver::default();
+        // folder1 holds a leaf AND a subfolder — not collapsible.
+        insert(&mut resolver, "1", "folder1", SyntaxType::ObjectIdentifier);
+        insert(&mut resolver, "1.1", "directLeaf", SyntaxType::OctetString);
+        insert(&mut resolver, "1.2", "sub", SyntaxType::ObjectIdentifier);
+        insert(&mut resolver, "1.2.1", "deepLeaf", SyntaxType::OctetString);
+
+        let tree = resolver.build_tree();
+        assert_eq!(tree.len(), 1);
+        assert_eq!(tree[0].name, "folder1");
+        assert_eq!(tree[0].oid, "1");
+        assert!(tree[0].has_children);
+
+        let children = resolver.get_children("1");
+        // Both entries keep their plain names; the subfolder is not merged.
+        let names: Vec<&str> = children.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["sub", "directLeaf"]); // subtree first
+    }
+
+    #[test]
+    fn build_tree_childless_folder_is_a_leaf() {
+        let mut resolver = Resolver::default();
+        // folder1's only child is itself empty — a leaf in the tree, so
+        // folder1 keeps it rather than collapsing.
+        insert(&mut resolver, "1", "folder1", SyntaxType::ObjectIdentifier);
+        insert(
+            &mut resolver,
+            "1.2",
+            "emptySub",
+            SyntaxType::ObjectIdentifier,
+        );
+
+        let tree = resolver.build_tree();
+        assert_eq!(tree.len(), 1);
+        assert_eq!(tree[0].name, "folder1");
+        assert!(tree[0].has_children);
+
+        let children = resolver.get_children("1");
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].name, "emptySub");
+        assert!(!children[0].has_children);
+    }
+
+    #[test]
+    fn build_tree_does_not_absorb_tables() {
+        let mut resolver = Resolver::default();
+        // grp > myTable (TABLE) > myEntry (ROW): the table stays a first-class
+        // row — an empty run above it merges into it, but not past it.
+        insert(&mut resolver, "1", "grp", SyntaxType::ObjectIdentifier);
+        resolver.oid_index.insert(
+            "1.1".to_string(),
+            MibNode {
+                oid: "1.1".to_string(),
+                name: "myTable".to_string(),
+                syntax_type: SyntaxType::Table,
+                mib_name: "TEST-MIB".to_string(),
+                is_table: true,
+                ..Default::default()
+            },
+        );
+        insert(&mut resolver, "1.1.1", "myEntry", SyntaxType::TableRow);
+
+        let tree = resolver.build_tree();
+        assert_eq!(tree.len(), 1);
+        assert_eq!(tree[0].name, "grp.myTable");
+        assert_eq!(tree[0].oid, "1.1"); // the table keeps its own OID
+        assert!(tree[0].is_table);
+
+        // The row entry stays under the table, unmerged.
+        let children = resolver.get_children("1.1");
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].name, "myEntry");
+        assert!(!children[0].has_children);
+    }
+
+    #[test]
+    fn get_children_collapses_empty_subfolders() {
+        let mut resolver = Resolver::default();
+        // parent > (plain leaf, empty1 > empty2 > leaf, plain folder)
+        insert(&mut resolver, "1", "parent", SyntaxType::ObjectIdentifier);
+        insert(&mut resolver, "1.1", "plainLeaf", SyntaxType::OctetString);
+        insert(&mut resolver, "1.2", "empty1", SyntaxType::ObjectIdentifier);
+        insert(
+            &mut resolver,
+            "1.2.3",
+            "empty2",
+            SyntaxType::ObjectIdentifier,
+        );
+        insert(
+            &mut resolver,
+            "1.2.3.4",
+            "deepLeaf",
+            SyntaxType::OctetString,
+        );
+        insert(
+            &mut resolver,
+            "1.5",
+            "plainFolder",
+            SyntaxType::ObjectIdentifier,
+        );
+        insert(&mut resolver, "1.5.6", "otherLeaf", SyntaxType::OctetString);
+
+        let children = resolver.get_children("1");
+        assert_eq!(children.len(), 3);
+        // Subtree group first: the merged run and plainFolder, then leaves.
+        assert_eq!(children[0].name, "empty1.empty2");
+        assert_eq!(children[0].oid, "1.2.3"); // innermost real node's OID
+        assert!(children[0].has_children);
+        assert_eq!(children[1].name, "plainFolder");
+        assert!(children[1].has_children);
+        assert_eq!(children[2].name, "plainLeaf");
+        assert!(!children[2].has_children);
+
+        // Lazy loading through the merged entry works on the real OID.
+        let deep = resolver.get_children("1.2.3");
+        assert_eq!(deep.len(), 1);
+        assert_eq!(deep[0].name, "deepLeaf");
+    }
+
+    #[test]
+    fn get_children_collapses_orphan_runs() {
+        let mut resolver = Resolver::default();
+        // parent is indexed but its intermediate children are not: the orphans
+        // under it still collapse into dot-joined entries.
+        insert(&mut resolver, "1", "parent", SyntaxType::ObjectIdentifier);
+        insert(
+            &mut resolver,
+            "1.9.8",
+            "orphanLeaf",
+            SyntaxType::OctetString,
+        );
+
+        let children = resolver.get_children("1");
+        assert_eq!(children.len(), 1);
+        // No indexed node to carry the name — the orphan renders under its own.
+        assert_eq!(children[0].name, "orphanLeaf");
+        assert_eq!(children[0].oid, "1.9.8");
+    }
+
+    #[test]
+    fn build_tree_mixed_roots_collapse_independently() {
+        let mut resolver = Resolver::default();
+        // Two unrelated roots: one collapsible run, one leaf (goes to "other").
+        insert(&mut resolver, "1", "rootA", SyntaxType::ObjectIdentifier);
+        insert(&mut resolver, "1.1", "childA", SyntaxType::ObjectIdentifier);
+        insert(&mut resolver, "1.1.1", "leafA", SyntaxType::OctetString);
+        insert(&mut resolver, "2", "loneLeaf", SyntaxType::OctetString);
+
+        let tree = resolver.build_tree();
+        assert_eq!(tree.len(), 2);
+        assert_eq!(tree[0].name, "rootA.childA");
+        assert_eq!(tree[0].oid, "1.1");
+        assert_eq!(tree[1].name, "other");
+        assert_eq!(tree[1].children.len(), 1);
+        assert_eq!(tree[1].children[0].name, "loneLeaf");
+    }
+
+    #[test]
+    fn get_children_other_returns_root_leaves() {
+        let mut resolver = Resolver::default();
+        // A subtree root (stays a top-level row) and a lone leaf (goes to
+        // "other"). Refetching the folder must restore its pre-populated rows,
+        // not wipe them.
+        insert(&mut resolver, "1", "rootA", SyntaxType::ObjectIdentifier);
+        insert(&mut resolver, "1.1", "childA", SyntaxType::ObjectIdentifier);
+        insert(&mut resolver, "1.1.1", "leafA", SyntaxType::OctetString);
+        insert(&mut resolver, "2", "loneLeaf", SyntaxType::OctetString);
+
+        let children = resolver.get_children("__other__");
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].name, "loneLeaf");
+        assert_eq!(children[0].oid, "2");
     }
 
     #[test]

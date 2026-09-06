@@ -14,6 +14,10 @@ _Avoid_: Agent, host, device, endpoint
 A named entry in a MIB schema file — has an OID, name, SYNTAX type, and metadata. Represents what *could* be queried, not live data.
 _Avoid_: Schema node, definition, tree item
 
+**Folder Collapse**:
+The tree rendering rule that absorbs a run of empty folders — folders whose children are all subfolders — into their children: each child takes the parent's place with a dot-joined display name (`folder1.folder2`). Only the front pair of a run merges, so a rendered row carries at most two name parts; longer runs keep their tail as nested rows, which keeps meaningful names (tables, objects) fully visible. The merged row keeps the innermost real node's OID, so selecting it selects that node and expanding it loads its real children. TABLE containers are never absorbed — Get Table targets them by OID.
+_Avoid_: Flattening, path naming, folder merging
+
 **Variable Binding**:
 An OID paired with its live value returned from a Target by an SNMP operation. The actual data, not the schema.
 _Avoid_: Result row, binding, response entry

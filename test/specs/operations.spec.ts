@@ -1,5 +1,6 @@
 import {
   AGENT_HOST,
+  CHAIN_TO_SYSTEM,
   expandTo,
   findTreeNode,
   go,
@@ -23,7 +24,7 @@ describe("Operations (executions against the mock agent)", () => {
   });
 
   it("Get returns a Variable Binding", async () => {
-    await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2", "system"]);
+    await expandTo(CHAIN_TO_SYSTEM);
     await selectTreeNode("sysDescr");
     await go("get");
 
@@ -125,7 +126,7 @@ describe("Operations (executions against the mock agent)", () => {
     const stopBtn = await $("[data-testid='stop-btn']");
 
     async function cancelRun(cancelVia: "stop" | "escape"): Promise<boolean> {
-      await selectTreeNode("mib-2");
+      await selectTreeNode("mgmt.mib-2");
       await go("walk");
       let cancelled = false;
       try {

@@ -1,4 +1,4 @@
-import { AGENT_PORT, expandTo, selectTreeNode, setOperation, typeOid, waitForStatus, waitForTreeNode } from "../support/helpers";
+import { AGENT_PORT, CHAIN_TO_INTERFACES, CHAIN_TO_SYSTEM, expandTo, selectTreeNode, setOperation, typeOid, waitForStatus, waitForTreeNode } from "../support/helpers";
 import { freshWindow, pageNow, reduceMetric, statusText, writeJson, type Metric } from "../support/ux";
 
 // A2 — Perceived-performance probes. N=5 per metric; wall-clock around WDIO
@@ -6,7 +6,6 @@ import { freshWindow, pageNow, reduceMetric, statusText, writeJson, type Metric 
 // Numbers are relative baselines under Xvfb (see plan Risks), not absolute
 // performance claims. Written to docs/ux/<date>/timings.json.
 const N = 5;
-const CHAIN = ["iso", "org", "dod", "internet", "mgmt", "mib-2", "system"];
 
 describe("UX A2 — perceived-performance probes (N=5)", function () {
   this.timeout(600000);
@@ -30,18 +29,18 @@ describe("UX A2 — perceived-performance probes (N=5)", function () {
   async function timedExpandChain(): Promise<number[]> {
     // Times each level: click summary (if collapsed) -> next-level node visible.
     const times: number[] = [];
-    for (let i = 0; i < CHAIN.length - 1; i++) {
-      const parent = await waitForTreeNode(CHAIN[i]);
+    for (let i = 0; i < CHAIN_TO_SYSTEM.length - 1; i++) {
+      const parent = await waitForTreeNode(CHAIN_TO_SYSTEM[i]);
       const open = await browser.execute(
         (el: Element) => el.getAttribute("aria-expanded") === "true",
         parent
       );
       const t0 = Date.now();
       if (!open) await parent.click();
-      await waitForTreeNode(CHAIN[i + 1]);
+      await waitForTreeNode(CHAIN_TO_SYSTEM[i + 1]);
       times.push(Date.now() - t0);
     }
-    await waitForTreeNode(CHAIN[CHAIN.length - 1]);
+    await waitForTreeNode(CHAIN_TO_SYSTEM[CHAIN_TO_SYSTEM.length - 1]);
     return times;
   }
 
@@ -56,7 +55,7 @@ describe("UX A2 — perceived-performance probes (N=5)", function () {
       // ── Tree expand lag per level ─────────────────────────────────────────
       expandLevelSamples.push(await timedExpandChain());
       // Expand the final level too (untimed) so sysDescr is selectable below.
-      await expandTo(CHAIN);
+      await expandTo(CHAIN_TO_SYSTEM);
 
       // ── Autocomplete latency: type -> dropdown visible ────────────────────
       await selectTreeNode("sysDescr"); // deterministic address-bar state first
@@ -94,7 +93,7 @@ describe("UX A2 — perceived-performance probes (N=5)", function () {
       samples.walk_go_to_complete.push(Date.now() - tWalk);
 
       // ── Grid render: go-to-complete and status-to-rows (ifTable) ──────────
-      await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2", "interfaces"]);
+      await expandTo(CHAIN_TO_INTERFACES);
       await selectTreeNode("ifTable");
       await setOperation("getTable");
       const tTable = Date.now();
@@ -117,8 +116,8 @@ describe("UX A2 — perceived-performance probes (N=5)", function () {
       reduceMetric("table_go_to_complete", "ms", samples.table_go_to_complete, "Go click (ifTable) -> 'Table complete' status"),
       reduceMetric("table_status_to_grid", "ms", samples.table_status_to_grid, "'Table complete' status -> grid-table rows in DOM"),
     ];
-    const levels = CHAIN.slice(0, -1).map((name, i) =>
-      reduceMetric(`tree_expand_${name}_to_${CHAIN[i + 1]}`, "ms", expandLevelSamples.map((s) => s[i]), "summary click -> child node visible (iteration 1 is cold: IPC + parse; later iterations warm)"),
+    const levels = CHAIN_TO_SYSTEM.slice(0, -1).map((name, i) =>
+      reduceMetric(`tree_expand_${name}_to_${CHAIN_TO_SYSTEM[i + 1]}`, "ms", expandLevelSamples.map((s) => s[i]), "summary click -> child node visible (iteration 1 is cold: IPC + parse; later iterations warm)"),
     );
 
     writeJson("timings.json", {

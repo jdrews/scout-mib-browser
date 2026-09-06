@@ -1,4 +1,4 @@
-import { AGENT_HOST, expandTo, go, selectTreeNode, typeOid } from "../support/helpers";
+import { AGENT_HOST, CHAIN_TO_SYSTEM, expandTo, go, selectTreeNode, typeOid } from "../support/helpers";
 import { freshWindow, pollFeedback, statusText, writeJson } from "../support/ux";
 
 // A4 — Feedback audit ("action → feedback map"). After every action we poll the
@@ -138,7 +138,7 @@ describe("UX A4 — action → feedback map", function () {
     });
 
     await audit("Select tree node (sysDescr)", async () => {
-      await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2", "system"]);
+      await expandTo(CHAIN_TO_SYSTEM);
       await selectTreeNode("sysDescr");
       const val = (await (await $("[data-testid='oid-input']").getValue())) ?? "";
       return `address bar populated: "${val}"`;

@@ -1,4 +1,4 @@
-import { expandTo, findTreeNode, nodeCount, waitForAppReady } from "../support/helpers";
+import { CHAIN_TO_MIB2, expandTo, findTreeNode, nodeCount, waitForAppReady } from "../support/helpers";
 
 describe("App shell (launch and layout)", () => {
   before(async () => {
@@ -26,10 +26,11 @@ describe("App shell (launch and layout)", () => {
   it("loads seeded MIBs on startup", async () => {
     expect(await nodeCount()).toBeGreaterThan(0);
 
-    // The curated set reaches the standard roots down to mib-2.
-    await expandTo(["iso", "org", "dod", "internet", "mgmt", "mib-2"]);
-    await expect(await findTreeNode("internet")).toBeExisting();
-    await expect(await findTreeNode("mib-2")).toBeExisting();
+    // The curated set reaches the standard roots down to mib-2 — empty-folder
+    // runs render collapsed as dot-joined names.
+    await expandTo(CHAIN_TO_MIB2);
+    await expect(await findTreeNode("mgmt.mib-2")).toBeExisting();
+    await expect(await findTreeNode("system")).toBeExisting();
   });
 
   it("shows a neutral indicator before any connection attempt", async () => {
