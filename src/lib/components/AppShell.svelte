@@ -4,6 +4,7 @@
   import TargetBar from "./TargetBar.svelte";
   import MainContent from "./MainContent.svelte";
   import ContextMenu from "./ContextMenu.svelte";
+  import HexViewModal from "./HexViewModal.svelte";
   import ManageMibsDialog from "./ManageMibsDialog.svelte";
   import ConnectionModal from "./ConnectionModal.svelte";
   import SystemLogPane from "./SystemLogPane.svelte";
@@ -87,6 +88,7 @@
     {/if}
   </div>
   <ContextMenu />
+  <HexViewModal />
   <ManageMibsDialog />
   <ConnectionModal />
   <footer class="footer footer-horizontal items-center bg-base-200 border-t border-base-300 text-base-content/60 text-xs flex-shrink-0 px-4 py-2">

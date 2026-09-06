@@ -210,6 +210,24 @@
     S.inspectorValue = cell.value ? exportMod.inspectorValueOf(cell.value.value) : null;
   }
 
+  // ── Hex view modal ────────────────────────────────────────────────────────
+  // Byte values can be opened in a full, uncapped hex dump: right-click a
+  // value cell (flat row or grid cell), or follow the "… more bytes" hint
+  // when a raw-mode inline dump overflows its cap.
+
+  function openHexView(oid: string, displayName: string, value: SnmpValue) {
+    S.hexViewTarget = { oid, displayName, value };
+  }
+
+  /** Right-click on a value cell — offers Hex View for byte values only; any
+   *  other value leaves the browser default (nothing) in place. */
+  function onValueContextMenu(e: MouseEvent, oid: string, displayName: string, value: SnmpValue | undefined) {
+    if (!value || !exportMod.isByteValue(value)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    S.contextMenuTarget = { kind: "value", oid, displayName, value, x: e.clientX, y: e.clientY };
+  }
+
   let hasWarnings = $derived(results?.warnings && results.warnings.length > 0);
   let isPartial = $derived(results?.partial || false);
 
@@ -672,6 +690,7 @@
                     style="{overrideCss(colOid)}"
                     title="Click to inspect {columnName(colOid)}"
                     onclick={() => selectGridCell(colOid, cell)}
+                    oncontextmenu={(e) => onValueContextMenu(e, colOid, `${columnName(colOid)}.${row.instance_id}`, cell.value?.value)}
                   >
                     {#if cell.missing}
                       <span class="text-base-content/60 italic flex items-center gap-1">— missing <TriangleAlert class="w-3 h-3 shrink-0" /></span>
@@ -764,7 +783,7 @@
             <div class="px-2 py-1 truncate font-mono text-[13px] relative" style="width: {colOid}px; min-width: {COL_MIN_OID}px; max-width: {COL_MAX_OID}px;" title="{row.fullPath}\n{row.oid}">
               {showResolvedNames ? row.displayName : row.oid}
             </div>
-            <div class="flex-1 min-w-[120px] px-2 py-1 font-mono text-[13px]">
+            <div class="flex-1 min-w-[120px] px-2 py-1 font-mono text-[13px]" oncontextmenu={(e) => onValueContextMenu(e, row.fullPath, row.displayName, row.snmpValue)}>
               {#if showRaw && exportMod.isByteValue(row.snmpValue)}
                 {@const bytes = exportMod.byteData(row.snmpValue)}
                 {@const dumpBytes = bytes.slice(0, RAW_DUMP_MAX_ROWS * BYTES_PER_ROW)}
@@ -786,7 +805,12 @@
                     </div>
                   {/each}
                   {#if hiddenBytes > 0}
-                    <p class="text-[11px] text-base-content/40">… {hiddenBytes} more bytes — click to inspect</p>
+                    <button
+                      data-testid="raw-more-bytes"
+                      class="text-[11px] text-primary hover:underline bg-transparent border-0 p-0 cursor-pointer"
+                      title="Open full hex view"
+                      onclick={(e) => { e.stopPropagation(); openHexView(row.fullPath, row.displayName, row.snmpValue); }}
+                    >… {hiddenBytes} more bytes</button>
                   {/if}
                 </div>
               {:else}

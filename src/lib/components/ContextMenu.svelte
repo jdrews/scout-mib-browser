@@ -12,10 +12,21 @@
   }
 
   async function handleAction(action: string) {
-    if (!target) return;
-    const node = target.node;
+    // Read the target exactly once: hide() nulls the store, and a second
+    // read of the lazy $derived below would see null.
+    const t = target;
+    if (!t) return;
     hide();
 
+    // Value targets only offer the hex view — no clipboard involved.
+    if (t.kind === "value") {
+      if (action === "hex-view") {
+        S.hexViewTarget = { oid: t.oid, displayName: t.displayName, value: t.value };
+      }
+      return;
+    }
+
+    const node = t.node;
     try {
       switch (action) {
         case "copy-oid":
@@ -56,7 +67,11 @@
     class="fixed menu p-2 bg-base-100 rounded-box w-40 shadow-lg z-[2000]"
     style="left: {posX}px; top: {posY}px;"
   >
-    <li><a data-testid="ctx-copy-oid" onclick={() => handleAction("copy-oid")}>Copy OID</a></li>
-    <li><a data-testid="ctx-copy-name" onclick={() => handleAction("copy-name")}>Copy Name</a></li>
+    {#if target?.kind === "node"}
+      <li><a data-testid="ctx-copy-oid" onclick={() => handleAction("copy-oid")}>Copy OID</a></li>
+      <li><a data-testid="ctx-copy-name" onclick={() => handleAction("copy-name")}>Copy Name</a></li>
+    {:else if target?.kind === "value"}
+      <li><a data-testid="ctx-hex-view" onclick={() => handleAction("hex-view")}>Hex View</a></li>
+    {/if}
   </ul>
 {/if}

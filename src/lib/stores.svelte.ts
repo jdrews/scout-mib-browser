@@ -1,4 +1,4 @@
-import type { TreeNode, MibSearchResult, TargetConfig, ConnectionState, SnmpOperation, ResultSet, VariableBinding, TableInfo, TableResult, LogEntry, LogLevel, InspectorValue } from "./types";
+import type { TreeNode, MibSearchResult, TargetConfig, ConnectionState, SnmpOperation, ResultSet, VariableBinding, TableInfo, TableResult, LogEntry, LogLevel, InspectorValue, ContextMenuTarget, HexViewTarget } from "./types";
 
 // ── Single reactive app state (Svelte 5 deep reactivity) ──────────────────────
 
@@ -21,7 +21,10 @@ const raw = $state({
   treeFindOpen: false,
   treeFindQuery: "",
   treeFindOid: null as string | null,
-  contextMenuTarget: null as { node: TreeNode; x: number; y: number } | null,
+  contextMenuTarget: null as ContextMenuTarget | null,
+  // The byte value shown in the hex view modal (right-click a value cell or
+  // follow the "… more bytes" hint in raw mode). Null = closed.
+  hexViewTarget: null as HexViewTarget | null,
   statusText: "Ready",
   nodeCount: 0,
   fallbackMibs: [] as string[],

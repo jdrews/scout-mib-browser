@@ -62,6 +62,10 @@ _Avoid_: Query result, response payload, data set
 A display mode of a Result Set that shows byte values as a hex + ASCII dump (offset, space-separated hex pairs, printable column with `.` for non-printable bytes) and scalars alongside their wire encoding (hex form, BER OID bytes, packed IP bytes). Byte values are also recognized by shape wherever they display: 6 bytes as a MAC address, 4 as IPv4, 16 as compressed IPv6; text wins over length-based matches.
 _Avoid_: Hex mode, packet view, byte view
 
+**Hex View**:
+A modal showing the full, uncapped hex + ASCII dump of one byte-carrying Variable Binding — name, OID, BER type code, recognized interpretation, and a copy-to-clipboard action. Opened by right-clicking a value cell (flat result row or table grid cell), via the "… more bytes" hint when an inline Raw View dump overflows its row cap, or from the Hex view button in the Inspector's live-value block.
+_Avoid_: Hex dialog, byte inspector, hex editor
+
 **Execution**:
 Triggering an Operation against a Target via the Go button. Takes the current Selection and Operation to produce a Result Set.
 _Avoid_: Run, fire, query (too generic)

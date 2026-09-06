@@ -239,3 +239,18 @@ export interface LogEntry {
 
 /** Severity filter for the system log pane. */
 export type LogLevel = "all" | "error" | "warn" | "info";
+
+// ── Context Menu / Hex View Types ────────────────────────────────────────────
+
+/** Where the context menu is open: a MIB tree node or a live result value
+ *  (flat row or grid cell). */
+export type ContextMenuTarget =
+  | { kind: "node"; node: TreeNode; x: number; y: number }
+  | { kind: "value"; oid: string; displayName: string; value: SnmpValue; x: number; y: number };
+
+/** The live byte value the hex view modal is showing. */
+export interface HexViewTarget {
+  oid: string;
+  displayName: string;
+  value: SnmpValue;
+}
