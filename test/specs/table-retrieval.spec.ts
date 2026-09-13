@@ -424,6 +424,72 @@ describe("Table retrieval (multi-component index, synthetic agent)", () => {
     expect(rows!.seventh[4]).toContain("missing");
   });
 
+  it("resized narrow columns wrap and clamp at three lines until clicked", async () => {
+    // synthIpNote values are long; resizing the column to its minimum width
+    // makes them wrap past three lines. The previous test left the synthIpTable
+    // grid on screen; re-fetch only if it is gone.
+    const NOTE_OID = "1.3.6.1.2.1.15432.1.1.1.4";
+    const hasGrid = await browser.execute(() => {
+      const thead = document.querySelector("[data-testid='grid-table'] thead");
+      return !!thead && (thead.textContent ?? "").includes("synthIpRow");
+    });
+    if (!hasGrid) {
+      await expandTo([...CHAIN_TO_MIB2, "synthTableMib.synthObjects"]);
+      await selectTreeNode("synthIpTable");
+      await go("getTable");
+      await waitForStatus(/^Table complete: 12 row\(s\), 2 column\(s\) \(1 missing cell\(s\)\)$/);
+    }
+
+    const resized = await browser.execute(async (noteOid: string) => {
+      const th = document.querySelector(
+        `[data-testid="grid-table"] thead th[data-grid-col="${noteOid}"]`,
+      );
+      if (!th) return false;
+      const handle = th.querySelector(".col-resize-handle") as HTMLElement;
+      const x = handle.getBoundingClientRect().left;
+      handle.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, clientX: x }));
+      await new Promise((r) => setTimeout(r, 50));
+      // Drag far left — the width clamps at the minimum (48px).
+      window.dispatchEvent(new MouseEvent("mousemove", { clientX: x - 400 }));
+      await new Promise((r) => setTimeout(r, 50));
+      window.dispatchEvent(new MouseEvent("mouseup", { clientX: x - 400 }));
+      return true;
+    }, NOTE_OID);
+    expect(resized).toBe(true);
+    await browser.pause(300);
+
+    const cellSel = `[data-testid="grid-table"] td[data-grid-col="${NOTE_OID}"] [data-value-clamp-target]`;
+    const heights = (el: WebdriverIO.Element) =>
+      browser.execute(
+        (n: HTMLElement) => ({ scroll: n.scrollHeight, client: n.clientHeight }),
+        el,
+      );
+
+    // The first row's note cell wraps and clamps at three lines.
+    const spanEl = await $(cellSel);
+    const clamped = await heights(spanEl);
+    expect(clamped.scroll).toBeGreaterThan(clamped.client);
+
+    // Clicking the cell expands it AND inspects the column.
+    await spanEl.click();
+    await browser.pause(200);
+    const expanded = await heights(spanEl);
+    expect(expanded.client).toBeGreaterThanOrEqual(clamped.scroll);
+    await browser.waitUntil(
+      async () => {
+        const t = (await (await $("[data-testid='inspector-oid']")).getText()) ?? "";
+        return t.includes(NOTE_OID);
+      },
+      { timeout: 5000, interval: 100 },
+    );
+
+    // Clicking again collapses back to the clamp.
+    await spanEl.click();
+    await browser.pause(200);
+    const collapsed = await heights(spanEl);
+    expect(collapsed.client).toBeLessThan(clamped.scroll);
+  });
+
   it("renders an IMPLIED index component as a blank column", async () => {
     // synthImpTable — INDEX { synthImpKey, IMPLIED synthImpIp }; the address is
     // absent from the instance OID entirely.

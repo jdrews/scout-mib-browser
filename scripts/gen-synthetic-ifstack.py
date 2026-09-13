@@ -19,15 +19,19 @@ Covers the spec's required synthetic cases (one recording, one agent):
      INDEX { synthIpRow, synthIpAddr }
        table 1.3.6.1.2.1.15432.1.1, entry ...1.1.1
        columns: synthIpStatus ...1.1.1.3 (Integer32), synthIpNote ...1.1.1.4
-   12 rows (r, 10.0.r.1); synthIpNote is missing on row 7 — the missing-cell
-   path.
+    12 rows (r, 10.0.r.1); synthIpNote is missing on row 7 — the missing-cell
+    path. Note values are deliberately long: the e2e suite resizes the column
+    narrow and asserts wrap/clamp/expand behavior on these cells.
 
 3. synthImpTable (SYNTH-TABLE-MIB) — IMPLIED index component:
      INDEX { synthImpKey, IMPLIED synthImpIp }
        table 1.3.6.1.2.1.15432.1.2, entry ...1.2.1
        column: synthImpState ...1.2.1.3 (Integer32)
-   5 rows keyed by integer only — the implied IpAddress is absent from the
-   instance OID.
+    5 rows keyed by integer only — the implied IpAddress is absent from the
+    instance OID.
+
+4. synthLongNote (SYNTH-TABLE-MIB) — a scalar OctetString with a long value,
+   for the flat-view wrap/clamp/expand e2e test (GET on ...15432.1.4.0).
 
 IMPORTANT: lines must be sorted by numeric OID order. snmpsim serves a
 GETNEXT that exact-matches a record with the *next line in the file*, so an
@@ -56,6 +60,13 @@ SYNTH_IP_MISSING_ROW = 7
 SYNTH_IMP_STATE_OID = f"{SYNTH_BASE}.1.2.1.3"
 SYNTH_IMP_ROWS = 5
 
+# synthLongNote (SYNTH-TABLE-MIB): scalar with a long value — the flat-view
+# wrap/clamp e2e test Gets this OID and expects more than three wrapped lines.
+SYNTH_LONG_NOTE_OID = f"{SYNTH_BASE}.1.4"
+SYNTH_LONG_NOTE_VALUE = (
+    "synthetic long octet string for value-wrap testing " * 8
+)  # 408 chars
+
 
 def oid_key(oid: str) -> tuple:
     return tuple(int(p) for p in oid.split("."))
@@ -74,11 +85,18 @@ def main() -> int:
         suffix = f".{r}.10.0.{r}.1"
         lines.append(f"{SYNTH_IP_STATUS_OID}{suffix}|2|{r}")
         if r != SYNTH_IP_MISSING_ROW:
-            lines.append(f"{SYNTH_IP_NOTE_OID}{suffix}|4|note-{r}")
+            # Long on purpose — see the note in the module docstring.
+            lines.append(
+                f"{SYNTH_IP_NOTE_OID}{suffix}|4|note-{r} synthetic long octet string "
+                "for value-wrap testing"
+            )
 
     # 3. synthImpTable: integer key only (implied address absent from OID).
     for k in range(1, SYNTH_IMP_ROWS + 1):
         lines.append(f"{SYNTH_IMP_STATE_OID}.{k}|2|{k * 100}")
+
+    # 4. synthLongNote: single scalar instance with a long value.
+    lines.append(f"{SYNTH_LONG_NOTE_OID}.0|4|{SYNTH_LONG_NOTE_VALUE}")
 
     for line in sorted(lines, key=lambda l: oid_key(l.split("|", 1)[0])):
         print(line)
