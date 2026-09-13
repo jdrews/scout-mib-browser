@@ -1,7 +1,7 @@
 # Raw View (Hex + Text) of OID Results
 
 **Date:** 2026-09-05
-**Status:** Implemented on `feat/raw-hex-view`
+**Status:** Implemented — merged to main via PR #67
 
 ## Purpose
 

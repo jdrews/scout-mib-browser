@@ -1,7 +1,7 @@
 # UX Assessment Plan
 
 **Date:** 2026-08-22  
-**Status:** Proposed
+**Status:** Executed (2026-08-22) — findings in `docs/scratch/ux-findings-2026-08-22.md`, artifacts in `docs/ux/2026-08-22/`; remediation tracked in 2026-08-22-ux-remediation.md
 
 ## Purpose
 

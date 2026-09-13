@@ -1,7 +1,7 @@
 # Backend Crate Workspace Split
 
 **Date:** 2026-08-20
-**Status:** Implemented (2026-08-21) on branch `crate-workspace-split` from `main`
+**Status:** Implemented (2026-08-21), merged to main via PR #48
 
 ## Implementation Notes (2026-08-21)
 

@@ -7,7 +7,7 @@ use scout_snmp as snmp;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use tauri::Manager;
-use tracing::warn;
+use tracing::{info, warn};
 
 /// Shared cancellation token for in-progress walks.
 #[derive(Clone)]
@@ -280,22 +280,38 @@ fn main() {
 
 // ── MIB Commands ─────────────────────────────────────────────────────────────
 
-/// Loads all MIB files from the given directories.
+/// Loads all MIB files from the given directories, plus the bundled
+/// standards MIBs when none of the configured directories contain files.
 ///
 /// The parse runs on a cloned working copy *outside* the resolver lock; only
 /// the final index swap is serialized. Read commands (tree, search, Manage
 /// MIBs list) therefore stay responsive while a load is in flight.
 #[tauri::command]
 fn mib_load_directories(
+    app: tauri::AppHandle,
     resolver: tauri::State<MibResolverState>,
     directories: Vec<String>,
 ) -> Result<MibLoadStatus, String> {
+    let mut dirs = directories.clone();
+    // The bundled standards MIBs cover systems without a system MIB directory
+    // (Windows/macOS, or Linux without net-snmp). They are skipped when any
+    // user directory has content, so bundled copies never shadow system MIBs.
+    if !directories.iter().any(|d| dir_has_entries(d)) {
+        if let Some(bundled) = bundled_mibs_dir(&app) {
+            info!(
+                "No MIB files in configured directories; using bundled MIBs at {}",
+                bundled
+            );
+            dirs.insert(0, bundled);
+        }
+    }
+
     let mut working = {
         let res = resolver.inner.read().map_err(|e| e.to_string())?;
         res.clone()
     };
 
-    let stats = working.load_directories(&directories);
+    let stats = working.load_directories(&dirs);
 
     let mut res = resolver.inner.write().map_err(|e| e.to_string())?;
     *res = working;
@@ -306,6 +322,31 @@ fn mib_load_directories(
         files_parsed: Some(stats.parsed),
         files_cached: Some(stats.cached),
     })
+}
+
+/// Path to the MIBs bundled with the app, if present.
+///
+/// Bundled apps find them under the Tauri resource dir (copied there by the
+/// bundler); dev/source builds fall back to the checkout's `src-tauri/mibs`.
+fn bundled_mibs_dir(app: &tauri::AppHandle) -> Option<String> {
+    find_bundled_mibs_dir(app.path().resource_dir().ok().as_deref())
+        .map(|dir| dir.to_string_lossy().to_string())
+}
+
+/// Picks the first existing MIB directory: the resource-dir copy (bundled
+/// apps), then the checkout's `src-tauri/mibs` (dev/source builds).
+fn find_bundled_mibs_dir(resource_dir: Option<&std::path::Path>) -> Option<std::path::PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(dir) = resource_dir {
+        candidates.push(dir.join("mibs"));
+    }
+    candidates.push(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("mibs"));
+    candidates.into_iter().find(|dir| dir.is_dir())
+}
+
+/// True when the directory exists and contains at least one entry.
+fn dir_has_entries(dir: &str) -> bool {
+    std::fs::read_dir(dir).is_ok_and(|mut d| d.next().is_some())
 }
 
 /// Resolves a dotted-decimal OID to its MIB node.
@@ -815,5 +856,54 @@ fn mib_status_of(res: &mib::Resolver) -> MibLoadStatus {
         fallback_mibs: res.fallback_mib_names().cloned().collect(),
         files_parsed: None,
         files_cached: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bundled_mibs_dir_falls_back_to_checkout() {
+        let dir = find_bundled_mibs_dir(None).expect("checkout mibs dir should exist");
+        assert!(dir.join("IF-MIB.txt").is_file());
+    }
+
+    #[test]
+    fn bundled_mibs_dir_prefers_resource_dir() {
+        let tmp = std::env::temp_dir().join(format!("scout-mibs-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join("mibs")).expect("create temp mibs dir");
+        std::fs::write(
+            tmp.join("mibs/TEST-MIB"),
+            "TEST-MIB DEFINITIONS ::= BEGIN\nEND\n",
+        )
+        .expect("write test MIB");
+        let dir = find_bundled_mibs_dir(Some(&tmp)).expect("resource mibs dir should win");
+        assert_eq!(dir, tmp.join("mibs"));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn bundled_mibs_dir_none_when_missing() {
+        let tmp = std::env::temp_dir().join(format!("scout-mibs-empty-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        // The checkout fallback always exists in-repo, so only assert the
+        // resource-dir candidate is not picked when it lacks a mibs/ subdir.
+        let dir = find_bundled_mibs_dir(Some(&tmp));
+        assert!(dir.as_deref() != Some(tmp.join("mibs").as_path()));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn dir_has_entries_detects_content() {
+        let tmp = std::env::temp_dir().join(format!("scout-mibs-entries-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        assert!(!dir_has_entries(&tmp.display().to_string()));
+        std::fs::write(tmp.join("x.txt"), "x").expect("write file");
+        assert!(dir_has_entries(&tmp.display().to_string()));
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }
