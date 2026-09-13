@@ -1,8 +1,39 @@
 import { S } from "$lib/stores.svelte";
-import type { TargetConfig } from "./types";
+import type { TargetConfig, SnmpWarning } from "./types";
 import { snmpConnect, logAppend } from "./tauriCommands";
 
 export type ConnectionResult = "idle" | "success" | "error";
+
+/** Marks the target as reachable — any successful SNMP operation proves it. */
+export function markConnected() {
+  S.connectionState = "connected";
+}
+
+/** Marks the target as unreachable after a failed SNMP operation. */
+export function markDisconnected() {
+  S.connectionState = "disconnected";
+}
+
+/** True when the result carries at least one hard error warning (kind "error"). */
+export function hasErrorWarning(warnings?: SnmpWarning[]): boolean {
+  return (warnings ?? []).some((w) => w.kind === "error");
+}
+
+/** Decides how a completed streaming operation (Walk, BulkWalk, Get Table)
+ *  updates the connection indicator. `received` is the number of bindings or
+ *  rows actually streamed before completion:
+ *  - anything received, or a clean empty completion → connected;
+ *  - an error warning with nothing received → the target never answered;
+ *  - a cancelled run that produced nothing → state stays untouched. */
+export function streamingOutcome(
+  received: number,
+  partial: boolean,
+  hasError: boolean,
+): "connected" | "disconnected" | "unchanged" {
+  if (received > 0 || (!hasError && !partial)) return "connected";
+  if (hasError) return "disconnected";
+  return "unchanged";
+}
 
 export interface ConnectionStateResult {
   connecting: boolean;

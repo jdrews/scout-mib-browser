@@ -38,6 +38,11 @@ describe("Operations (executions against the mock agent)", () => {
 
     const footer = (await (await $("[data-testid='results-footer']").getText())) ?? "";
     expect(footer).toContain("1 of 1 bindings");
+
+    // A successful Get proves reachability and flips the footer indicator,
+    // even when no Test Connection was run (or a previous one failed).
+    const indicator = (await (await $("[data-testid='conn-indicator']").getText())) ?? "";
+    expect(indicator).toContain("Connected");
   });
 
   it("Get Next returns the following binding", async () => {

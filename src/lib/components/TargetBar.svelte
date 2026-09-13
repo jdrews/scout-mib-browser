@@ -3,6 +3,7 @@
   import { mibSearch, mibResolveOid } from "$lib/tauriCommands";
   import { S } from "$lib/stores.svelte";
   import { persistTargetConfig } from "$lib/tauriCommands";
+  import { markConnected, markDisconnected, hasErrorWarning, streamingOutcome } from "$lib/connectionLogic";
   import type { MibSearchResult, TreeNode, SnmpOperation, VariableBinding, ResultSet, TableInfo, TableResult } from "$lib/types";
 
   let cfg = $derived(S.targetConfig);
@@ -294,6 +295,7 @@
         S.executionBindings.length = 0;
         S.executionBindings.push(...result.bindings);
         S.executionResults = result;
+        markConnected();
         S.statusText = `Get complete: ${result.bindings.length} binding(s)`;
       } else if (op === "getNext") {
         const cmds = await import("$lib/tauriCommands");
@@ -313,11 +315,15 @@
         } else {
           getNextCursor = null;
         }
+        markConnected();
         S.statusText = `GetNext complete: ${result.bindings.length} binding(s)`;
       } else if (op === "walk" || op === "bulkWalk") {
         const cmds = await import("$lib/tauriCommands");
         let count = 0;
         isWalkActive = true;
+        // First streamed binding proves the target answered — flip the
+        // indicator early instead of waiting for completion on long walks.
+        let sawData = false;
 
         // Buffer bindings and flush to reactive store periodically.
         // Larger batches reduce Svelte $derived recalculation frequency (which is O(n) per row).
@@ -338,6 +344,10 @@
         await fn(cfg, oid,
           (batch: VariableBinding[]) => {
             if (!isWalkActive) return;
+            if (!sawData && batch.length > 0) {
+              sawData = true;
+              markConnected();
+            }
             count += batch.length;
             buffer.push(...batch);
             S.walkProgress = `${count} bindings`;
@@ -368,6 +378,9 @@
             isWalkActive = false;
             S.executionResults = result;
             S.walkProgress = "";
+            const outcome = streamingOutcome(count, result.partial, hasErrorWarning(result.warnings));
+            if (outcome === "connected") markConnected();
+            else if (outcome === "disconnected") markDisconnected();
             S.statusText = `${op} complete: ${count} binding(s)`;
           }
         );
@@ -375,6 +388,11 @@
     } catch (err) {
       console.error("SNMP operation failed:", err);
       isWalkActive = false;
+      // Get/GetNext reject only when the backend operation fails — a
+      // communication problem. Walk/BulkWalk report failures via their
+      // complete channel instead, so an invoke rejection there is a local
+      // validation error (e.g. BulkWalk on v1) and leaves state untouched.
+      if (op === "get" || op === "getNext") markDisconnected();
       S.statusText = `Error: ${err}`;
       S.executionResults = { bindings: [], partial: true, warnings: [{ kind: "error", message: String(err) }] };
     } finally {
@@ -430,10 +448,17 @@
 
       S.statusText = `Fetching table ${name}...`;
       isWalkActive = true;
+      // First progress tick proves the target answered — flip the indicator
+      // early instead of waiting for completion on large tables.
+      let sawData = false;
 
       await cmds.snmpGetTable(cfg, oid, allColumns,
         (count: number) => {
           if (!isWalkActive) return;
+          if (!sawData && count > 0) {
+            sawData = true;
+            markConnected();
+          }
           S.walkProgress = `${count} bindings`;
           S.statusText = `Get Table: ${count} bindings...`;
         },
@@ -443,6 +468,9 @@
           tableRunActive = false;
           S.tableResult = result;
           S.walkProgress = "";
+          const outcome = streamingOutcome(result.total_rows, result.partial, hasErrorWarning(result.warnings));
+          if (outcome === "connected") markConnected();
+          else if (outcome === "disconnected") markDisconnected();
           let msg = `Table complete: ${result.total_rows} row(s), ${result.columns.length} column(s)`;
           if (result.missing_cells > 0) {
             msg += ` (${result.missing_cells} missing cell(s))`;
@@ -545,9 +573,11 @@
       S.executionBindings.length = 0;
       S.executionBindings.push(...result.bindings);
       S.executionResults = result;
+      markConnected();
       S.statusText = `Set complete: ${result.bindings.length} binding(s)`;
     } catch (err) {
       console.error("SNMP Set failed:", err);
+      markDisconnected();
       S.statusText = `Set error: ${err}`;
       S.executionResults = { bindings: [], partial: true, warnings: [{ kind: "error", message: String(err) }] };
     } finally {
