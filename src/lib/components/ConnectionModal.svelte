@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Check, X } from "lucide-svelte";
+  import { Check, Eye, EyeOff, X } from "lucide-svelte";
   import { tick } from "svelte";
   import { S } from "$lib/stores.svelte";
   import { persistTargetConfig, configWrite } from "$lib/tauriCommands";
@@ -13,6 +13,9 @@
   let connecting = $state(false);
   let connectionResult: "idle" | "success" | "error" = $state("idle");
   let errorMessage = $state("");
+
+  let showAuthPassphrase = $state(false);
+  let showPrivPassphrase = $state(false);
 
   let panelEl: HTMLDialogElement | undefined;
   let lastTrigger: HTMLElement | null = null;
@@ -163,13 +166,27 @@
             </div>
             <div class="form-control">
               <label for="v3-auth-passphrase-input" class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Auth Passphrase</span></label>
-              <input
-                id="v3-auth-passphrase-input"
-                type="password"
-                value={cfg.v3_auth_passphrase}
-                oninput={onV3AuthPassphraseInput}
-                class="input input-bordered font-mono w-full"
-              />
+              <div class="relative">
+                <input
+                  id="v3-auth-passphrase-input"
+                  type={showAuthPassphrase ? "text" : "password"}
+                  value={cfg.v3_auth_passphrase}
+                  oninput={onV3AuthPassphraseInput}
+                  class="input input-bordered font-mono w-full pr-10"
+                />
+                <button
+                  type="button"
+                  aria-label={showAuthPassphrase ? "Hide auth passphrase" : "Show auth passphrase"}
+                  class="absolute inset-y-0 right-0 flex items-center px-2.5 text-base-content/40 hover:text-base-content/70 focus:outline-none focus-visible:text-base-content"
+                  onclick={() => (showAuthPassphrase = !showAuthPassphrase)}
+                >
+                  {#if showAuthPassphrase}
+                    <EyeOff class="w-4 h-4" />
+                  {:else}
+                    <Eye class="w-4 h-4" />
+                  {/if}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -189,13 +206,27 @@
             </div>
             <div class="form-control">
               <label for="v3-priv-passphrase-input" class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Priv Passphrase</span></label>
-              <input
-                id="v3-priv-passphrase-input"
-                type="password"
-                value={cfg.v3_priv_passphrase}
-                oninput={onV3PrivPassphraseInput}
-                class="input input-bordered font-mono w-full"
-              />
+              <div class="relative">
+                <input
+                  id="v3-priv-passphrase-input"
+                  type={showPrivPassphrase ? "text" : "password"}
+                  value={cfg.v3_priv_passphrase}
+                  oninput={onV3PrivPassphraseInput}
+                  class="input input-bordered font-mono w-full pr-10"
+                />
+                <button
+                  type="button"
+                  aria-label={showPrivPassphrase ? "Hide priv passphrase" : "Show priv passphrase"}
+                  class="absolute inset-y-0 right-0 flex items-center px-2.5 text-base-content/40 hover:text-base-content/70 focus:outline-none focus-visible:text-base-content"
+                  onclick={() => (showPrivPassphrase = !showPrivPassphrase)}
+                >
+                  {#if showPrivPassphrase}
+                    <EyeOff class="w-4 h-4" />
+                  {:else}
+                    <Eye class="w-4 h-4" />
+                  {/if}
+                </button>
+              </div>
             </div>
           </div>
         {/if}
