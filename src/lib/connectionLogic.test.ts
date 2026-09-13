@@ -1,6 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { TargetConfig } from "$lib/types";
-import { runTestConnection, clearResultTimer, connectionFailureMessage } from "$lib/connectionLogic";
+import {
+  runTestConnection,
+  clearResultTimer,
+  connectionFailureMessage,
+  markConnected,
+  markDisconnected,
+  hasErrorWarning,
+  streamingOutcome,
+} from "$lib/connectionLogic";
 import { S } from "$lib/stores.svelte";
 
 vi.mock("$lib/tauriCommands", () => ({
@@ -205,5 +213,63 @@ describe("runTestConnection", () => {
 
     clearResultTimer();
     vi.useRealTimers();
+  });
+});
+
+describe("markConnected / markDisconnected", () => {
+  it("markConnected sets the state to connected from any prior state", () => {
+    S.connectionState = "unknown";
+    markConnected();
+    expect(S.connectionState).toBe("connected");
+
+    S.connectionState = "disconnected";
+    markConnected();
+    expect(S.connectionState).toBe("connected");
+  });
+
+  it("markDisconnected sets the state to disconnected", () => {
+    S.connectionState = "unknown";
+    markDisconnected();
+    expect(S.connectionState).toBe("disconnected");
+
+    S.connectionState = "connected";
+    markDisconnected();
+    expect(S.connectionState).toBe("disconnected");
+  });
+});
+
+describe("hasErrorWarning", () => {
+  it("is false for absent or empty warnings", () => {
+    expect(hasErrorWarning()).toBe(false);
+    expect(hasErrorWarning([])).toBe(false);
+  });
+
+  it("is true only when a warning has kind 'error'", () => {
+    expect(hasErrorWarning([{ kind: "decode", message: "x" }])).toBe(false);
+    expect(
+      hasErrorWarning([
+        { kind: "decode", message: "x" },
+        { kind: "error", message: "timeout" },
+      ])
+    ).toBe(true);
+  });
+});
+
+describe("streamingOutcome", () => {
+  it("is connected when data was received, even with a partial error", () => {
+    expect(streamingOutcome(5, false, false)).toBe("connected");
+    expect(streamingOutcome(5, true, true)).toBe("connected");
+  });
+
+  it("is connected for a clean empty completion (reachable, nothing to walk)", () => {
+    expect(streamingOutcome(0, false, false)).toBe("connected");
+  });
+
+  it("is disconnected when an error arrived with no data", () => {
+    expect(streamingOutcome(0, true, true)).toBe("disconnected");
+  });
+
+  it("leaves state unchanged for a cancelled run that produced nothing", () => {
+    expect(streamingOutcome(0, true, false)).toBe("unchanged");
   });
 });
