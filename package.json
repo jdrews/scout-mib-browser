@@ -18,6 +18,7 @@
     "test:e2e": "bash scripts/test-e2e.sh",
     "ux:assess": "bash scripts/ux-assess.sh",
     "test:e2e:agent": "python3 scripts/snmpsim-test.py --port 11611",
+    "test:e2e:agent:v3": "echo 'SNMPv3 test agent starting on :11700 - Users and credentials in docs/testing/snmpv3-agent.md' && python3 scripts/snmpsim-v3-test.py --port 11700",
     "test:e2e:build": "cargo build --workspace --features scout-mib-browser/wdio && bash scripts/test-e2e.sh"
   },
   "devDependencies": {
