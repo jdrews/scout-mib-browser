@@ -45,6 +45,10 @@ On Fedora, the AppImage bundler may fail with "More than one architectures were 
 ARCH=x86_64 NO_STRIP=true npm run build
 ```
 
+## Bundled MIBs
+
+`src-tauri/mibs/` holds ~57 standard IETF MIBs (core, network, security, DISMAN) taken from [net-snmp's mibs tree](https://github.com/net-snmp/net-snmp/tree/master/mibs) (BSD-licensed; each file keeps its original copyright header). They ship as Tauri resources (`bundle.resources` in `tauri.conf.json`) and are loaded automatically **only when none of the configured MIB directories contain files** — on systems with net-snmp installed, the system MIBs win, so no module is loaded twice. Dev/source builds read `src-tauri/mibs/` directly (the app falls back to the checkout path when the resource dir has no `mibs/`).
+
 ## Checks
 
 ```bash
