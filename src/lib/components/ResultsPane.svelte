@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowDown, ArrowUp, ArrowUpDown, Binary, Trash2, TriangleAlert, WrapText } from "lucide-svelte";
+  import { ArrowDown, ArrowUp, ArrowUpDown, Binary, Trash2, TriangleAlert } from "lucide-svelte";
   import { S, clearResults } from "$lib/stores.svelte";
   import type { VariableBinding, SnmpValue, ResultSet, TreeNode, TableResult, TableRowData, TableCell, TableIndexColumn, ResultRow } from "$lib/types";
   import { hexDumpLines, interpretBytes, interpretationLabel, asn1TypeCodeText, BYTES_PER_ROW } from "$lib/hexdump";
@@ -24,7 +24,6 @@
   let sortAsc = $state(true);
 
   let showResolvedNames = $state(true);
-  let wrapValue = $state(false);
   // Raw mode: byte values render as a Wireshark-style hex + ASCII dump, and
   // scalars show their wire encoding alongside the decoded value.
   let showRaw = $state(false);
@@ -241,6 +240,7 @@
       gridSortDir = 1;
       gridColWidths = {};
       selectedColumns = loadColumnSelection(tableResult.table_oid, tableResult.columns);
+      expandedCells = new Set();
     }
   });
   let tableInfo = $derived(S.tableInfo);
@@ -340,10 +340,99 @@
     function onUp() {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
+      // The final width only lands in the DOM after this frame — re-measure
+      // which cells now clamp so click-to-expand works right away.
+      requestAnimationFrame(() => measureValueOverflow());
     }
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
   }
+
+  // ── Value wrapping / expansion ─────────────────────────────────────────────
+  // Value cells wrap instead of truncating. Content taller than three lines is
+  // clamped (.value-clamp) until the user clicks the cell to expand it; a
+  // second click collapses it again. The click still selects the row/cell in
+  // the Inspector — the handler on the row (flat view) or td (grid) fires as
+  // usual, so one click does both.
+
+  let expandedCells = $state<Set<string>>(new Set());
+  let overflowingCells = $state<Set<string>>(new Set());
+  let resultsBodyEl: HTMLDivElement | null = $state(null);
+
+  function gridCellKey(instanceId: string, colOid: string): string {
+    return `${instanceId}|${colOid}`;
+  }
+
+  function toggleCellExpanded(key: string) {
+    const next = new Set(expandedCells);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    expandedCells = next;
+  }
+
+  /** Flat-view value cell click: toggles expansion for clamped cells.
+   *  Non-clamped and raw-mode cells fall through to the row handler, which
+   *  selects the row in the Inspector exactly as before. */
+  function onFlatValueClick(row: ResultRow) {
+    if (showRaw || !overflowingCells.has(row.oid)) return;
+    toggleCellExpanded(row.oid);
+  }
+
+  /** Grid value cell click: toggles expansion for clamped cells. The td's own
+   *  handler still fires and inspects the cell as before. */
+  function onGridValueClick(instanceId: string, colOid: string) {
+    const key = gridCellKey(instanceId, colOid);
+    if (!overflowingCells.has(key)) return;
+    toggleCellExpanded(key);
+  }
+
+  /** A clamped span reports its full content height in scrollHeight and the
+   *  clamped box height in clientHeight (verified on WebKitGTK). */
+  function measureValueOverflow() {
+    const next = new Set<string>();
+    document.querySelectorAll<HTMLElement>("[data-value-clamp-target]").forEach((el) => {
+      if (el.scrollHeight > el.clientHeight + 1) next.add(el.dataset.valueClampTarget!);
+    });
+    let changed = next.size !== overflowingCells.size;
+    if (!changed) {
+      for (const k of next) {
+        if (!overflowingCells.has(k)) {
+          changed = true;
+          break;
+        }
+      }
+    }
+    if (changed) overflowingCells = next;
+  }
+
+  // Re-measure when the rendered content or the fixed column widths change.
+  // Grid column resizes are handled separately (on drag end) so that dragging
+  // does not force a full reflow of every visible cell per mouse-move.
+  $effect(() => {
+    void sortedRows;
+    void visibleGridColumns;
+    void visibleCount;
+    void colOid;
+    void colType;
+    void showRaw;
+    void isGridView;
+    if (isGridView || bindings.length > 0) measureValueOverflow();
+  });
+
+  // Pane-width changes (MIB panel drag, window resize) reflow value cells
+  // without changing any of the state above — watch the scroll container.
+  $effect(() => {
+    if (!resultsBodyEl || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => measureValueOverflow());
+    ro.observe(resultsBodyEl);
+    return () => ro.disconnect();
+  });
+
+  // A new result set starts with every cell collapsed.
+  $effect(() => {
+    void results;
+    expandedCells = new Set();
+  });
 
   // ── Grid sorting (per-column, numeric-aware; default is walk order) ───────
   type GridSortKey = string; // "instance" | `idx:${i}` | column OID
@@ -568,9 +657,6 @@
         <button data-testid="clear-btn" aria-label="Clear results" class="btn btn-sm btn-ghost" title="Clear results" onclick={clearAll}><Trash2 class="w-4 h-4" /></button>
         {#if !isGridView && !isSubtreeView}
           <button data-testid="names-toggle" class="btn btn-sm {showResolvedNames ? 'btn-primary' : 'btn-ghost'}" onclick={() => showResolvedNames = !showResolvedNames}>{showResolvedNames ? "MIB Names" : "Raw OIDs"}</button>
-          <button data-testid="wrap-toggle" title="Wrap long values" class="btn btn-sm {wrapValue ? 'btn-primary' : 'btn-ghost'}" onclick={() => wrapValue = !wrapValue}>
-            <WrapText class="w-4 h-4 inline-block" /> Wrap
-          </button>
           <button data-testid="raw-toggle" title="Show values as raw bytes: hex + ASCII dump (byte values) and wire encoding (scalars)" class="btn btn-sm {showRaw ? 'btn-primary' : 'btn-ghost'}" onclick={() => showRaw = !showRaw}>
             <Binary class="w-4 h-4 inline-block" /> Raw
           </button>
@@ -617,6 +703,7 @@
 
   <div
     data-testid="results-body"
+    bind:this={resultsBodyEl}
     tabindex="0"
     aria-label="Results"
     class="flex-1 overflow-auto focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
@@ -684,8 +771,10 @@
                 {/if}
                 {#each visibleGridColumns as colOid (colOid)}
                   {@const cell = row.cells[colOid]}
+                  {@const key = gridCellKey(row.instance_id, colOid)}
                   <td
-                    class="px-2 font-mono text-[13px] cursor-pointer hover:bg-base-200/70 {cell.missing ? 'text-accent' : ''} {gridColWidths[colOid] ? 'overflow-hidden text-ellipsis whitespace-nowrap' : ''}"
+                    class="px-2 font-mono text-[13px] cursor-pointer hover:bg-base-200/70 {cell.missing ? 'text-accent' : ''}"
+                    data-grid-col={colOid}
                     class:inspector-col-selected={colOid === S.inspectorOid}
                     style="{overrideCss(colOid)}"
                     title="Click to inspect {columnName(colOid)}"
@@ -695,7 +784,14 @@
                     {#if cell.missing}
                       <span class="text-base-content/60 italic flex items-center gap-1">— missing <TriangleAlert class="w-3 h-3 shrink-0" /></span>
                     {:else if cell.value}
-                      <span>{exportMod.valueDisplay(cell.value.value)}</span>
+                      <!-- Auto-width columns size to their content and stay as
+                           plain inline text; only user-resized (fixed-width)
+                           columns wrap, clamped to three lines until clicked. -->
+                      <span
+                        data-value-clamp-target={key}
+                        class="{gridColWidths[colOid] ? 'block break-all' : ''}{gridColWidths[colOid] && !expandedCells.has(key) ? ' value-clamp' : ''}"
+                        onclick={() => onGridValueClick(row.instance_id, colOid)}
+                      >{exportMod.valueDisplay(cell.value.value)}</span>
                     {:else}
                       <span class="text-base-content/60">\u2014</span>
                     {/if}
@@ -755,8 +851,11 @@
         <div class="resize-divider absolute top-0 bottom-0 w-[5px] z-20 hover:bg-primary/50 transition-colors" style="left: {divider1Left}px;" onmousedown={onDivider1MouseDown}></div>
         <div class="resize-divider absolute top-0 bottom-0 w-[5px] z-20 hover:bg-primary/50 transition-colors" style="left: {divider2Left};" onmousedown={onDivider2MouseDown}></div>
 
-        <!-- /60 (not /30): 3:1 AA for the UI boundary in the light theme. -->
-        <div class="flex bg-base-200 border-b-2 border-base-content/60 sticky top-0 z-10 text-xs font-semibold uppercase tracking-wider" style="min-width: max-content;">
+        <!-- /60 (not /30): 3:1 AA for the UI boundary in the light theme.
+             In raw mode rows must expand to fit their hex dumps; in normal
+             mode values wrap, so rows stay at pane width (min-width:
+             max-content would otherwise stretch a row to one full text line). -->
+        <div class="flex bg-base-200 border-b-2 border-base-content/60 sticky top-0 z-10 text-xs font-semibold uppercase tracking-wider" style="min-width: {showRaw ? 'max-content' : ''}">
           <div data-testid="sort-oid" class="cursor-pointer px-2 py-1.5 truncate select-none flex items-center gap-1" style="width: {colOid}px; min-width: {COL_MIN_OID}px; max-width: {COL_MAX_OID}px;" onclick={() => toggleSort("oid")}>
             <span class="truncate">OID</span>
             {#if sortColumn === "oid"}{#if sortAsc}<ArrowUp class="w-3 h-3 shrink-0" />{:else}<ArrowDown class="w-3 h-3 shrink-0" />{/if}{:else}<ArrowUpDown class="w-3 h-3 shrink-0" />{/if}
@@ -776,7 +875,7 @@
             data-testid="result-row"
             class="flex border-b border-base-300 cursor-pointer hover:bg-base-200/70 {row.warning ? 'text-accent' : ''}"
             class:inspector-selected={row.fullPath === S.inspectorOid}
-            style="min-width: max-content;"
+            style="min-width: {showRaw ? 'max-content' : ''}"
             title="Click to inspect"
             onclick={() => selectResultRow(row)}
           >
@@ -814,7 +913,13 @@
                   {/if}
                 </div>
               {:else}
-                <span class="block {wrapValue ? 'break-all' : 'truncate'}">
+                <!-- Normal mode wraps (clamped to three lines until the cell is
+                     clicked open); raw-mode scalar display keeps truncating. -->
+                <span
+                  data-value-clamp-target={row.oid}
+                  class="block {showRaw ? 'truncate' : 'break-all'}{!showRaw && !expandedCells.has(row.oid) ? ' value-clamp' : ''}"
+                  onclick={() => onFlatValueClick(row)}
+                >
                   {showRaw ? exportMod.rawValueDisplay(row.snmpValue) : row.value}
                 </span>
                 {#if row.warning} <TriangleAlert class="w-3.5 h-3.5 inline-block text-accent" />{/if}
@@ -849,6 +954,14 @@
 </div>
 
 <style>
+  /* Clamped value cell: wraps, but no more than three lines until the cell is
+     clicked open. scrollHeight > clientHeight signals that content is hidden. */
+  .value-clamp {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    -webkit-line-clamp: 3;
+  }
   /* Row/column highlighted while the inspector reports on it. */
   .inspector-selected {
     background-color: oklch(var(--p) / 0.12);

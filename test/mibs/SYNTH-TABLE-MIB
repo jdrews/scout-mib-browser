@@ -132,4 +132,13 @@ synthImpState OBJECT-TYPE
     DESCRIPTION "The only accessible column."
     ::= { synthImpEntry 3 }
 
+-- A scalar with a deliberately long value: the e2e suite Gets it and asserts
+-- the flat-view wrap/clamp/expand behavior on the results row.
+synthLongNote OBJECT-TYPE
+    SYNTAX      OCTET STRING
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "A long octet string for value-wrap e2e coverage."
+    ::= { synthObjects 4 }
+
 END

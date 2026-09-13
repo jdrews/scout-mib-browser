@@ -178,11 +178,16 @@ describe("UX A4 — action → feedback map", function () {
       return `button label ${before} -> ${after}; first column now shows raw OIDs`;
     });
 
-    await audit("Toggle Wrap", async () => {
-      const btn = await $("[data-testid='wrap-toggle']");
-      await btn.click();
-      await browser.pause(150);
-      return "long value now wraps instead of truncating";
+    await audit("Long values wrap in place", async () => {
+      // The Wrap toggle is gone: values always wrap, and content taller than
+      // three lines clamps until the cell is clicked open.
+      const rows = await $$("[data-testid='result-row']");
+      if (rows.length === 0) return "no result rows to inspect";
+      const valueCell = (await ((await rows[0]).$$("div")))[1];
+      const valueSpan = (await valueCell.$$("span"))[0];
+      const ws = (await valueSpan.getCSSProperty("white-space")).value;
+      const wb = (await valueSpan.getCSSProperty("word-break")).value;
+      return `value cell wraps by default (white-space: ${ws}, word-break: ${wb})`;
     });
 
     await audit("Filter results ('sys')", async () => {
