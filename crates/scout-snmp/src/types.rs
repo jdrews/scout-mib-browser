@@ -30,7 +30,7 @@ impl From<Version> for snmp2::Version {
 }
 
 /// Authentication protocol for SNMPv3 USM.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AuthProtocol {
     None,
@@ -43,7 +43,7 @@ pub enum AuthProtocol {
 }
 
 /// Privacy (encryption) protocol for SNMPv3 USM.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PrivProtocol {
     None,
@@ -90,6 +90,87 @@ fn is_auth_none(v: &AuthProtocol) -> bool {
 
 fn is_priv_none(v: &PrivProtocol) -> bool {
     matches!(v, PrivProtocol::None)
+}
+
+/// Resolved SNMPv3 USM parameters for a session, derived from
+/// [`SnmpV3SecurityConfig`]. Exposed so the protocol mapping can be unit-tested
+/// and inspected independently of a live connection.
+#[derive(Debug, Clone, PartialEq)]
+pub struct V3SecurityPlan {
+    /// Security level: noAuthNoPriv / authNoPriv / authPriv.
+    pub auth: snmp2::v3::Auth,
+    /// Authentication protocol (`None` for noAuthNoPriv).
+    pub auth_protocol: Option<snmp2::v3::AuthProtocol>,
+    /// Key-extension method for the AES-192/256 pairs whose auth hash is too
+    /// short to yield the full privacy key (`None` when not required).
+    pub key_extension: Option<snmp2::v3::KeyExtension>,
+}
+
+fn auth_protocol_to_snmp2(p: &AuthProtocol) -> Option<snmp2::v3::AuthProtocol> {
+    match p {
+        AuthProtocol::None => None,
+        AuthProtocol::Md5 => Some(snmp2::v3::AuthProtocol::Md5),
+        AuthProtocol::Sha1 => Some(snmp2::v3::AuthProtocol::Sha1),
+        AuthProtocol::Sha224 => Some(snmp2::v3::AuthProtocol::Sha224),
+        AuthProtocol::Sha256 => Some(snmp2::v3::AuthProtocol::Sha256),
+        AuthProtocol::Sha384 => Some(snmp2::v3::AuthProtocol::Sha384),
+        AuthProtocol::Sha512 => Some(snmp2::v3::AuthProtocol::Sha512),
+    }
+}
+
+fn priv_protocol_to_cipher(p: &PrivProtocol) -> Option<snmp2::v3::Cipher> {
+    match p {
+        PrivProtocol::None => None,
+        PrivProtocol::Des => Some(snmp2::v3::Cipher::Des),
+        PrivProtocol::Aes128 => Some(snmp2::v3::Cipher::Aes128),
+        PrivProtocol::Aes192 => Some(snmp2::v3::Cipher::Aes192),
+        PrivProtocol::Aes256 => Some(snmp2::v3::Cipher::Aes256),
+    }
+}
+
+impl SnmpV3SecurityConfig {
+    /// Resolves this configuration into the concrete USM parameters a session
+    /// needs. Pure (no I/O) so the full protocol matrix is unit-testable without
+    /// a live agent. Returns an error for combinations that are invalid per
+    /// RFC 3414 (privacy without authentication).
+    pub fn resolve(&self) -> Result<V3SecurityPlan, String> {
+        if self.priv_protocol != PrivProtocol::None && self.auth_protocol == AuthProtocol::None {
+            return Err(
+                "SNMPv3 privacy (encryption) requires an authentication protocol".to_string(),
+            );
+        }
+
+        let auth_protocol = auth_protocol_to_snmp2(&self.auth_protocol);
+
+        let auth = match (&self.auth_protocol, &self.priv_protocol) {
+            (AuthProtocol::None, PrivProtocol::None) => snmp2::v3::Auth::NoAuthNoPriv,
+            (_, PrivProtocol::None) => snmp2::v3::Auth::AuthNoPriv,
+            (_, priv_) => snmp2::v3::Auth::AuthPriv {
+                cipher: priv_protocol_to_cipher(priv_)
+                    .expect("privacy protocol is non-None in the AuthPriv branch"),
+                privacy_password: self.priv_passphrase.clone().into_bytes(),
+            },
+        };
+
+        let key_extension = match (&auth, &auth_protocol) {
+            (snmp2::v3::Auth::AuthPriv { cipher, .. }, Some(ap)) => {
+                if cipher.priv_key_needs_extension(ap) {
+                    // Reeder matches the de-facto standard AES-192/256 OIDs used by
+                    // pysnmp/snmpsim and most vendors (Cisco et al.).
+                    Some(snmp2::v3::KeyExtension::Reeder)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+
+        Ok(V3SecurityPlan {
+            auth,
+            auth_protocol,
+            key_extension,
+        })
+    }
 }
 
 /// The SNMP device being queried — its address and credentials combined.
@@ -313,4 +394,281 @@ pub enum SetValue {
     IpAddress(String),
     TimeTicks(u32),
     ObjectIdentifier(String),
+}
+
+#[cfg(test)]
+mod v3_resolve_tests {
+    use super::*;
+
+    fn cfg(auth: AuthProtocol, priv_: PrivProtocol) -> SnmpV3SecurityConfig {
+        SnmpV3SecurityConfig {
+            username: "admin".to_string(),
+            auth_protocol: auth,
+            auth_passphrase: "authpass".to_string(),
+            priv_protocol: priv_,
+            priv_passphrase: "privpass".to_string(),
+        }
+    }
+
+    // ── noAuthNoPriv ────────────────────────────────────────────────────────
+
+    #[test]
+    fn resolve_no_auth_no_priv() {
+        let plan = cfg(AuthProtocol::None, PrivProtocol::None)
+            .resolve()
+            .unwrap();
+        assert_eq!(plan.auth, snmp2::v3::Auth::NoAuthNoPriv);
+        assert_eq!(plan.auth_protocol, None);
+        assert_eq!(plan.key_extension, None);
+    }
+
+    // ── authNoPriv: every supported auth protocol ───────────────────────────
+
+    #[test]
+    fn resolve_auth_no_priv_md5() {
+        let plan = cfg(AuthProtocol::Md5, PrivProtocol::None)
+            .resolve()
+            .unwrap();
+        assert_eq!(plan.auth, snmp2::v3::Auth::AuthNoPriv);
+        assert_eq!(plan.auth_protocol, Some(snmp2::v3::AuthProtocol::Md5));
+        assert_eq!(plan.key_extension, None);
+    }
+
+    #[test]
+    fn resolve_auth_no_priv_sha1() {
+        let plan = cfg(AuthProtocol::Sha1, PrivProtocol::None)
+            .resolve()
+            .unwrap();
+        assert_eq!(plan.auth, snmp2::v3::Auth::AuthNoPriv);
+        assert_eq!(plan.auth_protocol, Some(snmp2::v3::AuthProtocol::Sha1));
+    }
+
+    #[test]
+    fn resolve_auth_no_priv_sha224() {
+        let plan = cfg(AuthProtocol::Sha224, PrivProtocol::None)
+            .resolve()
+            .unwrap();
+        assert_eq!(plan.auth_protocol, Some(snmp2::v3::AuthProtocol::Sha224));
+    }
+
+    #[test]
+    fn resolve_auth_no_priv_sha256() {
+        let plan = cfg(AuthProtocol::Sha256, PrivProtocol::None)
+            .resolve()
+            .unwrap();
+        assert_eq!(plan.auth_protocol, Some(snmp2::v3::AuthProtocol::Sha256));
+    }
+
+    #[test]
+    fn resolve_auth_no_priv_sha384() {
+        let plan = cfg(AuthProtocol::Sha384, PrivProtocol::None)
+            .resolve()
+            .unwrap();
+        assert_eq!(plan.auth_protocol, Some(snmp2::v3::AuthProtocol::Sha384));
+    }
+
+    #[test]
+    fn resolve_auth_no_priv_sha512() {
+        let plan = cfg(AuthProtocol::Sha512, PrivProtocol::None)
+            .resolve()
+            .unwrap();
+        assert_eq!(plan.auth_protocol, Some(snmp2::v3::AuthProtocol::Sha512));
+    }
+
+    // ── authPriv: full matrix (6 auth × 4 priv) ─────────────────────────────
+
+    fn expect_auth_priv(
+        auth: AuthProtocol,
+        priv_: PrivProtocol,
+        cipher: snmp2::v3::Cipher,
+        ap: snmp2::v3::AuthProtocol,
+        key_ext: Option<snmp2::v3::KeyExtension>,
+    ) {
+        let plan = cfg(auth, priv_).resolve().unwrap();
+        assert_eq!(
+            plan.auth,
+            snmp2::v3::Auth::AuthPriv {
+                cipher,
+                privacy_password: b"privpass".to_vec(),
+            },
+            "auth={:?} priv={:?}",
+            auth,
+            priv_
+        );
+        assert_eq!(
+            plan.auth_protocol,
+            Some(ap),
+            "auth={:?} priv={:?}",
+            auth,
+            priv_
+        );
+        assert_eq!(
+            plan.key_extension, key_ext,
+            "auth={:?} priv={:?}",
+            auth, priv_
+        );
+    }
+
+    // DES and AES-128 never need a key extension (hash output ≥ 16 bytes).
+    #[test]
+    fn resolve_auth_priv_des_never_extends() {
+        let cases = [
+            (AuthProtocol::Md5, snmp2::v3::AuthProtocol::Md5),
+            (AuthProtocol::Sha1, snmp2::v3::AuthProtocol::Sha1),
+            (AuthProtocol::Sha224, snmp2::v3::AuthProtocol::Sha224),
+            (AuthProtocol::Sha256, snmp2::v3::AuthProtocol::Sha256),
+            (AuthProtocol::Sha384, snmp2::v3::AuthProtocol::Sha384),
+            (AuthProtocol::Sha512, snmp2::v3::AuthProtocol::Sha512),
+        ];
+        for (a, ap) in cases {
+            expect_auth_priv(a, PrivProtocol::Des, snmp2::v3::Cipher::Des, ap, None);
+        }
+    }
+
+    #[test]
+    fn resolve_auth_priv_aes128_never_extends() {
+        let cases = [
+            (AuthProtocol::Md5, snmp2::v3::AuthProtocol::Md5),
+            (AuthProtocol::Sha1, snmp2::v3::AuthProtocol::Sha1),
+            (AuthProtocol::Sha224, snmp2::v3::AuthProtocol::Sha224),
+            (AuthProtocol::Sha256, snmp2::v3::AuthProtocol::Sha256),
+            (AuthProtocol::Sha384, snmp2::v3::AuthProtocol::Sha384),
+            (AuthProtocol::Sha512, snmp2::v3::AuthProtocol::Sha512),
+        ];
+        for (a, ap) in cases {
+            expect_auth_priv(a, PrivProtocol::Aes128, snmp2::v3::Cipher::Aes128, ap, None);
+        }
+    }
+
+    // AES-192 needs extension only when the auth hash is < 24 bytes (MD5=16, SHA1=20).
+    #[test]
+    fn resolve_auth_priv_aes192_extension_table() {
+        expect_auth_priv(
+            AuthProtocol::Md5,
+            PrivProtocol::Aes192,
+            snmp2::v3::Cipher::Aes192,
+            snmp2::v3::AuthProtocol::Md5,
+            Some(snmp2::v3::KeyExtension::Reeder),
+        );
+        expect_auth_priv(
+            AuthProtocol::Sha1,
+            PrivProtocol::Aes192,
+            snmp2::v3::Cipher::Aes192,
+            snmp2::v3::AuthProtocol::Sha1,
+            Some(snmp2::v3::KeyExtension::Reeder),
+        );
+        expect_auth_priv(
+            AuthProtocol::Sha224,
+            PrivProtocol::Aes192,
+            snmp2::v3::Cipher::Aes192,
+            snmp2::v3::AuthProtocol::Sha224,
+            None,
+        );
+        expect_auth_priv(
+            AuthProtocol::Sha256,
+            PrivProtocol::Aes192,
+            snmp2::v3::Cipher::Aes192,
+            snmp2::v3::AuthProtocol::Sha256,
+            None,
+        );
+        expect_auth_priv(
+            AuthProtocol::Sha384,
+            PrivProtocol::Aes192,
+            snmp2::v3::Cipher::Aes192,
+            snmp2::v3::AuthProtocol::Sha384,
+            None,
+        );
+        expect_auth_priv(
+            AuthProtocol::Sha512,
+            PrivProtocol::Aes192,
+            snmp2::v3::Cipher::Aes192,
+            snmp2::v3::AuthProtocol::Sha512,
+            None,
+        );
+    }
+
+    // AES-256 needs extension when the auth hash is < 32 bytes (MD5, SHA1, SHA224).
+    #[test]
+    fn resolve_auth_priv_aes256_extension_table() {
+        expect_auth_priv(
+            AuthProtocol::Md5,
+            PrivProtocol::Aes256,
+            snmp2::v3::Cipher::Aes256,
+            snmp2::v3::AuthProtocol::Md5,
+            Some(snmp2::v3::KeyExtension::Reeder),
+        );
+        expect_auth_priv(
+            AuthProtocol::Sha1,
+            PrivProtocol::Aes256,
+            snmp2::v3::Cipher::Aes256,
+            snmp2::v3::AuthProtocol::Sha1,
+            Some(snmp2::v3::KeyExtension::Reeder),
+        );
+        expect_auth_priv(
+            AuthProtocol::Sha224,
+            PrivProtocol::Aes256,
+            snmp2::v3::Cipher::Aes256,
+            snmp2::v3::AuthProtocol::Sha224,
+            Some(snmp2::v3::KeyExtension::Reeder),
+        );
+        expect_auth_priv(
+            AuthProtocol::Sha256,
+            PrivProtocol::Aes256,
+            snmp2::v3::Cipher::Aes256,
+            snmp2::v3::AuthProtocol::Sha256,
+            None,
+        );
+        expect_auth_priv(
+            AuthProtocol::Sha384,
+            PrivProtocol::Aes256,
+            snmp2::v3::Cipher::Aes256,
+            snmp2::v3::AuthProtocol::Sha384,
+            None,
+        );
+        expect_auth_priv(
+            AuthProtocol::Sha512,
+            PrivProtocol::Aes256,
+            snmp2::v3::Cipher::Aes256,
+            snmp2::v3::AuthProtocol::Sha512,
+            None,
+        );
+    }
+
+    // ── Validation: privacy requires authentication ─────────────────────────
+
+    #[test]
+    fn resolve_priv_without_auth_is_rejected() {
+        for priv_ in [
+            PrivProtocol::Des,
+            PrivProtocol::Aes128,
+            PrivProtocol::Aes192,
+            PrivProtocol::Aes256,
+        ] {
+            let err = cfg(AuthProtocol::None, priv_)
+                .resolve()
+                .expect_err("priv without auth must fail");
+            assert!(
+                err.contains("requires an authentication protocol"),
+                "priv={:?}: unexpected error message: {}",
+                priv_,
+                err
+            );
+        }
+    }
+
+    // ── Passphrases are carried through to the AuthPriv cipher ──────────────
+
+    #[test]
+    fn resolve_auth_priv_carries_priv_passphrase() {
+        let mut c = cfg(AuthProtocol::Sha256, PrivProtocol::Aes256);
+        c.priv_passphrase = "s3cret-priv".to_string();
+        let plan = c.resolve().unwrap();
+        assert_eq!(
+            plan.auth,
+            snmp2::v3::Auth::AuthPriv {
+                cipher: snmp2::v3::Cipher::Aes256,
+                privacy_password: b"s3cret-priv".to_vec(),
+            }
+        );
+    }
 }

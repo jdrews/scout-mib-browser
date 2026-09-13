@@ -686,14 +686,31 @@ impl SnmpEngine {
                     .as_ref()
                     .ok_or_else(|| "SNMPv3 requires security configuration".to_string())?;
 
-                let sec = snmp2::v3::Security::new(
+                let plan = security.resolve()?;
+
+                let mut sec = snmp2::v3::Security::new(
                     security.username.as_bytes(),
                     security.auth_passphrase.as_bytes(),
-                );
+                )
+                .with_auth(plan.auth);
+                if let Some(auth_protocol) = plan.auth_protocol {
+                    sec = sec.with_auth_protocol(auth_protocol);
+                }
+                if let Some(key_extension) = plan.key_extension {
+                    sec = sec.with_key_extension_method(key_extension);
+                }
 
-                snmp2::AsyncSession::new_v3(addr, 0, sec)
+                let mut session = snmp2::AsyncSession::new_v3(addr, 0, sec)
                     .await
-                    .map_err(|e| format!("Failed to connect (v3) to {}: {}", target.addr(), e))
+                    .map_err(|e| format!("Failed to connect (v3) to {}: {}", target.addr(), e))?;
+
+                // USM discovery: learn the authoritative engine ID / boots / time
+                // and derive the auth/priv keys before any authenticated exchange.
+                session.init().await.map_err(|e| {
+                    format!("SNMPv3 discovery failed for {}: {:?}", target.addr(), e)
+                })?;
+
+                Ok(session)
             }
         }
     }
