@@ -3,6 +3,7 @@
 A fast, free, open-source SNMP MIB browser for Linux, Windows, and macOS. Point it at a network device, browse its MIBs, run queries, and watch live results stream in. Built with Svelte + Rust via Tauri.
 
 <!-- Screenshot -->
+<img width="3835" height="2159" alt="Image" src="https://github.com/user-attachments/assets/b409603b-8d59-49db-91c0-c7abd51ea5eb" />
 
 ## What it does
 
