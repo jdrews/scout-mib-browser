@@ -1,7 +1,7 @@
 # SNMP Table Support
 
 **Date:** 2026-08-23
-**Status:** Proposed — investigation complete, not yet implemented
+**Status:** Implemented (Phases 1–3), merged to main via PR #54; Phase 4 (cell-level operations) remains deferred
 **Branch:** `snmp-table-support`
 
 ## Purpose

@@ -1,7 +1,7 @@
 # UX Remediation — Scout MIB Browser
 
 **Date:** 2026-08-22  
-**Status:** Proposed  
+**Status:** Implemented (2026-08-23), merged to main via PR #50 — all 18 findings landed; after-baseline screenshots in `docs/ux/2026-08-23/`  
 **Source:** `docs/scratch/ux-findings-2026-08-22.md` (findings UX-01…UX-17, evidence in `docs/ux/2026-08-22/`) plus new finding UX-18 added to that doc.
 
 ## Problem Statement
