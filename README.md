@@ -16,6 +16,14 @@ Routers, switches, servers and many other devices expose their state through SNM
 - **See the raw bytes**: byte values get hex + ASCII dumps, with MAC addresses and IP addresses recognized automatically.
 - **Export anything**: save results as TSV, JSON, or CSV for spreadsheets, scripts, or tickets.
 
+## SNMPv3 security
+
+Full USM support (RFC 3414) plus the extended SHA-2 hashes from RFC 7860. Any combination works; privacy requires authentication.
+
+- **Authentication:** none, MD5, SHA-1, SHA-224, SHA-256, SHA-384, SHA-512
+- **Privacy:** none, DES (legacy), AES-128, AES-192, AES-256
+- **Security levels:** noAuthNoPriv · authNoPriv · authPriv
+
 ## Development
 
 To build, run, or test the project from source, see [DEVELOPMENT.md](DEVELOPMENT.md).

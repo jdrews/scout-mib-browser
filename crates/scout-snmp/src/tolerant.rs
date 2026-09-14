@@ -90,9 +90,14 @@ pub fn value_warning(v: &snmp2::Value<'_>) -> Option<SnmpWarning> {
     }
 }
 
-/// Checks if a snmp2 error indicates a network/timeout issue (retryable).
+/// Checks if a snmp2 error indicates a transient condition (retryable).
+/// `AuthUpdated` means the v3 security context was refreshed during discovery;
+/// the next attempt re-runs discovery with fresh state and should succeed.
 pub fn is_retryable_error(err: &snmp2::Error) -> bool {
-    matches!(err, snmp2::Error::Send | snmp2::Error::Receive)
+    matches!(
+        err,
+        snmp2::Error::Send | snmp2::Error::Receive | snmp2::Error::AuthUpdated
+    )
 }
 
 /// Checks if a Value signals normal walk termination.

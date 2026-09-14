@@ -6,6 +6,14 @@ members = [
     "src-tauri",
 ]
 
+# Use our snmp2 fork until the noAuthNoPriv (empty authParams) and DES
+# zero-padding fixes are upstreamed to https://github.com/roboplc/snmp2.
+# PR: https://github.com/roboplc/snmp2/pull/38
+# The Cargo.lock pins the exact commit; switch this back to a crates.io
+# reference once roboplc/snmp2 ships the fix.
+[patch.crates-io]
+snmp2 = { git = "https://github.com/jdrews/snmp2", branch = "fix/v3-noauthnopriv-des-padding" }
+
 [profile.release]
 panic = "abort"
 codegen-units = 1
