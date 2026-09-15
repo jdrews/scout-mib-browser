@@ -481,7 +481,7 @@ async fn snmp_connect(
     engine_state: tauri::State<'_, SnmpEngineState>,
     params: SnmpCommandParams,
 ) -> Result<snmp::ResultSet, String> {
-    let target = build_target(&params);
+    let target = build_target(&params)?;
     let oids: Vec<String> = vec!["1.3.6.1.2.1.1.9.1.5.0".to_string()];
 
     // Run on the app-owned runtime (8MB worker stacks) to avoid tokio worker
@@ -507,7 +507,7 @@ async fn snmp_get(
     params: SnmpCommandParams,
     oids: Vec<String>,
 ) -> Result<snmp::ResultSet, String> {
-    let target = build_target(&params);
+    let target = build_target(&params)?;
     // Scalar MIB nodes are queried at their `.0` instance; subtree, table and
     // row nodes (and OIDs that already carry an instance suffix) pass through.
     let oids: Vec<String> = oids
@@ -548,7 +548,7 @@ async fn snmp_get_next(
     params: SnmpCommandParams,
     oids: Vec<String>,
 ) -> Result<snmp::ResultSet, String> {
-    let target = build_target(&params);
+    let target = build_target(&params)?;
     let engine = engine_state.engine.clone();
     engine_state
         .run(
@@ -569,7 +569,7 @@ async fn snmp_walk_streaming(
     complete_channel: tauri::ipc::Channel,
 ) -> Result<(), String> {
     cancel_token.reset();
-    let target = build_target(&params);
+    let target = build_target(&params)?;
     let engine = engine_state.engine.clone();
     let cancel = (*cancel_token).inner();
     let sender = Arc::new(ChannelWalkSender {
@@ -598,7 +598,7 @@ async fn snmp_bulk_walk_streaming(
     complete_channel: tauri::ipc::Channel,
 ) -> Result<(), String> {
     cancel_token.reset();
-    let target = build_target(&params);
+    let target = build_target(&params)?;
     if matches!(target.version, snmp::Version::V1) {
         return Err("BulkWalk is not supported in SNMPv1 — use Walk instead".to_string());
     }
@@ -634,7 +634,7 @@ async fn snmp_set(
     value_type: String,
     value: serde_json::Value,
 ) -> Result<snmp::ResultSet, String> {
-    let target = build_target(&params);
+    let target = build_target(&params)?;
     let set_value = parse_set_value(&value_type, &value)?;
     let engine = engine_state.engine.clone();
     engine_state
@@ -662,7 +662,7 @@ async fn snmp_get_table(
     complete_channel: tauri::ipc::Channel,
 ) -> Result<(), String> {
     cancel_token.reset();
-    let target = build_target(&params);
+    let target = build_target(&params)?;
     let index_columns = mib_index_specs(&resolver.inner, &table_oid);
     let engine = engine_state.engine.clone();
     let cancel = (*cancel_token).inner();
@@ -736,15 +736,17 @@ struct SnmpCommandParams {
     v3_priv_passphrase: Option<String>,
 }
 
-/// Builds a Target from command parameters.
-fn build_target(params: &SnmpCommandParams) -> snmp::Target {
+/// Builds a Target from command parameters. Validates v3 security settings up
+/// front so misconfigurations (e.g. an auth protocol with an empty passphrase)
+/// fail immediately with a clear message instead of deep inside the SNMP stack.
+fn build_target(params: &SnmpCommandParams) -> Result<snmp::Target, String> {
     let community = params
         .community
         .clone()
         .unwrap_or_else(|| "public".to_string());
 
     match params.version.to_lowercase().as_str() {
-        "v1" => snmp::Target::v1(&params.host, params.port, community),
+        "v1" => Ok(snmp::Target::v1(&params.host, params.port, community)),
         "v3" => {
             let auth_protocol = match params.v3_auth_protocol.as_deref() {
                 Some("md5") => snmp::AuthProtocol::Md5,
@@ -771,9 +773,10 @@ fn build_target(params: &SnmpCommandParams) -> snmp::Target {
                 priv_protocol,
                 priv_passphrase: params.v3_priv_passphrase.clone().unwrap_or_default(),
             };
-            snmp::Target::v3(&params.host, params.port, security)
+            security.resolve()?;
+            Ok(snmp::Target::v3(&params.host, params.port, security))
         }
-        _ => snmp::Target::v2c(&params.host, params.port, community),
+        _ => Ok(snmp::Target::v2c(&params.host, params.port, community)),
     }
 }
 
