@@ -140,6 +140,18 @@ impl SnmpV3SecurityConfig {
             );
         }
 
+        // snmp2's key derivation indexes into the passphrase unconditionally, so
+        // an empty passphrase with a protocol selected would panic deep inside
+        // the fork — reject it here with a clear error instead.
+        if self.auth_protocol != AuthProtocol::None && self.auth_passphrase.is_empty() {
+            return Err("SNMPv3 authentication requires a non-empty auth passphrase".to_string());
+        }
+        if self.priv_protocol != PrivProtocol::None && self.priv_passphrase.is_empty() {
+            return Err(
+                "SNMPv3 privacy (encryption) requires a non-empty priv passphrase".to_string(),
+            );
+        }
+
         let auth_protocol = auth_protocol_to_snmp2(&self.auth_protocol);
 
         let auth = match (&self.auth_protocol, &self.priv_protocol) {
@@ -654,6 +666,58 @@ mod v3_resolve_tests {
                 err
             );
         }
+    }
+
+    // ── Validation: protocols require non-empty passphrases ─────────────────
+
+    #[test]
+    fn resolve_auth_with_empty_passphrase_is_rejected() {
+        for auth in [
+            AuthProtocol::Md5,
+            AuthProtocol::Sha1,
+            AuthProtocol::Sha224,
+            AuthProtocol::Sha256,
+            AuthProtocol::Sha384,
+            AuthProtocol::Sha512,
+        ] {
+            let mut c = cfg(auth, PrivProtocol::None);
+            c.auth_passphrase.clear();
+            let err = c.resolve().expect_err("empty auth passphrase must fail");
+            assert!(
+                err.contains("non-empty auth passphrase"),
+                "auth={:?}: unexpected error message: {}",
+                auth,
+                err
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_priv_with_empty_passphrase_is_rejected() {
+        for priv_ in [
+            PrivProtocol::Des,
+            PrivProtocol::Aes128,
+            PrivProtocol::Aes192,
+            PrivProtocol::Aes256,
+        ] {
+            let mut c = cfg(AuthProtocol::Sha256, priv_);
+            c.priv_passphrase.clear();
+            let err = c.resolve().expect_err("empty priv passphrase must fail");
+            assert!(
+                err.contains("non-empty priv passphrase"),
+                "priv={:?}: unexpected error message: {}",
+                priv_,
+                err
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_no_auth_empty_passphrase_is_allowed() {
+        let mut c = cfg(AuthProtocol::None, PrivProtocol::None);
+        c.auth_passphrase.clear();
+        c.priv_passphrase.clear();
+        assert!(c.resolve().is_ok());
     }
 
     // ── Passphrases are carried through to the AuthPriv cipher ──────────────
