@@ -219,12 +219,12 @@
   }
 
   /** Right-click on a value cell — offers Hex View for byte values only; any
-   *  other value leaves the browser default (nothing) in place. */
+    *  other value leaves the browser default (nothing) in place. */
   function onValueContextMenu(e: MouseEvent, oid: string, displayName: string, value: SnmpValue | undefined) {
     if (!value || !exportMod.isByteValue(value)) return;
     e.preventDefault();
     e.stopPropagation();
-    S.contextMenuTarget = { kind: "value", oid, displayName, value, x: e.clientX, y: e.clientY };
+    S.contextMenuTarget = { kind: "value", oid, displayName, value, writable: null, x: e.clientX, y: e.clientY };
   }
 
   let hasWarnings = $derived(results?.warnings && results.warnings.length > 0);
