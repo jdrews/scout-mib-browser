@@ -38,6 +38,9 @@ pub struct MockSnmpServer {
 struct MockServerInner {
     /// Mapped OIDs to their values (as raw BER-encoded bytes).
     data: HashMap<String, Vec<u8>>,
+    /// When set, Set requests are answered with this (error_status, error_index)
+    /// and an empty varbind list instead of echoing — simulates agent rejection.
+    set_error: Option<(u32, u32)>,
     /// Total requests received (one per SNMP datagram).
     request_count: usize,
     /// Number of distinct walk chains observed. A chain starts at the first
@@ -64,6 +67,7 @@ impl MockSnmpServer {
         let addr = socket.local_addr().unwrap();
         let inner = Arc::new(Mutex::new(MockServerInner {
             data: Self::default_mib_data(),
+            set_error: None,
             request_count: 0,
             walk_chains: 0,
             last_request_oid: None,
@@ -89,6 +93,12 @@ impl MockSnmpServer {
             .unwrap()
             .data
             .insert(oid.to_string(), ber_bytes);
+    }
+
+    /// Arms a canned PDU error for all subsequent Set requests: the response
+    /// carries `(status, index)` with an empty varbind list and stores nothing.
+    pub fn set_canned_set_error(&self, status: u32, index: u32) {
+        self.inner.lock().unwrap().set_error = Some((status, index));
     }
 
     /// Total number of request datagrams received.
@@ -208,7 +218,12 @@ impl MockSnmpServer {
                 MessageType::GetNext | MessageType::GetBulk => {
                     Self::build_getnext_response(&parsed, &state.data)
                 }
-                MessageType::Set => Self::build_set_response(&parsed, &mut state.data),
+                MessageType::Set => match state.set_error {
+                    Some((status, index)) => {
+                        Self::build_response_pdu_with(&parsed, b"", status, index)
+                    }
+                    None => Self::build_set_response(&parsed, &mut state.data),
+                },
             };
         }
 
@@ -227,6 +242,17 @@ impl MockSnmpServer {
             if !redundant {
                 break;
             }
+            bytes.remove(0);
+        }
+        let mut result = vec![0x02, bytes.len() as u8];
+        result.extend_from_slice(&bytes);
+        result
+    }
+
+    /// Encodes an unsigned integer as BER INTEGER (minimal form, no sign byte).
+    fn ber_u32(val: u32) -> Vec<u8> {
+        let mut bytes = val.to_be_bytes().to_vec();
+        while bytes.len() > 1 && bytes[0] == 0 {
             bytes.remove(0);
         }
         let mut result = vec![0x02, bytes.len() as u8];
@@ -509,12 +535,22 @@ impl MockSnmpServer {
         }
     }
 
-    /// Builds the response message wrapper around a varbind list.
+    /// Builds the response message wrapper around a varbind list (noError).
     fn build_response_pdu(parsed: &ParsedRequest, vb_list: &[u8]) -> Vec<u8> {
+        Self::build_response_pdu_with(parsed, vb_list, 0, 0)
+    }
+
+    /// Builds the response message wrapper with an explicit error status/index.
+    fn build_response_pdu_with(
+        parsed: &ParsedRequest,
+        vb_list: &[u8],
+        error_status: u32,
+        error_index: u32,
+    ) -> Vec<u8> {
         let mut pdu = Vec::new();
         pdu.extend_from_slice(&parsed.request_id); // echo request-id verbatim
-        pdu.extend_from_slice(&[0x02, 0x01, 0x00]); // error status = noError
-        pdu.extend_from_slice(&[0x02, 0x01, 0x00]); // error index = 0
+        pdu.extend_from_slice(&Self::ber_u32(error_status));
+        pdu.extend_from_slice(&Self::ber_u32(error_index));
         pdu.extend_from_slice(&Self::tlv(0x30, vb_list)); // VarBindList SEQUENCE
 
         let mut message = Vec::new();
