@@ -16,6 +16,7 @@ describe("ContextMenu", () => {
       oid: "1.3.6.1.2.1.1.1.0",
       displayName: "sysDescr.0",
       value: { OctetString: [0xde, 0xad] },
+      writable: null,
       x: 10,
       y: 10,
     };

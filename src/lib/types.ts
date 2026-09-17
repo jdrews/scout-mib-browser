@@ -6,6 +6,8 @@ export interface TreeNode {
   syntaxType?: string;
   mibName: string;
   isTable?: boolean;
+  /** MAX-ACCESS label, e.g. "read-write"; absent when the MIB omits it. */
+  access?: string;
   hasChildren?: boolean;
   children?: TreeNode[];
 }
@@ -179,12 +181,14 @@ export interface MibNodeDetails {
 
 /** A live value captured when a result row/cell drives the inspector.
  * `bytes`/`typeCode` are present only for byte-carrying values (OctetString,
- * Raw) and enable the inspector's hex-dump view. */
+ * Raw) and enable the inspector's hex-dump view. `raw` is the original
+ * SnmpValue, kept for type-aware consumers (e.g. Set prefill). */
 export interface InspectorValue {
   text: string;
   typeLabel: string;
   bytes?: number[];
   typeCode?: number;
+  raw?: SnmpValue;
 }
 
 /** One row of the flat result list: a binding with resolved name and display text. */
@@ -243,10 +247,12 @@ export type LogLevel = "all" | "error" | "warn" | "info";
 // ── Context Menu / Hex View Types ────────────────────────────────────────────
 
 /** Where the context menu is open: a MIB tree node or a live result value
- *  (flat row or grid cell). */
+ *  (flat row or grid cell). `writable` on value targets is the resolved
+ *  writability of the base MIB node: true = confirmed writable, false =
+ *  confirmed non-writable, null = unknown/unresolved. */
 export type ContextMenuTarget =
   | { kind: "node"; node: TreeNode; x: number; y: number }
-  | { kind: "value"; oid: string; displayName: string; value: SnmpValue; x: number; y: number };
+  | { kind: "value"; oid: string; displayName: string; value: SnmpValue; writable: boolean | null; x: number; y: number };
 
 /** The live byte value the hex view modal is showing. */
 export interface HexViewTarget {

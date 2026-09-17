@@ -1,4 +1,4 @@
-import type { TreeNode, MibSearchResult, TargetConfig, ConnectionState, SnmpOperation, ResultSet, VariableBinding, TableInfo, TableResult, LogEntry, LogLevel, InspectorValue, ContextMenuTarget, HexViewTarget } from "./types";
+import type { TreeNode, MibSearchResult, TargetConfig, ConnectionState, SnmpOperation, ResultSet, VariableBinding, TableInfo, TableResult, LogEntry, LogLevel, InspectorValue, ContextMenuTarget, HexViewTarget, MibNodeDetails, SnmpValue } from "./types";
 
 // ── Single reactive app state (Svelte 5 deep reactivity) ──────────────────────
 
@@ -25,6 +25,19 @@ const raw = $state({
   // The byte value shown in the hex view modal (right-click a value cell or
   // follow the "… more bytes" hint in raw mode). Null = closed.
   hexViewTarget: null as HexViewTarget | null,
+  // The target of the Set value dialog — the single place a Set is composed
+  // and confirmed. `oid` is the effective instance OID (after the scalar .0
+  // fixup); `details` is null when the OID is not in the loaded MIBs (the
+  // dialog then offers its type-picker fallback). Null = closed.
+  setValueTarget: null as {
+    oid: string;
+    name?: string;
+    details: MibNodeDetails | null;
+    /** Live value text, when opened from results/inspector. */
+    currentValue?: string;
+    /** The live SnmpValue, for type-aware prefill. */
+    currentRaw?: SnmpValue;
+  } | null,
   statusText: "Ready",
   nodeCount: 0,
   fallbackMibs: [] as string[],
