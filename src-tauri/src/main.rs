@@ -629,6 +629,7 @@ fn snmp_cancel_walk(cancel_token: tauri::State<'_, WalkCancelToken>) {
 #[tauri::command]
 async fn snmp_set(
     engine_state: tauri::State<'_, SnmpEngineState>,
+    resolver: tauri::State<'_, MibResolverState>,
     params: SnmpCommandParams,
     oid: String,
     value_type: String,
@@ -636,6 +637,9 @@ async fn snmp_set(
 ) -> Result<snmp::ResultSet, String> {
     let target = build_target(&params)?;
     let set_value = parse_set_value(&value_type, &value)?;
+    // Scalar MIB nodes are written at their `.0` instance — the frontend applies
+    // the same fixup, this is defense in depth (G7).
+    let oid = scalar_instance_oid(&resolver.inner, &oid);
     let engine = engine_state.engine.clone();
     engine_state
         .run(
@@ -790,10 +794,23 @@ fn parse_set_value(value_type: &str, value: &serde_json::Value) -> Result<snmp::
             Ok(snmp::SetValue::Integer(v))
         }
         "octetstring" | "octet-string" | "displaystring" => {
-            let s = value
-                .as_str()
-                .ok_or_else(|| "String value expected".to_string())?;
-            Ok(snmp::SetValue::OctetString(s.as_bytes().to_vec()))
+            // A string carries its UTF-8 bytes; a number array carries raw
+            // bytes (hex-mode input and BITS encodings).
+            if let Some(s) = value.as_str() {
+                return Ok(snmp::SetValue::OctetString(s.as_bytes().to_vec()));
+            }
+            let bytes = value
+                .as_array()
+                .ok_or_else(|| "String or byte-array value expected".to_string())?
+                .iter()
+                .map(|b| {
+                    b.as_u64()
+                        .filter(|v| *v <= u8::MAX as u64)
+                        .map(|v| v as u8)
+                        .ok_or_else(|| "Byte values must be 0..=255".to_string())
+                })
+                .collect::<Result<Vec<u8>, String>>()?;
+            Ok(snmp::SetValue::OctetString(bytes))
         }
         "gauge32" | "gauge" => {
             let v = value
