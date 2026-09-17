@@ -309,6 +309,9 @@ pub struct TreeNode {
     /// Whether this node is an SMI TABLE container.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub is_table: bool,
+    /// MAX-ACCESS label (e.g. `"read-write"`); None when the MIB omits it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access: Option<String>,
     /// Whether this node has children (for lazy loading).
     #[serde(skip_serializing_if = "is_false")]
     pub has_children: bool,
@@ -825,6 +828,7 @@ impl Resolver {
                 syntax_type: None,
                 mib_name: "".to_string(),
                 is_table: false,
+                access: None,
                 has_children: true,
                 children: leaves,
             });
@@ -894,6 +898,7 @@ impl Resolver {
             syntax_type: syntax_label,
             mib_name: node.mib_name.clone(),
             is_table: node.is_table,
+            access: node.access.clone(),
             has_children,
             children: Vec::new(),
         }
@@ -1529,6 +1534,89 @@ mod tests {
         assert!(!children[0].has_children); // no grandchildren indexed
         assert_eq!(children[1].name, "sysDescr");
         assert!(!children[1].has_children);
+    }
+
+    #[test]
+    fn tree_nodes_carry_max_access() {
+        let mut resolver = Resolver::default();
+
+        // Root-level leaf (rendered through build_tree's "other" folder).
+        resolver.oid_index.insert(
+            "1.3.6.1.2.1.15433.1".to_string(),
+            MibNode {
+                oid: "1.3.6.1.2.1.15433.1".to_string(),
+                name: "synthSetName".to_string(),
+                syntax_type: SyntaxType::OctetString,
+                mib_name: "SYNTH-SET-MIB".to_string(),
+                is_table: false,
+                access: Some("read-write".to_string()),
+                ..Default::default()
+            },
+        );
+
+        // Indexed parent with a read-create child and one node whose MIB
+        // omits MAX-ACCESS (rendered through get_children).
+        resolver.oid_index.insert(
+            "1.3.6.1.2.1.15433.2".to_string(),
+            MibNode {
+                oid: "1.3.6.1.2.1.15433.2".to_string(),
+                name: "synthSetGroup".to_string(),
+                syntax_type: SyntaxType::ObjectIdentifier,
+                mib_name: "SYNTH-SET-MIB".to_string(),
+                is_table: false,
+                ..Default::default()
+            },
+        );
+        resolver.oid_index.insert(
+            "1.3.6.1.2.1.15433.2.1".to_string(),
+            MibNode {
+                oid: "1.3.6.1.2.1.15433.2.1".to_string(),
+                name: "synthSetMode".to_string(),
+                syntax_type: SyntaxType::Integer32,
+                mib_name: "SYNTH-SET-MIB".to_string(),
+                is_table: false,
+                access: Some("read-create".to_string()),
+                ..Default::default()
+            },
+        );
+        resolver.oid_index.insert(
+            "1.3.6.1.2.1.15433.2.2".to_string(),
+            MibNode {
+                oid: "1.3.6.1.2.1.15433.2.2".to_string(),
+                name: "synthSetNoAccess".to_string(),
+                syntax_type: SyntaxType::Integer32,
+                mib_name: "SYNTH-SET-MIB".to_string(),
+                is_table: false,
+                ..Default::default()
+            },
+        );
+
+        // Shallow build: the root-level leaf keeps its access.
+        let tree = resolver.build_tree();
+        let other = tree
+            .iter()
+            .find(|n| n.name == "other")
+            .expect("other folder");
+        let name_node = other
+            .children
+            .iter()
+            .find(|n| n.name == "synthSetName")
+            .expect("leaf in other folder");
+        assert_eq!(name_node.access.as_deref(), Some("read-write"));
+
+        // Lazy children: access flows through get_children too, and stays
+        // None when the MIB omits MAX-ACCESS.
+        let kids = resolver.get_children("1.3.6.1.2.1.15433.2");
+        let mode = kids
+            .iter()
+            .find(|n| n.name == "synthSetMode")
+            .expect("child");
+        assert_eq!(mode.access.as_deref(), Some("read-create"));
+        let no_access = kids
+            .iter()
+            .find(|n| n.name == "synthSetNoAccess")
+            .expect("child");
+        assert_eq!(no_access.access, None);
     }
 
     #[test]
