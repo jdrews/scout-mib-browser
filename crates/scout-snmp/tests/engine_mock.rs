@@ -472,6 +472,50 @@ fn engine_get_table_client_gone_stops_early() {
 }
 
 #[test]
+fn engine_set_pdu_error_surfaces_immediately() {
+    // A non-zero PDU error status is a definitive agent verdict: the engine
+    // must return it at once (no backoff sleep) with one pdu-error warning.
+    let rt = app_runtime();
+    let (server, target) = start_server();
+    server.set_canned_set_error(9, 0); // wrongValue
+
+    let rs = rt
+        .block_on(rt.spawn(async move {
+            let engine = SnmpEngine::new();
+            let start = std::time::Instant::now();
+            let rs = tokio::time::timeout(
+                Duration::from_secs(5),
+                engine.set(
+                    &target,
+                    "1.3.6.1.2.1.1.5.0",
+                    SetValue::OctetString(b"nope".to_vec()),
+                ),
+            )
+            .await
+            .expect("set timed out")
+            .expect("set failed");
+            // A single backoff sleep is >= 1s; a PDU error must not trigger one.
+            assert!(
+                start.elapsed() < Duration::from_millis(900),
+                "PDU error consumed the backoff loop (elapsed {:?})",
+                start.elapsed()
+            );
+            rs
+        }))
+        .expect("set task panicked");
+
+    assert!(rs.partial, "PDU-error set must be marked partial");
+    assert!(rs.bindings.is_empty(), "rejected set carries no bindings");
+    assert_eq!(rs.warnings.len(), 1);
+    let w = &rs.warnings[0];
+    assert_eq!(w.kind, "pdu-error");
+    assert!(w.message.contains("wrongValue"), "got: {}", w.message);
+    assert!(w.message.contains("status 9"), "got: {}", w.message);
+    assert!(w.message.contains("varbind 0"), "got: {}", w.message);
+    assert_eq!(w.oid.as_deref(), Some("1.3.6.1.2.1.1.5.0"));
+}
+
+#[test]
 fn engine_set_roundtrip() {
     let rt = app_runtime();
     let (_server, target) = start_server();
