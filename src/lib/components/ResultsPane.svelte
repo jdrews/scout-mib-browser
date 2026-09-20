@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowDown, ArrowUp, ArrowUpDown, Binary, Pencil, Trash2, TriangleAlert } from "lucide-svelte";
+  import { ArrowDown, ArrowUp, ArrowUpDown, Binary, Pencil, Trash2, TriangleAlert, X } from "lucide-svelte";
   import { S, clearResults } from "$lib/stores.svelte";
   import type { VariableBinding, SnmpValue, ResultSet, TreeNode, TableResult, TableRowData, TableCell, TableIndexColumn, ResultRow, MibNodeDetails } from "$lib/types";
   import { hexDumpLines, interpretBytes, interpretationLabel, asn1TypeCodeText, BYTES_PER_ROW } from "$lib/hexdump";
@@ -307,6 +307,16 @@
 
   let hasWarnings = $derived(results?.warnings && results.warnings.length > 0);
   let isPartial = $derived(results?.partial || false);
+  // The warnings banner can be dismissed with its X; the "partial results"
+  // badge reopens it. A new result set resets the dismissal.
+  let warningsDismissed = $state(false);
+  $effect(() => {
+    void results;
+    warningsDismissed = false;
+  });
+  function showWarnings() {
+    warningsDismissed = false;
+  }
 
   // A table result is always rendered as the grid — there is no alternative
   // presentation for it.
@@ -717,7 +727,7 @@
         <span class="text-xs text-primary font-mono">{progress}</span>
       {/if}
       {#if isPartial}
-        <span data-testid="partial-badge" class="badge badge-warning badge-sm gap-1"><TriangleAlert class="w-3 h-3" /> partial results</span>
+        <button data-testid="partial-badge" class="badge badge-warning badge-sm gap-1 cursor-pointer hover:opacity-80" title="Show warnings" onclick={showWarnings}><TriangleAlert class="w-3 h-3" /> Partial Results</button>
       {/if}
       {#if bindings.length > 0 || isGridView}
         <div data-export-menu class="dropdown dropdown-end relative">
@@ -744,16 +754,19 @@
     </div>
   </div>
 
-  {#if hasWarnings && results?.warnings}
-    <div data-testid="warnings-banner" role="alert" class="alert alert-warning px-4 py-2 text-xs max-h-24 overflow-y-auto">
-      {#each results.warnings as w}
-        <div class="flex gap-1 items-start">
-          <TriangleAlert class="w-3.5 h-3.5 shrink-0 mt-0.5" />
-          <span class="font-semibold">{w.kind}</span>
-          <span>: {w.message}</span>
-          {#if w.oid}<span class="font-mono opacity-70">({w.oid})</span>{/if}
-        </div>
-      {/each}
+  {#if hasWarnings && !warningsDismissed && results?.warnings}
+    <div data-testid="warnings-banner" role="alert" class="alert alert-warning px-4 py-2 text-xs max-h-24 overflow-y-auto flex items-start gap-2">
+      <div class="flex-1 min-w-0">
+        {#each results.warnings as w}
+          <div class="flex gap-1 items-start">
+            <TriangleAlert class="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <span class="font-semibold">{w.kind}</span>
+            <span>: {w.message}</span>
+            {#if w.oid}<span class="font-mono opacity-70">({w.oid})</span>{/if}
+          </div>
+        {/each}
+      </div>
+      <button data-testid="warnings-dismiss" aria-label="Dismiss warnings" title="Dismiss warnings" class="btn btn-ghost btn-xs shrink-0 -my-1" onclick={() => (warningsDismissed = true)}><X class="w-3.5 h-3.5" /></button>
     </div>
   {/if}
 

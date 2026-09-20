@@ -31,9 +31,7 @@
 {#if target}
   <dialog role="dialog" aria-modal="true" aria-labelledby="set-value-dialog-title" bind:this={panelEl} class="modal modal-open" onclick={close}>
     <div data-testid="set-value-dialog" class="modal-box max-w-[560px] max-h-[80vh] flex flex-col overflow-y-auto" onclick={(e) => e.stopPropagation()}>
-      <form method="dialog">
-        <button aria-label="Close Set value dialog" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2 hover:text-error"><X class="w-4 h-4" /></button>
-      </form>
+      <button aria-label="Close Set value dialog" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2 hover:text-error" onclick={(e) => { e.stopPropagation(); close(); }}><X class="w-4 h-4" /></button>
       <!-- Keyed by target: a fresh editor instance (and its state) per opened target. -->
       {#key target}
         <SetValueEditor target={target} onClose={close} />
