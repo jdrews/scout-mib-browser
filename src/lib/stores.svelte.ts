@@ -1,4 +1,4 @@
-import type { TreeNode, MibSearchResult, TargetConfig, ConnectionState, SnmpOperation, ResultSet, VariableBinding, TableInfo, TableResult, LogEntry, LogLevel, InspectorValue, ContextMenuTarget, HexViewTarget } from "./types";
+import type { TreeNode, MibSearchResult, TargetConfig, ConnectionState, SnmpOperation, ResultSet, VariableBinding, TableInfo, TableResult, LogEntry, LogLevel, InspectorValue, ContextMenuTarget, HexViewTarget, MibNodeDetails, SnmpValue } from "./types";
 
 // ── Single reactive app state (Svelte 5 deep reactivity) ──────────────────────
 
@@ -25,6 +25,19 @@ const raw = $state({
   // The byte value shown in the hex view modal (right-click a value cell or
   // follow the "… more bytes" hint in raw mode). Null = closed.
   hexViewTarget: null as HexViewTarget | null,
+  // The target of the Set value dialog — the single place a Set is composed
+  // and confirmed. `oid` is the effective instance OID (after the scalar .0
+  // fixup); `details` is null when the OID is not in the loaded MIBs (the
+  // dialog then offers its type-picker fallback). Null = closed.
+  setValueTarget: null as {
+    oid: string;
+    name?: string;
+    details: MibNodeDetails | null;
+    /** Live value text, when opened from results/inspector. */
+    currentValue?: string;
+    /** The live SnmpValue, for type-aware prefill. */
+    currentRaw?: SnmpValue;
+  } | null,
   statusText: "Ready",
   nodeCount: 0,
   fallbackMibs: [] as string[],
@@ -93,6 +106,43 @@ export function clearResults() {
   raw.subtreeNodes = null;
   raw.tableInfo = null;
   raw.tableResult = null;
+}
+
+/** Merges a successful Set into the current Result Set: the matching binding
+ * is replaced in place (appended when absent), the matching grid cell is
+ * updated, and response warnings join the set's warnings. */
+export function mergeSetIntoResultSet(
+  oid: string,
+  value: SnmpValue,
+  warning: boolean | undefined,
+  response: ResultSet
+): void {
+  const binding: VariableBinding = { oid, value, warning };
+  const idx = raw.executionBindings.findIndex((b) => b.oid === oid);
+  if (idx >= 0) {
+    raw.executionBindings[idx] = binding;
+  } else {
+    raw.executionBindings.push(binding);
+  }
+
+  const grid = raw.tableResult;
+  if (grid) {
+    for (const row of grid.rows) {
+      for (const [colOid, cell] of Object.entries(row.cells)) {
+        if (`${colOid}.${row.instance_id}` === oid) {
+          row.cells[colOid] = { value: binding, missing: false };
+        }
+      }
+    }
+  }
+
+  if (!raw.executionResults) {
+    raw.executionResults = response;
+  } else {
+    const warnings = [...(raw.executionResults.warnings ?? []), ...(response.warnings ?? [])];
+    raw.executionResults.warnings = warnings.length > 0 ? warnings : undefined;
+    raw.executionResults.partial = raw.executionResults.partial || response.partial;
+  }
 }
 
 export const S = new Proxy(raw, {

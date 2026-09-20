@@ -6,6 +6,8 @@ export const AGENT_HOST = "127.0.0.1";
 export const AGENT_PORT = Number(process.env.E2E_AGENT_PORT || 11611);
 /** Synthetic ifStackTable agent (multi-component index, 600 rows). */
 export const SYNTH_AGENT_PORT = Number(process.env.E2E_SYNTH_AGENT_PORT || 11612);
+/** Set-capable synthetic agent (echo Sets, wrongValue rejections). */
+export const SET_AGENT_PORT = Number(process.env.E2E_SET_AGENT_PORT || 11613);
 
 /** Switches the target port in the address bar (returns the previous value). */
 export async function setTargetPort(port: number): Promise<number> {

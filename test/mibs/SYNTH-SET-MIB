@@ -1,0 +1,67 @@
+SYNTH-SET-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, Integer32, DisplayString, mib-2
+        FROM SNMPv2-SMI;
+
+synthSetMib MODULE-IDENTITY
+    LAST-UPDATED "202609170000Z"
+    ORGANIZATION "scout-mib-browser"
+    CONTACT-INFO "e2e test fixture"
+    DESCRIPTION
+        "Set-capable scalars for e2e coverage: an echo DisplayString,
+        an INTEGER with a named-value enum, a guarded Integer32 whose
+        agent rejects one value, and a read-only Integer32."
+    ::= { mib-2 15433 }
+
+-- Read-write DisplayString; the recording echoes successful Sets.
+synthSetName OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..32))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "A settable name; the mock agent echoes successful writes."
+    DEFVAL { scout }
+    ::= { synthSetMib 1 }
+
+-- Read-write INTEGER with a named-value enum (enum editor case).
+SynthSetMode ::= INTEGER {
+    off(0),
+    on(1),
+    auto(2)
+}
+
+synthSetMode OBJECT-TYPE
+    SYNTAX      SynthSetMode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION "A settable mode with named values."
+    ::= { synthSetMib 2 }
+
+-- Read-write Integer32 whose agent rejects the value 999 (reject-then-retry).
+synthSetGuarded OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "The mock agent answers wrongValue when 999 is sent."
+    ::= { synthSetMib 3 }
+
+-- Read-only Integer32 (guard + rejection case).
+synthSetReadOnly OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Not writable; the mock agent also rejects Sets."
+    ::= { synthSetMib 4 }
+
+-- Read-only OCTET STRING: a byte value with no Set affordance (context menu
+-- offers Hex View but not "Set value…").
+synthSetNote OBJECT-TYPE
+    SYNTAX      OCTET STRING
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "A read-only note for context-menu coverage."
+    ::= { synthSetMib 5 }
+
+END

@@ -66,7 +66,7 @@ export function valueDisplay(v: SnmpValue): string {
  *  the value carries them (OctetString/Raw), so the inspector can show a
  *  hex dump. */
 export function inspectorValueOf(v: SnmpValue): InspectorValue {
-  const base: InspectorValue = { text: valueDisplay(v), typeLabel: typeLabel(v) };
+  const base: InspectorValue = { text: valueDisplay(v), typeLabel: typeLabel(v), raw: v };
   if (typeof v === "object" && v !== null) {
     if ("OctetString" in v) return { ...base, bytes: v.OctetString };
     if ("Raw" in v) return { ...base, bytes: v.Raw.data, typeCode: v.Raw.type_code };

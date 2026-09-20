@@ -20,6 +20,9 @@ AGENT_PORT="${E2E_AGENT_PORT:-11611}"
 # the table-retrieval specs. The app config points at $AGENT_PORT; specs that
 # need it switch the port input to this one.
 SYNTH_AGENT_PORT="${E2E_SYNTH_AGENT_PORT:-11612}"
+# Third agent: set-capable scalars (echo Sets, wrongValue rejections) for the
+# Set specs.
+SET_AGENT_PORT="${E2E_SET_AGENT_PORT:-11613}"
 VITE_PORT=5173
 
 WORK_DIR="$(mktemp -d /tmp/scout-e2e-XXXXXX)"
@@ -48,6 +51,7 @@ fi
 VITE_PID=""
 AGENT_PID=""
 SYNTH_AGENT_PID=""
+SET_AGENT_PID=""
 RESULT=0
 
 cleanup() {
@@ -60,8 +64,12 @@ cleanup() {
   if [ -n "$SYNTH_AGENT_PID" ] && kill -0 "$SYNTH_AGENT_PID" 2>/dev/null; then
     kill "$SYNTH_AGENT_PID" 2>/dev/null || true
   fi
+  if [ -n "$SET_AGENT_PID" ] && kill -0 "$SET_AGENT_PID" 2>/dev/null; then
+    kill "$SET_AGENT_PID" 2>/dev/null || true
+  fi
   pkill -f "snmpsim-command-responder.*:$AGENT_PORT" 2>/dev/null || true
   pkill -f "snmpsim-command-responder.*:$SYNTH_AGENT_PORT" 2>/dev/null || true
+  pkill -f "snmpsim-command-responder.*:$SET_AGENT_PORT" 2>/dev/null || true
   if [ -n "$VITE_PID" ] && kill -0 "$VITE_PID" 2>/dev/null; then
     kill "$VITE_PID" 2>/dev/null || true
   fi
@@ -82,6 +90,13 @@ python3 "$REPO_ROOT/scripts/snmpsim-test.py" --port "$SYNTH_AGENT_PORT" \
   "$REPO_ROOT/test/snmprec/synthetic-ifstack.snmprec" \
   > "$WORK_DIR/synth-agent.log" 2>&1 &
 SYNTH_AGENT_PID=$!
+
+# Set-capable agent (echo Sets, wrongValue rejections for the Set specs).
+echo "Starting set-capable agent on port $SET_AGENT_PORT..."
+python3 "$REPO_ROOT/scripts/snmpsim-test.py" --port "$SET_AGENT_PORT" \
+  "$REPO_ROOT/test/snmprec/set-capable.snmprec" \
+  > "$WORK_DIR/set-agent.log" 2>&1 &
+SET_AGENT_PID=$!
 
 if command -v snmpget > /dev/null 2>&1; then
   echo "Waiting for agents to answer SNMP..."
@@ -109,6 +124,19 @@ if command -v snmpget > /dev/null 2>&1; then
   done
   if [ "$SYNTH_UP" -ne 1 ]; then
     echo "ERROR: synthetic agent did not come up (see $WORK_DIR/synth-agent.log)" >&2
+    exit 1
+  fi
+  SET_UP=0
+  for i in $(seq 1 30); do
+    if snmpget -v2c -c public "127.0.0.1:$SET_AGENT_PORT" \
+        1.3.6.1.2.1.15433.1.0 > /dev/null 2>&1; then
+      SET_UP=1
+      break
+    fi
+    sleep 1
+  done
+  if [ "$SET_UP" -ne 1 ]; then
+    echo "ERROR: set-capable agent did not come up (see $WORK_DIR/set-agent.log)" >&2
     exit 1
   fi
 else

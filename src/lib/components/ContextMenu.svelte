@@ -1,6 +1,10 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { S } from "$lib/stores.svelte";
+  import { mibNodeDetails } from "$lib/tauriCommands";
+  import * as exportMod from "$lib/export";
+  import { setDetailsFor } from "$lib/setLogic";
+  import type { MibNodeDetails } from "$lib/types";
 
   let target = $derived(S.contextMenuTarget);
   let visible = $derived(target !== null);
@@ -18,10 +22,28 @@
     if (!t) return;
     hide();
 
-    // Value targets only offer the hex view — no clipboard involved.
+    // Value targets offer the hex view and/or the Set value dialog — no
+    // clipboard involved.
     if (t.kind === "value") {
       if (action === "hex-view") {
         S.hexViewTarget = { oid: t.oid, displayName: t.displayName, value: t.value };
+      } else if (action === "set-value") {
+        // Longest-prefix resolution maps instance OIDs to their base node;
+        // null (or an ancestor-subtree resolution) lands the dialog in its
+        // type-picker fallback.
+        let d: MibNodeDetails | null = null;
+        try {
+          d = setDetailsFor(t.oid, await mibNodeDetails(t.oid));
+        } catch (err) {
+          console.error("Set node lookup failed:", err);
+        }
+        S.setValueTarget = {
+          oid: t.oid,
+          name: t.displayName,
+          details: d,
+          currentValue: exportMod.valueDisplay(t.value),
+          currentRaw: t.value,
+        };
       }
       return;
     }
@@ -71,7 +93,12 @@
       <li><a data-testid="ctx-copy-oid" onclick={() => handleAction("copy-oid")}>Copy OID</a></li>
       <li><a data-testid="ctx-copy-name" onclick={() => handleAction("copy-name")}>Copy Name</a></li>
     {:else if target?.kind === "value"}
-      <li><a data-testid="ctx-hex-view" onclick={() => handleAction("hex-view")}>Hex View</a></li>
+      {#if target.writable !== false}
+        <li><a data-testid="ctx-set-value" onclick={() => handleAction("set-value")}>Set value…</a></li>
+      {/if}
+      {#if exportMod.isByteValue(target.value)}
+        <li><a data-testid="ctx-hex-view" onclick={() => handleAction("hex-view")}>Hex View</a></li>
+      {/if}
     {/if}
   </ul>
 {/if}

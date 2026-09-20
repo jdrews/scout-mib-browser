@@ -90,6 +90,50 @@ pub fn value_warning(v: &snmp2::Value<'_>) -> Option<SnmpWarning> {
     }
 }
 
+/// Maps a PDU error-status code to its RFC 3416 name. Codes beyond the
+/// standard set (agent-proprietary) map to `"unknown"`.
+pub fn pdu_error_name(status: u32) -> &'static str {
+    match status {
+        0 => "noError",
+        1 => "tooBig",
+        2 => "noSuchName",
+        3 => "badValue",
+        4 => "readOnly",
+        5 => "genErr",
+        6 => "noAccess",
+        7 => "wrongType",
+        8 => "wrongLength",
+        9 => "wrongEncoding",
+        10 => "wrongValue",
+        11 => "noCreation",
+        12 => "inconsistentValue",
+        13 => "resourceUnavailable",
+        14 => "commitFailed",
+        15 => "undoFailed",
+        16 => "authorizationError",
+        17 => "notWritable",
+        18 => "inconsistentName",
+        _ => "unknown",
+    }
+}
+
+/// Builds the warning for a response PDU carrying a non-zero error status.
+/// A PDU error is a definitive agent verdict — retrying cannot change it, so
+/// callers must surface it and stop instead of backing off. The message names
+/// the status per RFC 3416 and keeps the raw code as a safety net.
+pub fn pdu_error_warning(status: u32, index: u32, oid: Option<String>) -> SnmpWarning {
+    SnmpWarning {
+        kind: "pdu-error".to_string(),
+        message: format!(
+            "{} (status {}) at varbind {}",
+            pdu_error_name(status),
+            status,
+            index
+        ),
+        oid,
+    }
+}
+
 /// Checks if a snmp2 error indicates a transient condition (retryable).
 /// `AuthUpdated` means the v3 security context was refreshed during discovery;
 /// the next attempt re-runs discovery with fresh state and should succeed.
@@ -524,5 +568,41 @@ mod tests {
     fn oid_from_u64_slice() {
         let oid = snmp2::Oid::from(&[1, 3, 6, 1, 2, 1, 1, 1]).unwrap();
         assert_eq!(oid.to_string(), "1.3.6.1.2.1.1.1");
+    }
+
+    #[test]
+    fn pdu_error_name_covers_rfc3416() {
+        assert_eq!(pdu_error_name(0), "noError");
+        assert_eq!(pdu_error_name(1), "tooBig");
+        assert_eq!(pdu_error_name(2), "noSuchName");
+        assert_eq!(pdu_error_name(3), "badValue");
+        assert_eq!(pdu_error_name(4), "readOnly");
+        assert_eq!(pdu_error_name(5), "genErr");
+        assert_eq!(pdu_error_name(6), "noAccess");
+        assert_eq!(pdu_error_name(7), "wrongType");
+        assert_eq!(pdu_error_name(8), "wrongLength");
+        assert_eq!(pdu_error_name(9), "wrongEncoding");
+        assert_eq!(pdu_error_name(10), "wrongValue");
+        assert_eq!(pdu_error_name(11), "noCreation");
+        assert_eq!(pdu_error_name(12), "inconsistentValue");
+        assert_eq!(pdu_error_name(13), "resourceUnavailable");
+        assert_eq!(pdu_error_name(14), "commitFailed");
+        assert_eq!(pdu_error_name(15), "undoFailed");
+        assert_eq!(pdu_error_name(16), "authorizationError");
+        assert_eq!(pdu_error_name(17), "notWritable");
+        assert_eq!(pdu_error_name(18), "inconsistentName");
+        assert_eq!(pdu_error_name(19), "unknown");
+    }
+
+    #[test]
+    fn pdu_error_warning_names_status_and_keeps_raw_code() {
+        let w = pdu_error_warning(10, 0, Some("1.3.6.1.2.1.15433.4.0".to_string()));
+        assert_eq!(w.kind, "pdu-error");
+        assert_eq!(w.message, "wrongValue (status 10) at varbind 0");
+        assert_eq!(w.oid.as_deref(), Some("1.3.6.1.2.1.15433.4.0"));
+
+        let unknown = pdu_error_warning(77, 2, None);
+        assert_eq!(unknown.message, "unknown (status 77) at varbind 2");
+        assert_eq!(unknown.oid, None);
     }
 }

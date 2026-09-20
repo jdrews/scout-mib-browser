@@ -36,6 +36,10 @@ _Avoid_: Navigation, pick, choose
 The SNMP command mode — Walk, BulkWalk, Get, GetNext, Get Table, or Set. Determines what kind of request is sent to the Target and what shape the results take.
 _Avoid_: Mode, action, command type
 
+**Writable**:
+A MIB Node whose MAX-ACCESS permits writes — `read-write` or `read-create`. Writability is a property of the schema; whether a Target actually accepts a write is decided by the agent and reported as a PDU error.
+_Avoid_: Settable (ambiguous with the UI affordance), editable, mutable
+
 ### Tables
 
 **Table**:

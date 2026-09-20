@@ -348,7 +348,15 @@ impl SnmpEngine {
             .await;
 
             match result {
-                Ok((bindings, warnings)) => {
+                Ok((bindings, mut warnings)) => {
+                    // Attribute PDU errors to the target OID. A PDU error is a
+                    // definitive agent verdict — this Ok path returns it
+                    // immediately without touching the backoff loop.
+                    for w in &mut warnings {
+                        if w.kind == "pdu-error" {
+                            w.oid = Some(oid.clone());
+                        }
+                    }
                     info!(
                         "Set completed on {}: {} binding(s)",
                         target.addr(),
@@ -500,11 +508,12 @@ impl SnmpEngine {
     // ── Async implementations ────────────────────────────────────────────────
 
     /// Extracts owned VariableBindings and exception warnings from a Pdu
-    /// (consumes the iterator).
+    /// (consumes the iterator). A non-zero error status is surfaced as a
+    /// `pdu-error` warning — a definitive agent verdict, not a transport fault.
     fn extract_bindings(pdu: snmp2::Pdu<'_>) -> (Vec<VariableBinding>, Vec<SnmpWarning>) {
         let varbinds: Vec<(String, snmp2::Value)> =
             pdu.varbinds.map(|(o, v)| (o.to_string(), v)).collect();
-        let warnings = varbinds
+        let mut warnings = varbinds
             .iter()
             .filter_map(|(o, v)| {
                 value_warning(v).map(|mut w| {
@@ -512,7 +521,10 @@ impl SnmpEngine {
                     w
                 })
             })
-            .collect();
+            .collect::<Vec<SnmpWarning>>();
+        if pdu.error_status != 0 {
+            warnings.push(pdu_error_warning(pdu.error_status, pdu.error_index, None));
+        }
         let bindings = varbinds
             .into_iter()
             .map(|(o, v)| binding_from_snmp(o, v))
@@ -554,6 +566,25 @@ impl SnmpEngine {
 
             match pdu_result {
                 Ok(pdu) => {
+                    // A PDU error mid-walk is a definitive agent verdict —
+                    // record it as a warning and stop; retrying cannot change it.
+                    if pdu.error_status != 0 {
+                        warn!(
+                            "{} terminated with PDU error: {} (status {}) at varbind {}",
+                            op_name,
+                            pdu_error_name(pdu.error_status),
+                            pdu.error_status,
+                            pdu.error_index
+                        );
+                        rs.partial = true;
+                        rs.warnings.push(pdu_error_warning(
+                            pdu.error_status,
+                            pdu.error_index,
+                            Some(root_oid.to_string()),
+                        ));
+                        break;
+                    }
+
                     let mut received_varbinds = false;
                     for (o, v) in pdu.varbinds {
                         if is_walk_termination_value(&v) {
