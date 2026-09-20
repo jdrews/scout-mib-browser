@@ -34,7 +34,12 @@ describe("App shell (launch and layout)", () => {
   });
 
   it("shows a neutral indicator before any connection attempt", async () => {
-    // UX-12: the indicator is neutral at startup; red only after a real failure.
+    // The app process persists across spec files, so an earlier spec may have
+    // connected and left the indicator "Connected". Reset to a pre-connection
+    // state: connectionState is in-memory, so a reload clears it to "unknown".
+    await browser.refresh();
+    await waitForAppReady();
+    // UX-12: the indicator is neutral before any connection attempt; red only after a real failure.
     const text = (await (await $("[data-testid='conn-indicator']").getText())) ?? "";
     expect(text).toContain("Not connected");
   });
