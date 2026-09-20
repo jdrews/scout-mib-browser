@@ -1,12 +1,13 @@
 <script lang="ts">
-  import { ArrowDown, ArrowUp, ArrowUpDown, Binary, Trash2, TriangleAlert } from "lucide-svelte";
+  import { ArrowDown, ArrowUp, ArrowUpDown, Binary, Pencil, Trash2, TriangleAlert } from "lucide-svelte";
   import { S, clearResults } from "$lib/stores.svelte";
-  import type { VariableBinding, SnmpValue, ResultSet, TreeNode, TableResult, TableRowData, TableCell, TableIndexColumn, ResultRow } from "$lib/types";
+  import type { VariableBinding, SnmpValue, ResultSet, TreeNode, TableResult, TableRowData, TableCell, TableIndexColumn, ResultRow, MibNodeDetails } from "$lib/types";
   import { hexDumpLines, interpretBytes, interpretationLabel, asn1TypeCodeText, BYTES_PER_ROW } from "$lib/hexdump";
   import type { ExportFormat } from "$lib/export";
   import * as exportMod from "$lib/export";
-  import { saveToFile } from "$lib/tauriCommands";
+  import { saveToFile, mibNodeDetails } from "$lib/tauriCommands";
   import { loadColumnSelection, saveColumnSelection } from "$lib/tableColumns";
+  import { isWritable, isConfirmedWritable, setDetailsFor } from "$lib/setLogic";
 
   let bindings = $derived(S.executionBindings);
   let results = $derived(S.executionResults);
@@ -218,13 +219,90 @@
     S.hexViewTarget = { oid, displayName, value };
   }
 
-  /** Right-click on a value cell — offers Hex View for byte values only; any
-    *  other value leaves the browser default (nothing) in place. */
+  // ── Writability resolution (Set affordances) ───────────────────────────────
+  // Resolved lazily per distinct base OID and cached for the lifetime of the
+  // Result Set: a 500-row walk of one table costs one lookup per column, not
+  // per row. A new run nulls `results`/`tableResult`, which resets the cache;
+  // a Set merge mutates bindings in place and keeps it.
+
+  let nodeDetailsCache = $state(new Map<string, MibNodeDetails | null>());
+  let resolvingOids = new Set<string>();
+
+  $effect(() => {
+    void results;
+    void tableResult;
+    nodeDetailsCache = new Map();
+    resolvingOids.clear();
+  });
+
+  /** The base OID of an instance: the longest prefix that is a key in oidNameMap. */
+  function baseOidFor(instanceOid: string): string {
+    const parts = instanceOid.split(".");
+    for (let i = parts.length; i > 1; i--) {
+      const prefix = parts.slice(0, i).join(".");
+      if (S.oidNameMap.has(prefix)) return prefix;
+    }
+    return instanceOid;
+  }
+
+  function resolveWritability(base: string) {
+    if (resolvingOids.has(base)) return;
+    resolvingOids.add(base);
+    mibNodeDetails(base)
+      .then((d) => {
+        // Reassign, don't mutate: in-place Map.set() is not tracked by this
+        // Svelte version's reactivity, so the pencils would never render.
+        const next = new Map(nodeDetailsCache);
+        next.set(base, d);
+        nodeDetailsCache = next;
+      })
+      .catch((err) => {
+        console.error("Writability lookup failed:", err);
+        const next = new Map(nodeDetailsCache);
+        next.set(base, null);
+        nodeDetailsCache = next;
+      })
+      .finally(() => {
+        resolvingOids.delete(base);
+      });
+  }
+
+  /** true = confirmed writable, false = confirmed non-writable,
+   *  null = unknown or still unresolved. */
+  function writableStateFor(instanceOid: string): boolean | null {
+    const base = baseOidFor(instanceOid);
+    if (!nodeDetailsCache.has(base)) {
+      resolveWritability(base);
+      return null;
+    }
+    const d = nodeDetailsCache.get(base)!;
+    if (!d) return null;
+    if (isConfirmedWritable(d.access)) return true;
+    if (!isWritable(d.access)) return false;
+    return null;
+  }
+
+  function openSetValueForValue(oid: string, displayName: string, value: SnmpValue) {
+    const base = baseOidFor(oid);
+    S.setValueTarget = {
+      oid,
+      name: displayName,
+      details: setDetailsFor(oid, nodeDetailsCache.get(base) ?? null),
+      currentValue: exportMod.valueDisplay(value),
+      currentRaw: value,
+    };
+  }
+
+  /** Right-click on a value cell — "Set value…" (unless confirmed non-writable)
+   *  and Hex View for byte values. Non-byte values with no Set option leave
+   *  the browser default in place. */
   function onValueContextMenu(e: MouseEvent, oid: string, displayName: string, value: SnmpValue | undefined) {
-    if (!value || !exportMod.isByteValue(value)) return;
+    if (!value) return;
+    const writable = writableStateFor(oid);
+    if (!exportMod.isByteValue(value) && writable === false) return;
     e.preventDefault();
     e.stopPropagation();
-    S.contextMenuTarget = { kind: "value", oid, displayName, value, writable: null, x: e.clientX, y: e.clientY };
+    S.contextMenuTarget = { kind: "value", oid, displayName, value, writable, x: e.clientX, y: e.clientY };
   }
 
   let hasWarnings = $derived(results?.warnings && results.warnings.length > 0);
@@ -772,30 +850,45 @@
                 {#each visibleGridColumns as colOid (colOid)}
                   {@const cell = row.cells[colOid]}
                   {@const key = gridCellKey(row.instance_id, colOid)}
-                  <td
-                    class="px-2 font-mono text-[13px] cursor-pointer hover:bg-base-200/70 {cell.missing ? 'text-accent' : ''}"
-                    data-grid-col={colOid}
-                    class:inspector-col-selected={colOid === S.inspectorOid}
-                    style="{overrideCss(colOid)}"
-                    title="Click to inspect {columnName(colOid)}"
-                    onclick={() => selectGridCell(colOid, cell)}
-                    oncontextmenu={(e) => onValueContextMenu(e, colOid, `${columnName(colOid)}.${row.instance_id}`, cell.value?.value)}
-                  >
-                    {#if cell.missing}
-                      <span class="text-base-content/60 italic flex items-center gap-1">— missing <TriangleAlert class="w-3 h-3 shrink-0" /></span>
-                    {:else if cell.value}
-                      <!-- Auto-width columns size to their content and stay as
-                           plain inline text; only user-resized (fixed-width)
-                           columns wrap, clamped to three lines until clicked. -->
-                      <span
-                        data-value-clamp-target={key}
-                        class="{gridColWidths[colOid] ? 'block break-all' : ''}{gridColWidths[colOid] && !expandedCells.has(key) ? ' value-clamp' : ''}"
-                        onclick={() => onGridValueClick(row.instance_id, colOid)}
-                      >{exportMod.valueDisplay(cell.value.value)}</span>
-                    {:else}
-                      <span class="text-base-content/60">\u2014</span>
-                    {/if}
-                  </td>
+                    <td
+                      class="px-2 font-mono text-[13px] cursor-pointer hover:bg-base-200/70 {cell.missing ? 'text-accent' : ''}"
+                      data-grid-col={colOid}
+                      class:inspector-col-selected={colOid === S.inspectorOid}
+                      style="{overrideCss(colOid)}"
+                      title="Click to inspect {columnName(colOid)}"
+                      onclick={() => selectGridCell(colOid, cell)}
+                      oncontextmenu={(e) => onValueContextMenu(e, colOid, `${columnName(colOid)}.${row.instance_id}`, cell.value?.value)}
+                    >
+                      <div class="flex items-start gap-1">
+                        {#if cell.missing}
+                          <span class="text-base-content/60 italic flex items-center gap-1">— missing <TriangleAlert class="w-3 h-3 shrink-0" /></span>
+                        {:else if cell.value}
+                          <!-- Auto-width columns size to their content and stay as
+                               plain inline text; only user-resized (fixed-width)
+                               columns wrap, clamped to three lines until clicked. -->
+                          <span
+                            data-value-clamp-target={key}
+                            class="min-w-0 {gridColWidths[colOid] ? 'block break-all flex-1' : ''}{gridColWidths[colOid] && !expandedCells.has(key) ? ' value-clamp' : ''}"
+                            onclick={() => onGridValueClick(row.instance_id, colOid)}
+                          >{exportMod.valueDisplay(cell.value.value)}</span>
+                        {:else}
+                          <span class="text-base-content/60">\u2014</span>
+                        {/if}
+                        {#if cell.value}
+                          {@const cellValue = cell.value}
+                          {#if writableStateFor(`${colOid}.${row.instance_id}`) === true}
+                            <button
+                              data-testid="grid-set-pencil"
+                              class="btn btn-ghost btn-xs shrink-0 -my-1"
+                              title="Set value"
+                              onclick={(e) => { e.stopPropagation(); openSetValueForValue(`${colOid}.${row.instance_id}`, `${columnName(colOid)}.${row.instance_id}`, cellValue.value); }}
+                            >
+                              <Pencil class="w-3 h-3" />
+                            </button>
+                          {/if}
+                        {/if}
+                      </div>
+                    </td>
                 {/each}
               </tr>
             {/each}
@@ -882,14 +975,14 @@
             <div class="px-2 py-1 truncate font-mono text-[13px] relative" style="width: {colOid}px; min-width: {COL_MIN_OID}px; max-width: {COL_MAX_OID}px;" title="{row.fullPath}\n{row.oid}">
               {showResolvedNames ? row.displayName : row.oid}
             </div>
-            <div class="flex-1 min-w-[120px] px-2 py-1 font-mono text-[13px]" oncontextmenu={(e) => onValueContextMenu(e, row.fullPath, row.displayName, row.snmpValue)}>
+            <div class="flex-1 min-w-[120px] px-2 py-1 font-mono text-[13px] flex items-start gap-1" oncontextmenu={(e) => onValueContextMenu(e, row.fullPath, row.displayName, row.snmpValue)}>
               {#if showRaw && exportMod.isByteValue(row.snmpValue)}
                 {@const bytes = exportMod.byteData(row.snmpValue)}
                 {@const dumpBytes = bytes.slice(0, RAW_DUMP_MAX_ROWS * BYTES_PER_ROW)}
                 {@const hiddenBytes = bytes.length - dumpBytes.length}
                 {@const interp = interpretBytes(bytes)}
                 {@const typeCode = exportMod.rawTypeCode(row.snmpValue)}
-                <div data-testid="raw-hexdump" class="my-0.5">
+                <div data-testid="raw-hexdump" class="my-0.5 flex-1 min-w-0">
                   {#if typeCode !== undefined}
                     <p class="text-[11px] text-base-content/60 mb-0.5">type: {asn1TypeCodeText(typeCode)}</p>
                   {/if}
@@ -917,12 +1010,22 @@
                      clicked open); raw-mode scalar display keeps truncating. -->
                 <span
                   data-value-clamp-target={row.oid}
-                  class="block {showRaw ? 'truncate' : 'break-all'}{!showRaw && !expandedCells.has(row.oid) ? ' value-clamp' : ''}"
+                  class="flex-1 min-w-0 {showRaw ? 'truncate' : 'break-all'}{!showRaw && !expandedCells.has(row.oid) ? ' value-clamp' : ''}"
                   onclick={() => onFlatValueClick(row)}
                 >
                   {showRaw ? exportMod.rawValueDisplay(row.snmpValue) : row.value}
                 </span>
-                {#if row.warning} <TriangleAlert class="w-3.5 h-3.5 inline-block text-accent" />{/if}
+              {/if}
+              {#if row.warning}<TriangleAlert class="w-3.5 h-3.5 shrink-0 mt-0.5 text-accent" />{/if}
+              {#if writableStateFor(row.fullPath) === true}
+                <button
+                  data-testid="set-pencil"
+                  class="btn btn-ghost btn-xs shrink-0 -my-1"
+                  title="Set value"
+                  onclick={(e) => { e.stopPropagation(); openSetValueForValue(row.fullPath, row.displayName, row.snmpValue); }}
+                >
+                  <Pencil class="w-3 h-3" />
+                </button>
               {/if}
             </div>
             <div class="px-2 py-1 font-mono text-[13px] text-base-content/60" style="width: {colType}px; min-width: {COL_MIN_TYPE}px; max-width: {COL_MAX_TYPE}px;">{row.type}</div>

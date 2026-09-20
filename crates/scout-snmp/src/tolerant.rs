@@ -103,17 +103,16 @@ pub fn pdu_error_name(status: u32) -> &'static str {
         6 => "noAccess",
         7 => "wrongType",
         8 => "wrongLength",
-        9 => "wrongValue",
-        10 => "wrongInstance",
-        11 => "inconsistentName",
-        12 => "resourceUnavailable",
-        13 => "commitFailed",
-        14 => "rollbackFailed",
-        15 => "rollbackInProgress",
-        16 => "inconsistentValue",
-        17 => "unsupportedOperation",
-        18 => "notWritable",
-        19 => "objectDoesNotExist",
+        9 => "wrongEncoding",
+        10 => "wrongValue",
+        11 => "noCreation",
+        12 => "inconsistentValue",
+        13 => "resourceUnavailable",
+        14 => "commitFailed",
+        15 => "undoFailed",
+        16 => "authorizationError",
+        17 => "notWritable",
+        18 => "inconsistentName",
         _ => "unknown",
     }
 }
@@ -582,25 +581,24 @@ mod tests {
         assert_eq!(pdu_error_name(6), "noAccess");
         assert_eq!(pdu_error_name(7), "wrongType");
         assert_eq!(pdu_error_name(8), "wrongLength");
-        assert_eq!(pdu_error_name(9), "wrongValue");
-        assert_eq!(pdu_error_name(10), "wrongInstance");
-        assert_eq!(pdu_error_name(11), "inconsistentName");
-        assert_eq!(pdu_error_name(12), "resourceUnavailable");
-        assert_eq!(pdu_error_name(13), "commitFailed");
-        assert_eq!(pdu_error_name(14), "rollbackFailed");
-        assert_eq!(pdu_error_name(15), "rollbackInProgress");
-        assert_eq!(pdu_error_name(16), "inconsistentValue");
-        assert_eq!(pdu_error_name(17), "unsupportedOperation");
-        assert_eq!(pdu_error_name(18), "notWritable");
-        assert_eq!(pdu_error_name(19), "objectDoesNotExist");
-        assert_eq!(pdu_error_name(20), "unknown");
+        assert_eq!(pdu_error_name(9), "wrongEncoding");
+        assert_eq!(pdu_error_name(10), "wrongValue");
+        assert_eq!(pdu_error_name(11), "noCreation");
+        assert_eq!(pdu_error_name(12), "inconsistentValue");
+        assert_eq!(pdu_error_name(13), "resourceUnavailable");
+        assert_eq!(pdu_error_name(14), "commitFailed");
+        assert_eq!(pdu_error_name(15), "undoFailed");
+        assert_eq!(pdu_error_name(16), "authorizationError");
+        assert_eq!(pdu_error_name(17), "notWritable");
+        assert_eq!(pdu_error_name(18), "inconsistentName");
+        assert_eq!(pdu_error_name(19), "unknown");
     }
 
     #[test]
     fn pdu_error_warning_names_status_and_keeps_raw_code() {
-        let w = pdu_error_warning(9, 0, Some("1.3.6.1.2.1.15433.4.0".to_string()));
+        let w = pdu_error_warning(10, 0, Some("1.3.6.1.2.1.15433.4.0".to_string()));
         assert_eq!(w.kind, "pdu-error");
-        assert_eq!(w.message, "wrongValue (status 9) at varbind 0");
+        assert_eq!(w.message, "wrongValue (status 10) at varbind 0");
         assert_eq!(w.oid.as_deref(), Some("1.3.6.1.2.1.15433.4.0"));
 
         let unknown = pdu_error_warning(77, 2, None);

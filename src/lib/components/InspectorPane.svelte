@@ -4,6 +4,7 @@
   import { mibNodeDetails } from "$lib/tauriCommands";
   import type { MibNodeDetails, NamedValueInfo, SnmpValue, TableIndexColumn } from "$lib/types";
   import { hexDumpLines, interpretBytes, interpretationLabel, asn1TypeCodeText, BYTES_PER_ROW } from "$lib/hexdump";
+  import { isConfirmedWritable, effectiveSetOid, setDetailsFor } from "$lib/setLogic";
 
   const MIN_HEIGHT = 120;
   const MAX_HEIGHT = 800;
@@ -120,6 +121,27 @@
         : { OctetString: liveValue.bytes };
     S.hexViewTarget = { oid, displayName: details?.name ?? oid, value };
   }
+
+  // The Set button is an at-a-glance affordance: it appears only when the MIB
+  // confirms writability (read-write / read-create) and the node is a plain
+  // object — not a table, row, or one whose access we couldn't determine.
+  let canSet = $derived.by(() => {
+    if (!details || details.isTable || details.syntaxType === "TABLE" || details.syntaxType === "ROW") {
+      return false;
+    }
+    return isConfirmedWritable(details.access);
+  });
+
+  function openSetValueDialog() {
+    if (!oid || !details) return;
+    S.setValueTarget = {
+      oid: effectiveSetOid(oid, details),
+      name: details.name,
+      details: setDetailsFor(oid, details),
+      currentValue: liveValue?.text,
+      currentRaw: liveValue?.raw,
+    };
+  }
 </script>
 
 <section data-testid="inspector-pane" class="flex flex-col flex-shrink-0 bg-base-100">
@@ -195,6 +217,9 @@
           <div class="flex items-center gap-2 flex-wrap">
             <span data-testid="inspector-name" class="font-semibold text-sm">{details.name}</span>
             <span data-testid="inspector-type" class="badge badge-outline badge-xs font-mono">{details.syntaxType}</span>
+            {#if canSet}
+              <button data-testid="inspector-set-btn" class="btn btn-xs ml-auto" onclick={openSetValueDialog}>Set value</button>
+            {/if}
           </div>
           <p data-testid="inspector-oid" class="font-mono text-xs break-all mt-1 text-base-content/80">{details.oid}</p>
         </div>

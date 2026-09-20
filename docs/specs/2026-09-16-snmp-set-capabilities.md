@@ -75,7 +75,7 @@ _Avoid_: Settable (ambiguous with the UI affordance), editable, mutable
 
 **`scout-snmp`:** check the PDU error status where bindings are extracted:
 
-- In `extract_bindings`, when `pdu.error_status != 0`, emit one `SnmpWarning { kind: "pdu-error", message: "<name> (status <n>) at varbind <error_index>" }` and mark the set partial. Name mapping (RFC 3416; v1 legacy names in parentheses): 1 noSuchName, 2 badValue (v1) / noSuchName*, 3 readOnly (v1) / badValue*, 4 genErr (v1) / readOnly*, 5 genErr, 6 noAccess, 7 wrongType, 8 wrongLength, 9 wrongValue, 10 wrongInstance, 11 inconsistentName, 12 resourceUnavailable, 13 commitFailed, 14 rollbackFailed, 15 rollbackInProgress, 16 inconsistentValue, 17 unsupportedOperation, 18 notWritable, 19 objectDoesNotExist. (v1's four statuses reuse the low numbers with different meanings; the message includes the raw number so nothing is ever uninterpretable.)
+- In `extract_bindings`, when `pdu.error_status != 0`, emit one `SnmpWarning { kind: "pdu-error", message: "<name> (status <n>) at varbind <error_index>" }` and mark the set partial. Name mapping per RFC 3416's PDU ASN.1 (`noError(0) tooBig(1) noSuchName(2) badValue(3) readOnly(4) genErr(5) noAccess(6) wrongType(7) wrongLength(8) wrongEncoding(9) wrongValue(10) noCreation(11) inconsistentValue(12) resourceUnavailable(13) commitFailed(14) undoFailed(15) authorizationError(16) notWritable(17) inconsistentName(18)`; anything else is `unknown`). Note: `noSuchObject`/`noInstance`/`endOfMibView` are *varbind* exception values, not PDU error-status codes. (v1's low numbers reuse the same codes with v1 meanings; the message includes the raw number so nothing is ever uninterpretable.)
 - A PDU error is a definitive agent answer — **not** retryable. `set()` must return it immediately instead of burning the 3-attempt backoff loop on a deterministic rejection. (Get/Walk paths also benefit: an error PDU mid-walk currently ends the walk silently; now it lands in warnings, consistent with the tolerance principle.)
 
 **Frontend:** new pure module `src/lib/setLogic.ts` (vitest-tested, same shape as `connectionLogic.ts`):
@@ -141,7 +141,7 @@ This mapping is the single source of truth in `setLogic.ts`, replacing the ad-ho
 
 **Result Set merge.** After a successful Set: replace the binding whose OID matches in `S.executionBindings` (value + warning updated from the response); append if absent. If the agent's response carries no varbinds (some agents do), synthesize the binding from the request (OID + sent value) so the row still reflects the write. Warnings from the response join the Result Set's warnings; status bar: `Set complete: {name} = {value}`.
 
-**Agent errors.** On a PDU-level rejection the dialog **stays open**: an inline error box shows the RFC 3416 name ("wrongValue (status 9) at varbind 0"), the value field keeps what was entered, and Set is re-enabled for immediate retry. The status bar mirrors the failure (`Set failed: wrongValue`); no binding changes, so the Result Set and its warnings are untouched — the previous value stays in place. The user closes the dialog (Cancel/Esc/backdrop) to give up; nothing is added to the warnings banner while the dialog owns the error.
+**Agent errors.** On a PDU-level rejection the dialog **stays open**: an inline error box shows the RFC 3416 name ("wrongValue (status 10) at varbind 0"), the value field keeps what was entered, and Set is re-enabled for immediate retry. The status bar mirrors the failure (`Set failed: wrongValue`); no binding changes, so the Result Set and its warnings are untouched — the previous value stays in place. The user closes the dialog (Cancel/Esc/backdrop) to give up; nothing is added to the warnings banner while the dialog owns the error.
 
 ### Out of scope
 
@@ -153,7 +153,7 @@ Multi-varbind atomic Sets (v2c/v3 allow several varbinds per PDU; agents vary �
 - Extend the `TABLE-TEST-MIB` fixture pattern with a `read-write` scalar (and a `read-create` one); assert `TreeNode.access` is populated through both shallow build and children, and stays `None` when the MIB omits MAX-ACCESS.
 
 **`scout-snmp` tests**
-- Mock server: add a canned-response mode that answers a Set PDU with a non-zero error status (e.g. 9 wrongValue, error-index 0). `engine.set()` must return immediately (no backoff sleep) with one `pdu-error` warning naming "wrongValue" and the raw status; bindings empty; partial true.
+- Mock server: add a canned-response mode that answers a Set PDU with a non-zero error status (e.g. 10 wrongValue, error-index 0). `engine.set()` must return immediately (no backoff sleep) with one `pdu-error` warning naming "wrongValue" and the raw status; bindings empty; partial true.
 - Existing `engine_set_roundtrip` stays green (success path unchanged).
 
 **Frontend unit tests (`setLogic.test.ts`, vitest)**

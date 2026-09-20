@@ -477,7 +477,7 @@ fn engine_set_pdu_error_surfaces_immediately() {
     // must return it at once (no backoff sleep) with one pdu-error warning.
     let rt = app_runtime();
     let (server, target) = start_server();
-    server.set_canned_set_error(9, 0); // wrongValue
+    server.set_canned_set_error(10, 0); // wrongValue
 
     let rs = rt
         .block_on(rt.spawn(async move {
@@ -510,7 +510,7 @@ fn engine_set_pdu_error_surfaces_immediately() {
     let w = &rs.warnings[0];
     assert_eq!(w.kind, "pdu-error");
     assert!(w.message.contains("wrongValue"), "got: {}", w.message);
-    assert!(w.message.contains("status 9"), "got: {}", w.message);
+    assert!(w.message.contains("status 10"), "got: {}", w.message);
     assert!(w.message.contains("varbind 0"), "got: {}", w.message);
     assert_eq!(w.oid.as_deref(), Some("1.3.6.1.2.1.1.5.0"));
 }

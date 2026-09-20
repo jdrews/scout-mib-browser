@@ -6,15 +6,18 @@ import {
   setGuard,
   effectiveSetOid,
   mibSyntaxToSetValueType,
+  setDetailsFor,
   parseIntegerRange,
   parseSizeBounds,
   validateInteger,
   validateUnsigned32,
+  validateCounter64,
   validateOctetString,
   validateIpv4,
   isValidOidString,
   parseHexPairs,
   bitsToBytes,
+  bytesToBits,
   prefillFromValue,
   defvalPrefill,
   pduErrorName,
@@ -126,6 +129,38 @@ describe("effectiveSetOid", () => {
   });
 });
 
+describe("setDetailsFor", () => {
+  it("keeps null details (type-picker fallback)", () => {
+    expect(setDetailsFor("1.3.6.1.2.1.9999", null)).toBeNull();
+  });
+
+  it("keeps exact matches, including ObjectIdentifier nodes", () => {
+    const oidNode = details({
+      oid: "1.3.6.1.4.1",
+      name: "enterprises",
+      syntaxType: "ObjectIdentifier",
+    });
+    expect(setDetailsFor("1.3.6.1.4.1", oidNode)).toBe(oidNode);
+  });
+
+  it("keeps instance resolutions of known objects", () => {
+    // sysName instance resolves to the base node — a real object, not a subtree.
+    const d = details();
+    expect(setDetailsFor("1.3.6.1.2.1.1.5.0", d)).toBe(d);
+  });
+
+  it("nulls ancestor-subtree resolutions of unknown objects", () => {
+    // An enterprise instance resolves to `enterprises` (ObjectIdentifier) —
+    // the actual object is not in the loaded MIBs.
+    const enterprises = details({
+      oid: "1.3.6.1.4.1",
+      name: "enterprises",
+      syntaxType: "ObjectIdentifier",
+    });
+    expect(setDetailsFor("1.3.6.1.4.1.2021.4.3.0", enterprises)).toBeNull();
+  });
+});
+
 describe("mibSyntaxToSetValueType", () => {
   it("maps every MIB syntax per the spec table", () => {
     expect(mibSyntaxToSetValueType("Integer32")).toBe("integer");
@@ -149,6 +184,17 @@ describe("constraint parsing", () => {
     expect(parseIntegerRange("1..255")).toEqual({ min: 1, max: 255 });
     expect(parseIntegerRange(undefined)).toBeUndefined();
     expect(parseIntegerRange("SIZE (0..32)")).toBeUndefined();
+  });
+
+  it("parses negative minimums (full Integer32 range from the backend)", () => {
+    // The backend reports a plain Integer32's effective range as the full
+    // 32-bit span; dropping the minus sign yields min > max and rejects
+    // every value.
+    const range = parseIntegerRange("-2147483648..2147483647")!;
+    expect(range).toEqual({ min: -2147483648, max: 2147483647 });
+    expect(validateInteger("0", range)).toBeNull();
+    expect(validateInteger("-5", range)).toBeNull();
+    expect(validateInteger("2147483647", range)).toBeNull();
   });
 
   it("parses SIZE bounds", () => {
@@ -184,6 +230,22 @@ describe("validateUnsigned32", () => {
     expect(validateUnsigned32("10", { min: 20, max: 30 })).toBe(
       "Must be 20..30",
     );
+  });
+});
+
+describe("validateCounter64", () => {
+  it("accepts 0..u64 max (BigInt bound, no float precision loss)", () => {
+    expect(validateCounter64("0")).toBeNull();
+    expect(validateCounter64("18446744073709551615")).toBeNull();
+    expect(validateCounter64("9007199254740993")).toBeNull(); // 2^53 + 1
+  });
+
+  it("rejects overflow and non-numeric input", () => {
+    expect(validateCounter64("18446744073709551616")).toBe(
+      "Must be 0..18446744073709551615",
+    );
+    expect(validateCounter64("-1")).toBe("Enter a non-negative integer");
+    expect(validateCounter64("abc")).toBe("Enter a non-negative integer");
   });
 });
 
@@ -256,6 +318,26 @@ describe("bitsToBytes (RFC 1065)", () => {
 
   it("empty selection encodes to the empty byte string", () => {
     expect(bitsToBytes([])).toEqual([]);
+  });
+});
+
+describe("bytesToBits (RFC 1065 inverse)", () => {
+  it("decodes set bits in ascending position order", () => {
+    expect(bytesToBits([0x80])).toEqual([0]);
+    expect(bytesToBits([0x01])).toEqual([7]);
+    expect(bytesToBits([0x81])).toEqual([0, 7]);
+    expect(bytesToBits([0x00, 0x80])).toEqual([8]);
+    expect(bytesToBits([0x80, 0x81])).toEqual([0, 8, 15]);
+  });
+
+  it("round-trips through bitsToBytes", () => {
+    for (const positions of [[0], [3, 9], [0, 7, 8, 15], []]) {
+      expect(bytesToBits(bitsToBytes(positions))).toEqual(positions);
+    }
+  });
+
+  it("empty input decodes to no bits", () => {
+    expect(bytesToBits([])).toEqual([]);
   });
 });
 

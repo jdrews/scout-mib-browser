@@ -108,6 +108,43 @@ export function clearResults() {
   raw.tableResult = null;
 }
 
+/** Merges a successful Set into the current Result Set: the matching binding
+ * is replaced in place (appended when absent), the matching grid cell is
+ * updated, and response warnings join the set's warnings. */
+export function mergeSetIntoResultSet(
+  oid: string,
+  value: SnmpValue,
+  warning: boolean | undefined,
+  response: ResultSet
+): void {
+  const binding: VariableBinding = { oid, value, warning };
+  const idx = raw.executionBindings.findIndex((b) => b.oid === oid);
+  if (idx >= 0) {
+    raw.executionBindings[idx] = binding;
+  } else {
+    raw.executionBindings.push(binding);
+  }
+
+  const grid = raw.tableResult;
+  if (grid) {
+    for (const row of grid.rows) {
+      for (const [colOid, cell] of Object.entries(row.cells)) {
+        if (`${colOid}.${row.instance_id}` === oid) {
+          row.cells[colOid] = { value: binding, missing: false };
+        }
+      }
+    }
+  }
+
+  if (!raw.executionResults) {
+    raw.executionResults = response;
+  } else {
+    const warnings = [...(raw.executionResults.warnings ?? []), ...(response.warnings ?? [])];
+    raw.executionResults.warnings = warnings.length > 0 ? warnings : undefined;
+    raw.executionResults.partial = raw.executionResults.partial || response.partial;
+  }
+}
+
 export const S = new Proxy(raw, {
   get(target, prop) {
     return target[prop as keyof typeof target];

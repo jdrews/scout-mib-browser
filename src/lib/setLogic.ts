@@ -41,6 +41,19 @@ export function setGuard(oid: string, details: MibNodeDetails | null): string | 
   return null;
 }
 
+/** Details that drive the Set dialog. Longest-prefix resolution of an unknown
+ * instance OID lands on an ancestor ObjectIdentifier subtree (e.g. `enterprises`)
+ * — that is not the object being set, so return null and let the dialog offer
+ * its type-picker fallback instead of editing the parent's type. */
+export function setDetailsFor(
+  oid: string,
+  details: MibNodeDetails | null,
+): MibNodeDetails | null {
+  if (!details) return null;
+  if (details.oid !== oid && details.syntaxType === "ObjectIdentifier") return null;
+  return details;
+}
+
 /** Mirrors the backend's `scalar_instance_oid`: when the OID exactly matches a
  * scalar MIB node (not Table/TableRow/ObjectIdentifier), append `.0`. Instance
  * OIDs (which resolve to their base node, so `details.oid !== oid`) pass
@@ -104,7 +117,9 @@ export function parseIntegerRange(
   constraints: string | undefined,
 ): ValueRange | undefined {
   if (!constraints || /SIZE/i.test(constraints)) return undefined;
-  const m = /(\d+)\.\.(\d+)/.exec(constraints);
+  // The minimum may be negative (e.g. the full Integer32 range the backend
+  // reports as "-2147483648..2147483647").
+  const m = /(-?\d+)\.\.(\d+)/.exec(constraints);
   if (!m) return undefined;
   return { min: Number(m[1]), max: Number(m[2]) };
 }
@@ -142,6 +157,14 @@ export function validateUnsigned32(text: string, range?: ValueRange): string | n
   if (range && (v < range.min || v > range.max)) {
     return `Must be ${range.min}..${range.max}`;
   }
+  return null;
+}
+
+/** u64 bound checked with BigInt — Number loses precision past 2^53. */
+export function validateCounter64(text: string): string | null {
+  const t = text.trim();
+  if (!/^\d+$/.test(t)) return "Enter a non-negative integer";
+  if (BigInt(t) > 18446744073709551615n) return "Must be 0..18446744073709551615";
   return null;
 }
 
@@ -207,6 +230,18 @@ export function bitsToBytes(checkedPositions: number[]): number[] {
     bytes[Math.floor(pos / 8)] |= 0x80 >> (pos % 8);
   }
   return bytes;
+}
+
+/** Inverse of {@link bitsToBytes}: the set bit positions in encoded octet
+ * string bytes, in ascending order. */
+export function bytesToBits(bytes: number[]): number[] {
+  const positions: number[] = [];
+  for (let i = 0; i < bytes.length; i++) {
+    for (let j = 0; j < 8; j++) {
+      if (bytes[i] & (0x80 >> j)) positions.push(i * 8 + j);
+    }
+  }
+  return positions;
 }
 
 // ── Prefill ──────────────────────────────────────────────────────────────────

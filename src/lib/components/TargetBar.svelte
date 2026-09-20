@@ -1,10 +1,11 @@
 <script lang="ts">
   import { Settings } from "lucide-svelte";
-  import { mibSearch, mibResolveOid } from "$lib/tauriCommands";
+  import { mibSearch, mibResolveOid, mibNodeDetails } from "$lib/tauriCommands";
   import { S } from "$lib/stores.svelte";
   import { persistTargetConfig } from "$lib/tauriCommands";
   import { markConnected, markDisconnected, hasErrorWarning, streamingOutcome } from "$lib/connectionLogic";
-  import type { MibSearchResult, TreeNode, SnmpOperation, VariableBinding, ResultSet, TableInfo, TableResult } from "$lib/types";
+  import { setGuard, effectiveSetOid, setDetailsFor } from "$lib/setLogic";
+  import type { MibSearchResult, TreeNode, SnmpOperation, VariableBinding, ResultSet, TableInfo, TableResult, MibNodeDetails } from "$lib/types";
 
   let cfg = $derived(S.targetConfig);
 
@@ -211,7 +212,7 @@
     }
 
     if (operation === "set") {
-      handleSet(effectiveOid);
+      await openSetValueDialog(effectiveOid);
       return;
     }
 
@@ -514,75 +515,29 @@
     }
   }
 
-  async function handleSet(oid: string) {
-    const cfg = S.targetConfig;
-    if (!cfg.host) {
-      S.statusText = "No target configured";
+  /** Set entry point (address bar): resolve node metadata, run the guard,
+   *  apply the scalar .0 fixup, and open the shared Set value dialog. */
+  async function openSetValueDialog(oid: string) {
+    let resolved: MibNodeDetails | null = null;
+    try {
+      resolved = await mibNodeDetails(oid);
+    } catch (err) {
+      console.error("Set node lookup failed:", err);
+    }
+    // An ancestor-subtree resolution means the object itself is unknown.
+    const details = setDetailsFor(oid, resolved);
+
+    const guard = setGuard(oid, details);
+    if (guard !== null) {
+      S.statusText = guard;
       return;
     }
 
-    const node = S.selectedNode;
-    const syntaxType = node?.syntaxType || "OctetString";
-    const proposedValue = prompt(`Set value for ${oid} (${syntaxType}):`);
-    if (proposedValue === null) return;
-
-    let valueType: string;
-    let parsedValue: unknown;
-
-    switch (syntaxType.toLowerCase()) {
-      case "integer":
-      case "integer32":
-        valueType = "Integer";
-        parsedValue = parseInt(proposedValue, 10);
-        break;
-      case "counter32":
-        valueType = "Counter32";
-        parsedValue = parseInt(proposedValue, 10) >>> 0;
-        break;
-      case "counter64":
-        valueType = "Counter64";
-        parsedValue = BigInt(proposedValue);
-        break;
-      case "gauge32":
-      case "unsigned32":
-        valueType = "Gauge32";
-        parsedValue = parseInt(proposedValue, 10) >>> 0;
-        break;
-      case "ipaddress":
-      case "ip address":
-        valueType = "IpAddress";
-        parsedValue = proposedValue;
-        break;
-      case "timeticks":
-        valueType = "TimeTicks";
-        parsedValue = parseInt(proposedValue, 10) >>> 0;
-        break;
-      case "object identifier":
-        valueType = "ObjectIdentifier";
-        parsedValue = proposedValue;
-        break;
-      default:
-        valueType = "OctetString";
-        parsedValue = proposedValue;
-    }
-
-    try {
-      S.isExecuting = true;
-      S.statusText = `Setting ${oid}...`;
-      const result = await import("$lib/tauriCommands").then(m => m.snmpSet(cfg, oid, valueType, parsedValue));
-      S.executionBindings.length = 0;
-      S.executionBindings.push(...result.bindings);
-      S.executionResults = result;
-      markConnected();
-      S.statusText = `Set complete: ${result.bindings.length} binding(s)`;
-    } catch (err) {
-      console.error("SNMP Set failed:", err);
-      markDisconnected();
-      S.statusText = `Set error: ${err}`;
-      S.executionResults = { bindings: [], partial: true, warnings: [{ kind: "error", message: String(err) }] };
-    } finally {
-      S.isExecuting = false;
-    }
+    S.setValueTarget = {
+      oid: effectiveSetOid(oid, details),
+      name: details?.name,
+      details,
+    };
   }
 
   let oidInputEl: HTMLInputElement;
