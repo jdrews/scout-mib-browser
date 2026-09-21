@@ -170,6 +170,16 @@
     {#if S.viewMenuOpen}
       <ul role="menu" aria-label="View" class="absolute top-full left-0 menu bg-base-100 rounded-box w-52 p-2 shadow-lg z-[1000] mt-1">
         <li>
+          <a role="menuitem" tabindex="-1" data-testid="menu-mib-panel" onkeydown={(e) => onItemKeydown(e, "view")} onclick={(e) => { e.preventDefault(); e.stopPropagation(); S.mibPanelOpen = !S.mibPanelOpen; }}>
+            <span class="flex items-center gap-2">
+              {#if S.mibPanelOpen}
+                <Check class="w-4 h-4 shrink-0" />
+              {/if}
+              <span class={S.mibPanelOpen ? "text-primary" : ""}>MIB Browser</span>
+            </span>
+          </a>
+        </li>
+        <li>
           <a role="menuitem" tabindex="-1" data-testid="menu-system-log" onkeydown={(e) => onItemKeydown(e, "view")} onclick={(e) => { e.preventDefault(); e.stopPropagation(); S.systemLogOpen = !S.systemLogOpen; }}>
             <span class="flex items-center gap-2">
               {#if S.systemLogOpen}

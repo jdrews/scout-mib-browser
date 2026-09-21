@@ -819,7 +819,7 @@
       {#if bindings.length > 0 || isGridView || isSubtreeView}
         <button data-testid="clear-btn" aria-label="Clear results" class="btn btn-sm btn-ghost" title="Clear results" onclick={clearAll}><Trash2 class="w-4 h-4" /></button>
         {#if !isGridView && !isSubtreeView}
-          <button data-testid="names-toggle" class="btn btn-sm {showResolvedNames ? 'btn-primary' : 'btn-ghost'}" onclick={() => showResolvedNames = !showResolvedNames}>{showResolvedNames ? "MIB Names" : "Raw OIDs"}</button>
+          <button data-testid="names-toggle" class="btn btn-sm {showResolvedNames ? 'btn-ghost' : 'btn-primary'}" onclick={() => showResolvedNames = !showResolvedNames}>{showResolvedNames ? "MIB Names" : "Raw OIDs"}</button>
           <button data-testid="raw-toggle" title="Show values as raw bytes: hex + ASCII dump (byte values) and wire encoding (scalars)" class="btn btn-sm {showRaw ? 'btn-primary' : 'btn-ghost'}" onclick={() => showRaw = !showRaw}>
             <Binary class="w-4 h-4 inline-block" /> Raw
           </button>
