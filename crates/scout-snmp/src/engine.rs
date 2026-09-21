@@ -566,7 +566,17 @@ impl SnmpEngine {
 
             match pdu_result {
                 Ok(pdu) => {
-                    // A PDU error mid-walk is a definitive agent verdict —
+                    // noSuchName (status 2) on a walk is the normal end-of-walk
+                    // signal — the agent has no object after the last OID. Some
+                    // agents (e.g. certain Cisco IOS devices) use it instead of an
+                    // endOfMibView value to terminate the walk, so a walk that
+                    // collected bindings and then hit noSuchName is complete, not
+                    // an error.
+                    if pdu.error_status == 2 {
+                        info!("{} terminated: noSuchName (end of walk)", op_name);
+                        return Ok(rs);
+                    }
+                    // Any other PDU error mid-walk is a definitive agent verdict —
                     // record it as a warning and stop; retrying cannot change it.
                     if pdu.error_status != 0 {
                         warn!(

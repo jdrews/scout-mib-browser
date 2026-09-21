@@ -228,6 +228,53 @@ fn engine_bulk_walk_streams_bindings() {
 }
 
 #[test]
+fn engine_walk_nosuchname_end_is_not_a_warning() {
+    // Some agents (e.g. certain Cisco IOS devices) signal end-of-walk with a
+    // noSuchName PDU error rather than an endOfMibView value. A walk that
+    // collected bindings and then hit noSuchName is a *complete* walk — the
+    // error is the normal termination signal, not a fault. It must not be
+    // surfaced as a pdu-error warning nor mark the result partial.
+    let rt = app_runtime();
+    let server = MockSnmpServer::new(0);
+    let target = Target::v2c("127.0.0.1", server.addr.port(), "public");
+    server.set_canned_walk_error(2, 1); // noSuchName
+
+    let sender = Arc::new(TestSender::default());
+    let sender_for_task = sender.clone();
+    rt.block_on(rt.spawn(async move {
+        let engine = SnmpEngine::new();
+        let handle = tokio::runtime::Handle::current();
+        // Walk the whole snmpMIB subtree so the walk runs to the end of the
+        // mock's data map and hits the armed noSuchName (not the is_subtree_of
+        // "passed root" termination, which would short-circuit first).
+        let join = engine.walk_streaming(&handle, &target, "1.3.6.1.2.1", sender_for_task, None);
+        tokio::time::timeout(Duration::from_secs(10), join)
+            .await
+            .expect("walk timed out")
+            .expect("walk task panicked");
+    }))
+    .expect("test task panicked");
+
+    let bindings = sender.bindings.lock().unwrap().clone();
+    assert_eq!(bindings.len(), 11, "expected the full 11-entry mock MIB");
+    let complete = sender
+        .complete
+        .lock()
+        .unwrap()
+        .take()
+        .expect("complete result was not sent");
+    assert!(
+        complete.warnings.is_empty(),
+        "noSuchName end-of-walk must not be surfaced as a warning: {:?}",
+        complete.warnings
+    );
+    assert!(
+        !complete.partial,
+        "a walk that terminated via noSuchName is complete, not partial"
+    );
+}
+
+#[test]
 fn engine_walk_cancel_stops_early() {
     let rt = app_runtime();
     let (_server, target) = start_server();
