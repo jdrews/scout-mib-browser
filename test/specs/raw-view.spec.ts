@@ -29,6 +29,26 @@ async function clickRowContaining(text: string): Promise<void> {
   });
 }
 
+// The flat view is virtualized — only the visible row window is in the DOM, so
+// rows below the initial fold (e.g. interface 2's ifPhysAddress, the 28th of
+// 44) must be scrolled into view before they can be asserted or clicked.
+async function scrollRowIntoView(text: string): Promise<void> {
+  await browser.execute(() => {
+    const el = document.querySelector("[data-testid='results-body']");
+    if (el) el.scrollTop = 0;
+  });
+  await browser.pause(300);
+  for (let i = 0; i < 80; i++) {
+    if (await resultsBodyHasText(text)) return;
+    await browser.execute(() => {
+      const el = document.querySelector("[data-testid='results-body']");
+      if (el) el.scrollTop += 100;
+    });
+    await browser.pause(150);
+  }
+  throw new Error(`row containing "${text}" never entered the virtualized window`);
+}
+
 describe("Raw view (hex + text) of OID results", () => {
   before(async () => {
     await waitForAppReady();
@@ -50,10 +70,12 @@ describe("Raw view (hex + text) of OID results", () => {
 
   it("recognizes MAC addresses in OctetString values", async () => {
     // ifPhysAddress.2 (6 bytes) renders as a colon-separated MAC, not hex.
+    await scrollRowIntoView("00:12:79:62:f9:40");
     expect(await resultsBodyHasText("00:12:79:62:f9:40")).toBe(true);
   });
 
   it("clicking a byte value shows its hex dump in the inspector", async () => {
+    await scrollRowIntoView("00:12:79:62:f9:40");
     await clickRowContaining("00:12:79:62:f9:40");
     const dump = await $("[data-testid='inspector-hexdump']");
     await expect(dump).toBeExisting();
@@ -70,16 +92,19 @@ describe("Raw view (hex + text) of OID results", () => {
 
     // The MAC row carries its recognized form plus the wire bytes: an
     // offset column, space-separated hex, and the interpretation line.
+    await scrollRowIntoView("MAC address: 00:12:79:62:f9:40");
     expect(await resultsBodyHasText("MAC address: 00:12:79:62:f9:40")).toBe(true);
     expect(await resultsBodyHasText("00 12 79 62 f9 40")).toBe(true);
     expect(await resultsBodyHasText("0000")).toBe(true);
 
     // Text values keep a readable ascii column (ifDescr.2 = "eth0").
+    await scrollRowIntoView("eth0");
     expect(await resultsBodyHasText("eth0")).toBe(true);
   });
 
   it("Raw toggle shows scalars with their wire encoding", async () => {
     // ifSpeed.2 is INTEGER 1500 on the recording.
+    await scrollRowIntoView("0x000005dc (1500)");
     expect(await resultsBodyHasText("0x000005dc (1500)")).toBe(true);
   });
 
@@ -87,6 +112,7 @@ describe("Raw view (hex + text) of OID results", () => {
     await (await $("[data-testid='raw-toggle']")).click();
     await browser.pause(300);
 
+    await scrollRowIntoView("00:12:79:62:f9:40");
     expect(await resultsBodyHasText("00:12:79:62:f9:40")).toBe(true);
     // The dump-only artifacts are gone.
     expect(await resultsBodyHasText("MAC address: 00:12:79:62:f9:40")).toBe(false);

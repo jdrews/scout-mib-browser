@@ -542,7 +542,11 @@
   function measureValueOverflow() {
     const next = new Set<string>();
     document.querySelectorAll<HTMLElement>("[data-value-clamp-target]").forEach((el) => {
-      if (el.scrollHeight > el.clientHeight + 1) next.add(el.dataset.valueClampTarget!);
+      const key = el.dataset.valueClampTarget!;
+      // An expanded cell measures unclamped (scrollHeight == clientHeight) but
+      // still "overflows" in the clamped sense — keep its flag so a second
+      // click collapses it (the clamp class tracks expandedCells, not this set).
+      if (expandedCells.has(key) || el.scrollHeight > el.clientHeight + 1) next.add(key);
     });
     let changed = next.size !== overflowingCells.size;
     if (!changed) {
@@ -589,6 +593,26 @@
     const ro = new ResizeObserver(() => measureValueOverflow());
     ro.observe(resultsBodyEl);
     return () => ro.disconnect();
+  });
+
+  // The virtualizer mounts rows asynchronously (driver observe is deferred via
+  // tick, then a ResizeObserver callback computes the first range), so the
+  // synchronous measurement above runs before the value spans exist and finds
+  // nothing. Re-measure whenever the mounted row set actually changes (initial
+  // mount, scroll) so click-to-expand works on every visible clamped cell.
+  $effect(() => {
+    if (!resultsBodyEl || typeof MutationObserver === "undefined") return;
+    let scheduled = false;
+    const mo = new MutationObserver(() => {
+      if (scheduled) return;
+      scheduled = true;
+      requestAnimationFrame(() => {
+        scheduled = false;
+        measureValueOverflow();
+      });
+    });
+    mo.observe(resultsBodyEl, { childList: true, subtree: true });
+    return () => mo.disconnect();
   });
 
   // A new result set starts with every cell collapsed.
