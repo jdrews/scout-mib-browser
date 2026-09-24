@@ -159,6 +159,11 @@ jobs:
         run: cargo build --workspace --features scout-mib-browser/wdio
 
       - name: Run E2E tests
+        env:
+          # Suppress the per-command webdriver logging and the tauri-service
+          # "get_window_states" warning (see wdio.conf.mjs) so the CI log
+          # stays readable instead of scrolling thousands of noise lines.
+          WDIO_LOG_LEVEL: error
         run: npm run test:e2e
 
       - name: Upload test logs on failure
