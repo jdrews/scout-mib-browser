@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { X, Search, ChevronUp, ChevronDown } from "lucide-svelte";
+  import { X, Search, ChevronUp, ChevronDown, PanelLeftClose, PanelLeftOpen } from "lucide-svelte";
   import { tick } from "svelte";
   import TreeNode from "./TreeNode.svelte";
   import InspectorPane from "./InspectorPane.svelte";
@@ -39,6 +39,12 @@
 
   function toggleSystemLog() {
     S.systemLogOpen = !S.systemLogOpen;
+  }
+
+  function collapsePanel() {
+    // The find bar lives inside the panel — hide it with the panel.
+    if (S.treeFindOpen) toggleFind();
+    S.mibPanelOpen = false;
   }
 
   function showMibLoadDetails() {
@@ -190,6 +196,7 @@
   }
 </script>
 
+{#if S.mibPanelOpen}
 <nav aria-label="MIB tree" class="flex flex-col bg-base-200 border-r border-base-300 flex-shrink-0" style="width: {width}px">
   <div data-testid="mib-panel-header" class="px-4 py-3 text-sm font-semibold uppercase tracking-wide text-base-content/60 bg-base-100 border-b border-base-300 flex items-center">
     MIB Browser
@@ -215,6 +222,15 @@
         onclick={toggleFind}
       >
         <Search class="w-4 h-4" />
+      </button>
+      <button
+        data-testid="mib-panel-collapse"
+        aria-label="Collapse MIB browser"
+        title="Collapse MIB browser"
+        class="btn btn-ghost btn-sm text-base-content/60 hover:text-base-content"
+        onclick={collapsePanel}
+      >
+        <PanelLeftClose class="w-4 h-4" />
       </button>
     </span>
   </div>
@@ -287,3 +303,19 @@
   <!-- The inspector owns the bottom-left corner, even when the banner shows. -->
   <InspectorPane />
 </nav>
+{:else}
+<!-- Collapsed rail: the expand button stays visible so the panel is always
+     one click away, and the vertical label says what the rail is. -->
+<nav data-testid="mib-panel-rail" aria-label="MIB browser (collapsed)" class="flex flex-col items-center gap-3 bg-base-200 border-r border-base-300 flex-shrink-0 w-12 pt-3 select-none">
+  <button
+    data-testid="mib-panel-expand"
+    aria-label="Expand MIB browser"
+    title="Expand MIB browser"
+    class="btn btn-ghost btn-sm text-base-content/60 hover:text-base-content"
+    onclick={() => (S.mibPanelOpen = true)}
+  >
+    <PanelLeftOpen class="w-4 h-4" />
+  </button>
+  <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60" style="writing-mode: vertical-rl;">MIB Browser</span>
+</nav>
+{/if}

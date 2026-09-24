@@ -78,6 +78,9 @@ const raw = $state({
   logEntries: [] as LogEntry[],
   oidNameMap: new Map<string, string>(),
   mibPanelWidth: typeof localStorage !== "undefined" ? parseInt(localStorage.getItem("scout-mib-width") || "320", 10) : 320,
+  // MIB browser sidebar: open by default, collapsed state persisted so a user
+  // who collapsed it gets it back collapsed on next launch (like the inspector).
+  mibPanelOpen: typeof localStorage === "undefined" || localStorage.getItem("scout-mib-panel-open") !== "false",
   systemLogHeight: typeof localStorage !== "undefined" ? parseInt(localStorage.getItem("scout-log-height") || "200", 10) : 200,
   // Inspector pane: open by default (UX choice), collapsed state persisted so a
   // user who closed it gets it back closed on next launch.
@@ -95,6 +98,7 @@ const raw = $state({
 const persistKeys: Record<string, string> = {
   currentTheme: "scout-theme",
   mibPanelWidth: "scout-mib-width",
+  mibPanelOpen: "scout-mib-panel-open",
   systemLogHeight: "scout-log-height",
   inspectorOpen: "scout-inspector-open",
   inspectorHeight: "scout-inspector-height",

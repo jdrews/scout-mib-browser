@@ -54,7 +54,8 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
-    "lucide-svelte": "^1.0.1"
+    "lucide-svelte": "^1.0.1",
+    "virtua": "^0.52.1"
   },
   "overrides": {
     "@wdio/native-utils": "$@wdio/native-utils"

@@ -41,6 +41,11 @@ struct MockServerInner {
     /// When set, Set requests are answered with this (error_status, error_index)
     /// and an empty varbind list instead of echoing — simulates agent rejection.
     set_error: Option<(u32, u32)>,
+    /// When set, a GetNext/GetBulk request with no next OID is answered with
+    /// this (error_status, error_index) PDU error instead of an EndOfMibView
+    /// value — simulates agents (e.g. some Cisco IOS) that signal end-of-walk
+    /// with noSuchName rather than an endOfMibView varbind.
+    walk_error: Option<(u32, u32)>,
     /// Total requests received (one per SNMP datagram).
     request_count: usize,
     /// Number of distinct walk chains observed. A chain starts at the first
@@ -68,6 +73,7 @@ impl MockSnmpServer {
         let inner = Arc::new(Mutex::new(MockServerInner {
             data: Self::default_mib_data(),
             set_error: None,
+            walk_error: None,
             request_count: 0,
             walk_chains: 0,
             last_request_oid: None,
@@ -99,6 +105,13 @@ impl MockSnmpServer {
     /// carries `(status, index)` with an empty varbind list and stores nothing.
     pub fn set_canned_set_error(&self, status: u32, index: u32) {
         self.inner.lock().unwrap().set_error = Some((status, index));
+    }
+
+    /// Arms a canned PDU error for the end-of-walk response: when a
+    /// GetNext/GetBulk request has no next OID, the response carries
+    /// `(status, index)` instead of an EndOfMibView value.
+    pub fn set_canned_walk_error(&self, status: u32, index: u32) {
+        self.inner.lock().unwrap().walk_error = Some((status, index));
     }
 
     /// Total number of request datagrams received.
@@ -216,7 +229,7 @@ impl MockSnmpServer {
             return match parsed.msg_type {
                 MessageType::Get => Self::build_get_response(&parsed, &state.data),
                 MessageType::GetNext | MessageType::GetBulk => {
-                    Self::build_getnext_response(&parsed, &state.data)
+                    Self::build_getnext_response(&parsed, &state.data, &state.walk_error)
                 }
                 MessageType::Set => match state.set_error {
                     Some((status, index)) => {
@@ -485,8 +498,13 @@ impl MockSnmpServer {
     }
 
     /// Builds a GetNext/GetBulk response with the next OID after each requested OID.
-    fn build_getnext_response(parsed: &ParsedRequest, data: &HashMap<String, Vec<u8>>) -> Vec<u8> {
+    fn build_getnext_response(
+        parsed: &ParsedRequest,
+        data: &HashMap<String, Vec<u8>>,
+        walk_error: &Option<(u32, u32)>,
+    ) -> Vec<u8> {
         let mut varbinds = Vec::new();
+        let mut end_error: Option<(u32, u32)> = None;
 
         for (oid, _) in &parsed.oids {
             match Self::find_next_oid(oid, data) {
@@ -496,15 +514,25 @@ impl MockSnmpServer {
                     varbinds.push(Self::tlv(0x30, &vb_data));
                 }
                 None => {
-                    // EndOfMibView.
-                    let oid_ber = Self::ber_oid_from_string(oid);
-                    let vb_data = [&oid_ber[..], &[TAG_END_OF_MIB_VIEW, 0x00]].concat();
-                    varbinds.push(Self::tlv(0x30, &vb_data));
+                    // End-of-walk: either an EndOfMibView value (the common
+                    // case) or a canned PDU error (e.g. noSuchName), depending
+                    // on how the agent signals the end.
+                    match walk_error {
+                        Some((status, index)) => end_error = Some((*status, *index)),
+                        None => {
+                            let oid_ber = Self::ber_oid_from_string(oid);
+                            let vb_data = [&oid_ber[..], &[TAG_END_OF_MIB_VIEW, 0x00]].concat();
+                            varbinds.push(Self::tlv(0x30, &vb_data));
+                        }
+                    }
                 }
             }
         }
 
-        Self::build_response_pdu(parsed, &varbinds.concat())
+        match end_error {
+            Some((status, index)) => Self::build_response_pdu_with(parsed, b"", status, index),
+            None => Self::build_response_pdu(parsed, &varbinds.concat()),
+        }
     }
 
     /// Builds a Set response echoing back the set values.

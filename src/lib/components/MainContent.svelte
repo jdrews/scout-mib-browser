@@ -40,6 +40,7 @@
 
 <div class="flex flex-1 overflow-hidden" bind:this={mainContentEl}>
   <MIBPanel />
+  {#if S.mibPanelOpen}
   <div
     class="resize-handle-h w-[6px] cursor-col-resize flex-shrink-0 bg-base-200 hover:bg-primary/30 transition-colors"
     onmousedown={onResizeStart}
@@ -49,6 +50,7 @@
   >
     <div class="resize-grip-h mx-auto"></div>
   </div>
+  {/if}
   <main class="flex flex-col flex-1 overflow-hidden min-w-0">
     <ResultsPane />
   </main>

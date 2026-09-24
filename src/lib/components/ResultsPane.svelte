@@ -8,6 +8,7 @@
   import { saveToFile, mibNodeDetails } from "$lib/tauriCommands";
   import { loadColumnSelection, saveColumnSelection } from "$lib/tableColumns";
   import { isWritable, isConfirmedWritable, setDetailsFor } from "$lib/setLogic";
+  import { Virtualizer } from "virtua/svelte";
 
   let bindings = $derived(S.executionBindings);
   let results = $derived(S.executionResults);
@@ -138,7 +139,17 @@
     return "UNKNOWN";
   }
 
-  let rows = $derived<ResultRow[]>(bindings.map((b): ResultRow => {
+  // Per-binding display mapping, cached: a streamed walk appends bindings in
+  // batches, and re-mapping every row every batch is O(n²) over the walk.
+  // The mapping is a pure function of the binding object, so a WeakMap keyed
+  // by it stays valid for appends and in-place replacements (a replaced
+  // binding is a new object → a miss → re-mapped). The cache is rebuilt when
+  // oidNameMap is replaced (MIBs (re)loaded) or the result set is cleared.
+  let rowCache = new WeakMap<VariableBinding, ResultRow>();
+  // Identity of the oidNameMap the cache was built against (MIBs (re)load
+  // replaces the Map, so a change here invalidates every cached row).
+  let rowCacheNameMap: Map<string, string> | null = null;
+  function mapBinding(b: VariableBinding): ResultRow {
     const resolved = resolveOidName(b.oid);
     return {
       oid: b.oid,
@@ -149,7 +160,34 @@
       warning: !!b.warning,
       snmpValue: b.value,
     };
-  }));
+  }
+  let rows = $derived((() => {
+    const nameMap = S.oidNameMap;
+    if (nameMap !== rowCacheNameMap) {
+      rowCacheNameMap = nameMap;
+      rowCache = new WeakMap();
+    }
+    const n = bindings.length;
+    const r = new Array<ResultRow>(n);
+    for (let i = 0; i < n; i++) {
+      const b = bindings[i];
+      let row = rowCache.get(b);
+      if (!row) {
+        row = mapBinding(b);
+        rowCache.set(b, row);
+      }
+      r[i] = row;
+    }
+    return r;
+  })());
+  // A new result set (or clear) starts with fresh bindings; drop the cache so
+  // reused OIDs from a previous run are re-mapped.
+  $effect(() => {
+    void results;
+    void tableResult;
+    rowCache = new WeakMap();
+    rowCacheNameMap = null;
+  });
 
   // The needle must be lowercased too — the haystacks are, so a mixed-case
   // query like "sysDescr" would otherwise never match.
@@ -173,12 +211,31 @@
       : (subtreeNodes ?? []),
   );
 
-  let sortedRows = $derived([...filteredRows].sort((a, b) => {
-    const aVal = a[sortColumn];
-    const bVal = b[sortColumn];
-    const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
-    return sortAsc ? cmp : -cmp;
-  }));
+  let sortedRows = $derived((() => {
+    const arr = filteredRows;
+    const col = sortColumn;
+    const asc = sortAsc;
+    // Fast path: skip the O(n log n) sort when the array is already in the
+    // requested order. A walk appends rows in OID order, so the default
+    // (ascending OID) sort is a no-op — this keeps streaming batches cheap
+    // instead of re-sorting the whole set on every batch.
+    let inOrder = true;
+    for (let i = 1; i < arr.length; i++) {
+      const a = arr[i - 1][col];
+      const b = arr[i][col];
+      if (asc ? b < a : a < b) {
+        inOrder = false;
+        break;
+      }
+    }
+    if (inOrder) return arr;
+    return [...arr].sort((x, y) => {
+      const aVal = x[col];
+      const bVal = y[col];
+      const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+      return asc ? cmp : -cmp;
+    });
+  })());
 
   function toggleSort(col: "oid" | "value" | "type") {
     if (sortColumn === col) {
@@ -446,6 +503,12 @@
   let expandedCells = $state<Set<string>>(new Set());
   let overflowingCells = $state<Set<string>>(new Set());
   let resultsBodyEl: HTMLDivElement | null = $state(null);
+  // The flat view's sticky header, whose height offsets the virtualized rows
+  // inside the shared scroll container (Virtualizer's startMargin).
+  let flatHeaderEl: HTMLDivElement | null = $state(null);
+  // Raw mode: rows stretch to fit their hex dumps; the pane (and the header's
+  // flex-1 column) must be as wide as the widest visible row.
+  let rawPaneMinWidth = $state(0);
 
   function gridCellKey(instanceId: string, colOid: string): string {
     return `${instanceId}|${colOid}`;
@@ -479,7 +542,11 @@
   function measureValueOverflow() {
     const next = new Set<string>();
     document.querySelectorAll<HTMLElement>("[data-value-clamp-target]").forEach((el) => {
-      if (el.scrollHeight > el.clientHeight + 1) next.add(el.dataset.valueClampTarget!);
+      const key = el.dataset.valueClampTarget!;
+      // An expanded cell measures unclamped (scrollHeight == clientHeight) but
+      // still "overflows" in the clamped sense — keep its flag so a second
+      // click collapses it (the clamp class tracks expandedCells, not this set).
+      if (expandedCells.has(key) || el.scrollHeight > el.clientHeight + 1) next.add(key);
     });
     let changed = next.size !== overflowingCells.size;
     if (!changed) {
@@ -491,6 +558,18 @@
       }
     }
     if (changed) overflowingCells = next;
+    // Raw-mode rows stretch to fit their hex dumps. Only the visible window
+    // is mounted, and the dump's hex line is a constant width, so the widest
+    // visible row is the pane's required width.
+    if (showRaw && !isGridView) {
+      let max = 0;
+      for (const el of document.querySelectorAll<HTMLElement>("[data-testid='result-row']")) {
+        max = Math.max(max, el.scrollWidth);
+      }
+      if (max !== rawPaneMinWidth) rawPaneMinWidth = max;
+    } else if (rawPaneMinWidth !== 0) {
+      rawPaneMinWidth = 0;
+    }
   }
 
   // Re-measure when the rendered content or the fixed column widths change.
@@ -514,6 +593,26 @@
     const ro = new ResizeObserver(() => measureValueOverflow());
     ro.observe(resultsBodyEl);
     return () => ro.disconnect();
+  });
+
+  // The virtualizer mounts rows asynchronously (driver observe is deferred via
+  // tick, then a ResizeObserver callback computes the first range), so the
+  // synchronous measurement above runs before the value spans exist and finds
+  // nothing. Re-measure whenever the mounted row set actually changes (initial
+  // mount, scroll) so click-to-expand works on every visible clamped cell.
+  $effect(() => {
+    if (!resultsBodyEl || typeof MutationObserver === "undefined") return;
+    let scheduled = false;
+    const mo = new MutationObserver(() => {
+      if (scheduled) return;
+      scheduled = true;
+      requestAnimationFrame(() => {
+        scheduled = false;
+        measureValueOverflow();
+      });
+    });
+    mo.observe(resultsBodyEl, { childList: true, subtree: true });
+    return () => mo.disconnect();
   });
 
   // A new result set starts with every cell collapsed.
@@ -744,7 +843,7 @@
       {#if bindings.length > 0 || isGridView || isSubtreeView}
         <button data-testid="clear-btn" aria-label="Clear results" class="btn btn-sm btn-ghost" title="Clear results" onclick={clearAll}><Trash2 class="w-4 h-4" /></button>
         {#if !isGridView && !isSubtreeView}
-          <button data-testid="names-toggle" class="btn btn-sm {showResolvedNames ? 'btn-primary' : 'btn-ghost'}" onclick={() => showResolvedNames = !showResolvedNames}>{showResolvedNames ? "MIB Names" : "Raw OIDs"}</button>
+          <button data-testid="names-toggle" class="btn btn-sm {showResolvedNames ? 'btn-ghost' : 'btn-primary'}" onclick={() => showResolvedNames = !showResolvedNames}>{showResolvedNames ? "MIB Names" : "Raw OIDs"}</button>
           <button data-testid="raw-toggle" title="Show values as raw bytes: hex + ASCII dump (byte values) and wire encoding (scalars)" class="btn btn-sm {showRaw ? 'btn-primary' : 'btn-ghost'}" onclick={() => showRaw = !showRaw}>
             <Binary class="w-4 h-4 inline-block" /> Raw
           </button>
@@ -948,11 +1047,13 @@
     {:else if sortedRows.length === 0}
       <p class="text-base-content/60 text-sm text-center mt-8">No results match filter.</p>
     {:else}
-      <!-- Single scroll container: results-body (overflow-auto) owns both axes.
-           A nested overflow-x-auto here makes WebKitGTK register a phantom
-           scrollable region over the area below (e.g. the system log pane),
-           stealing mouse-wheel input from it once the row set is large. -->
-      <div class="relative" style="cursor: {draggingDivider ? 'col-resize' : ''}">
+      <!-- results-body (overflow-auto) remains the single scroll container
+           (a nested scroller makes WebKitGTK register a phantom scrollable
+           region over the area below, stealing mouse-wheel input); the
+           Virtualizer renders only the visible row window into it. The sticky
+           header stays in the same scroller, so raw-mode horizontal scroll
+           moves it with the rows. -->
+      <div class="relative" style="cursor: {draggingDivider ? 'col-resize' : ''}{showRaw ? ` min-width: ${rawPaneMinWidth}px;` : ''}">
 
         <div class="resize-divider absolute top-0 bottom-0 w-[5px] z-20 hover:bg-primary/50 transition-colors" style="left: {divider1Left}px;" onmousedown={onDivider1MouseDown}></div>
         <div class="resize-divider absolute top-0 bottom-0 w-[5px] z-20 hover:bg-primary/50 transition-colors" style="left: {divider2Left};" onmousedown={onDivider2MouseDown}></div>
@@ -961,7 +1062,7 @@
              In raw mode rows must expand to fit their hex dumps; in normal
              mode values wrap, so rows stay at pane width (min-width:
              max-content would otherwise stretch a row to one full text line). -->
-        <div class="flex bg-base-200 border-b-2 border-base-content/60 sticky top-0 z-10 text-xs font-semibold uppercase tracking-wider" style="min-width: {showRaw ? 'max-content' : ''}">
+        <div bind:this={flatHeaderEl} class="flex bg-base-200 border-b-2 border-base-content/60 sticky top-0 z-10 text-xs font-semibold uppercase tracking-wider" style="min-width: {showRaw ? 'max-content' : ''}">
           <div data-testid="sort-oid" class="cursor-pointer px-2 py-1.5 truncate select-none flex items-center gap-1" style="width: {colOid}px; min-width: {COL_MIN_OID}px; max-width: {COL_MAX_OID}px;" onclick={() => toggleSort("oid")}>
             <span class="truncate">OID</span>
             {#if sortColumn === "oid"}{#if sortAsc}<ArrowUp class="w-3 h-3 shrink-0" />{:else}<ArrowDown class="w-3 h-3 shrink-0" />{/if}{:else}<ArrowUpDown class="w-3 h-3 shrink-0" />{/if}
@@ -976,7 +1077,24 @@
           </div>
         </div>
 
-        {#each sortedRows as row (row.oid)}
+        <!-- Virtualized: only the visible row window is in the DOM. The
+             scroll container is results-body (scrollRef); the sticky header
+             before it is the startMargin. In raw mode the row wrapper grows
+             to the row's max-content so the hex dump stays scrollable (the
+             default layout containment would otherwise clip it to the pane
+             width — verified in headless Chromium). -->
+        <!-- scrollRef is read once at mount: resultsBodyEl must be bound by
+             then (it is — bind:this resolves before onMount, and virtua
+             defers its first observe via tick()). If it were ever undefined,
+             virtua would fall back to the non-scrollable parent and break. -->
+        <Virtualizer
+          data={sortedRows}
+          getKey={(row) => row.oid}
+          scrollRef={resultsBodyEl ?? undefined}
+          startMargin={flatHeaderEl?.offsetHeight ?? 0}
+          itemProps={() => (showRaw ? { style: { "min-width": "max-content" } } : undefined)}
+        >
+          {#snippet children(row)}
           <div
             data-testid="result-row"
             class="flex border-b border-base-300 cursor-pointer hover:bg-base-200/70 {row.warning ? 'text-accent' : ''}"
@@ -1043,7 +1161,8 @@
             </div>
             <div class="px-2 py-1 font-mono text-[13px] text-base-content/60" style="width: {colType}px; min-width: {COL_MIN_TYPE}px; max-width: {COL_MAX_TYPE}px;">{row.type}</div>
           </div>
-        {/each}
+          {/snippet}
+        </Virtualizer>
       </div>
     {/if}
   </div>
