@@ -56,6 +56,13 @@ RESULT=0
 
 cleanup() {
   RESULT=$?
+  # On failure, preserve the agent/vite logs for triage (CI uploads this dir).
+  # A successful run leaves nothing behind.
+  if [ "$RESULT" -ne 0 ]; then
+    mkdir -p "$REPO_ROOT/e2e-failure-logs"
+    cp -f "$WORK_DIR"/*.log "$REPO_ROOT/e2e-failure-logs/" 2>/dev/null || true
+    echo "E2E failed (exit $RESULT); logs saved to $REPO_ROOT/e2e-failure-logs/"
+  fi
   echo ""
   echo "Cleaning up e2e environment..."
   if [ -n "$AGENT_PID" ] && kill -0 "$AGENT_PID" 2>/dev/null; then
