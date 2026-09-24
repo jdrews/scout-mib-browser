@@ -130,19 +130,25 @@ jobs:
           node-version: 20
           cache: npm
 
-      # The harness runs `python3 scripts/snmpsim-test.py`, which imports
-      # snmpsim and shells out to the `snmpsim-command-responder` console
-      # script. pysmi is a runtime dependency of that responder that is NOT
-      # declared in snmpsim's (or pysnmp's) metadata, so `pip install snmpsim`
-      # alone leaves it unable to start — install pysmi explicitly. The
-      # --break-system-packages fallback covers PEP 668 runners.
-      - name: Install snmpsim
+      # Python deps for the e2e suite:
+      # - snmpsim: the mock SNMP agent the harness starts.
+      # - pysmi: a runtime dep of snmpsim's responder that is NOT declared in
+      #   snmpsim's (or pysnmp's) metadata, so `pip install snmpsim` alone
+      #   leaves the agent unable to start — install it explicitly.
+      # - python-xlib: system-log.spec.ts sends real mouse-wheel events to the
+      #   X server via `python3 -c "from Xlib import X, ..."`, so the `Xlib`
+      #   module (from the `python-xlib` package) is required.
+      # The --break-system-packages fallback covers PEP 668 runners.
+      - name: Install e2e Python deps
         run: |
-          python3 -m pip install snmpsim pysmi 2>/dev/null || python3 -m pip install --break-system-packages snmpsim pysmi
+          python3 -m pip install snmpsim pysmi python-xlib 2>/dev/null || python3 -m pip install --break-system-packages snmpsim pysmi python-xlib
           # Verify the responder's full import chain works (this is what failed
           # with the missing pysmi) so any other undeclared dep is caught up
           # front instead of as an agent timeout.
           python3 -c "from snmpsim.commands.responder import main; print('responder import chain OK')"
+          # Verify the Xlib module the mouse-wheel spec needs is importable
+          # (this is what failed with the missing python-xlib).
+          python3 -c "import Xlib; print('Xlib OK')"
 
       - run: npm ci
 
