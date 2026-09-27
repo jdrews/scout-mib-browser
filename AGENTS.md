@@ -21,6 +21,28 @@ Run these from the repo root before considering work done:
 3. **TypeScript check**: `npx tsc --noEmit`
 4. **Svelte check**: `npx svelte-check --threshold warning` (no errors)
 
+## Commit messages
+
+Commit messages must follow the [7 rules](https://chris.beams.io/posts/git-commit/):
+
+1. Separate the subject from the body with a blank line
+2. Limit the subject line to 50 characters
+3. Capitalize the subject line
+4. Do not end the subject line with a period
+5. Use the imperative mood in the subject line
+6. Wrap the body at 72 characters
+7. Use the body to explain what and why vs. how
+
+## Running CI locally
+
+Run the CI workflow locally with `act`. See [DEVELOPMENT.md → Running CI Locally with act](DEVELOPMENT.md#running-ci-locally-with-act) for prerequisites (rootless podman socket + `DOCKER_HOST`) and the required podman image fix. Quick form:
+
+```bash
+systemctl --user enable --now podman.socket
+export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock
+act -P ubuntu-latest=act-ubuntu --pull=false
+```
+
 ## Backend layout
 
 The Rust backend is a Cargo workspace:
