@@ -95,11 +95,14 @@ describe("Address bar (autocomplete)", () => {
     );
     expect(selectedCount).toBe(0);
 
-    // Go runs the typed OID, not the previously selected node (the row shows
-    // the resolved name for 1.3.6.1.2.1.1.2).
+    // Go runs the typed OID, not the previously selected node. The backend
+    // queries the scalar at its .0 instance, so the row shows the resolved
+    // name with the instance suffix — "sysObjectID.0", not "sysDescr.0".
+    // Require exactly 1 binding: a noSuchObject 0-binding result would
+    // otherwise satisfy the status wait with an empty results body.
     await (await $("[data-testid='go-btn']")).click();
-    await waitForStatus(/Get complete: \d+ binding\(s\)/, 30000);
-    expect(await resultsBodyHasText("sysObjectID")).toBe(true);
+    await waitForStatus(/Get complete: 1 binding\(s\)/, 30000);
+    expect(await resultsBodyHasText("sysObjectID.0")).toBe(true);
 
     // Restore the empty-results state for later spec files (shared window).
     const clearBtn = await $("[data-testid='clear-btn']");
