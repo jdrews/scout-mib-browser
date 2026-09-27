@@ -95,10 +95,29 @@ describe("Address bar (autocomplete)", () => {
     );
     expect(selectedCount).toBe(0);
 
-    // Go runs the typed OID, not the previously selected node (the row shows
-    // the resolved name for 1.3.6.1.2.1.1.2).
+    // Go runs the typed OID, not the previously selected node: the row shows
+    // the resolved name "sysObjectID" (the backend queries ObjectIdentifier
+    // syntax at the bare OID, the agent's noSuchObject surfaces as a NULL
+    // binding with a warning). Require exactly 1 binding so a 0-binding
+    // result can't satisfy the status wait with an empty results body.
     await (await $("[data-testid='go-btn']")).click();
-    await waitForStatus(/Get complete: \d+ binding\(s\)/, 30000);
+    await waitForStatus(/Get complete: 1 binding\(s\)/, 30000);
+    // The virtualizer renders rows on its own ResizeObserver cycle, which
+    // lags the state flush that sets the status text — wait for the row to
+    // be in the DOM before asserting on its contents.
+    const row = await $("[data-testid='result-row']");
+    try {
+      await expect(row).toBeExisting({ timeout: 5000 });
+    } catch (err) {
+      // Dump the results body so a CI failure shows what (if anything)
+      // rendered instead of a bare assertion mismatch.
+      const dbg = await browser.execute(() => {
+        const body = document.querySelector("[data-testid='results-body']");
+        return body ? body.innerHTML.slice(0, 3000) : "(no results-body element)";
+      });
+      console.log("ROW-NOT-RENDERED results-body:", dbg);
+      throw err;
+    }
     expect(await resultsBodyHasText("sysObjectID")).toBe(true);
 
     // Restore the empty-results state for later spec files (shared window).
