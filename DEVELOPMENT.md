@@ -56,6 +56,52 @@ npm run check        # TypeScript + Svelte type checking
 npm run check:rust   # Rust compilation check (no linking, fast)
 ```
 
+## Running CI Locally with act
+
+Run the GitHub Actions workflow (`.github/workflows/ci.yml`) locally with [act](https://github.com/nektos/act).
+
+### Prerequisites
+
+- **act** installed (e.g. `brew install act`, or a binary from the [releases](https://github.com/nektos/act/releases)).
+- **A container engine act can reach.** A directly-launched rootless engine (docker/podman) often can't complete the user-namespace handshake in a restricted/sandboxed shell. The reliable option is the **rootless podman systemd socket service**, which runs outside that process tree:
+
+  ```bash
+  systemctl --user enable --now podman.socket
+  export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock
+  ```
+
+  (With a normal Docker daemon, just ensure it's running and set `DOCKER_HOST` if it's non-default.)
+
+### Image fix required for podman
+
+The stock `catthehacker/ubuntu:act-latest` image has `/var/run` as a symlink to `/run`, which breaks podman's `CopyToContainer` (`path escapes from parent`, [nektos/act#6092](https://github.com/nektos/act/issues/6092)). Build a one-time wrapper image with a real `/var/run` directory (in a scratch dir):
+
+```dockerfile
+FROM catthehacker/ubuntu:act-latest
+RUN rm -f /var/run && mkdir -p /var/run
+```
+
+```bash
+docker build -f Dockerfile -t act-ubuntu .
+```
+
+(Not needed when the engine is Docker — use the stock image directly.)
+
+### Running
+
+```bash
+# all jobs
+act -P ubuntu-latest=act-ubuntu --pull=false
+
+# a single job
+act -j verify-web -P ubuntu-latest=act-ubuntu --pull=false
+act -j verify-rust -P ubuntu-latest=act-ubuntu --pull=false
+act -j e2e -P ubuntu-latest=act-ubuntu --pull=false
+```
+
+- `--pull=false` is required: the wrapper image is local, not on a registry.
+- This act version has no `-I` flag — select the image with `-P <platform>=<image>` (the workflow uses `runs-on: ubuntu-latest`).
+
 ## E2E Testing
 
 End-to-end tests use [WebdriverIO](https://webdriver.io/) with the embedded Tauri WebDriver provider. The test runner starts a Vite dev server, launches the app headless via Xvfb, and drives the UI through WebDriver.

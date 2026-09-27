@@ -1089,12 +1089,12 @@
              virtua would fall back to the non-scrollable parent and break. -->
         <Virtualizer
           data={sortedRows}
-          getKey={(row) => row.oid}
+          getKey={(row: ResultRow) => row.oid}
           scrollRef={resultsBodyEl ?? undefined}
           startMargin={flatHeaderEl?.offsetHeight ?? 0}
           itemProps={() => (showRaw ? { style: { "min-width": "max-content" } } : undefined)}
         >
-          {#snippet children(row)}
+          {#snippet children(row: ResultRow)}
           <div
             data-testid="result-row"
             class="flex border-b border-base-300 cursor-pointer hover:bg-base-200/70 {row.warning ? 'text-accent' : ''}"
