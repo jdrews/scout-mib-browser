@@ -95,14 +95,30 @@ describe("Address bar (autocomplete)", () => {
     );
     expect(selectedCount).toBe(0);
 
-    // Go runs the typed OID, not the previously selected node. The backend
-    // queries the scalar at its .0 instance, so the row shows the resolved
-    // name with the instance suffix — "sysObjectID.0", not "sysDescr.0".
-    // Require exactly 1 binding: a noSuchObject 0-binding result would
-    // otherwise satisfy the status wait with an empty results body.
+    // Go runs the typed OID, not the previously selected node: the row shows
+    // the resolved name "sysObjectID" (the backend queries ObjectIdentifier
+    // syntax at the bare OID, the agent's noSuchObject surfaces as a NULL
+    // binding with a warning). Require exactly 1 binding so a 0-binding
+    // result can't satisfy the status wait with an empty results body.
     await (await $("[data-testid='go-btn']")).click();
     await waitForStatus(/Get complete: 1 binding\(s\)/, 30000);
-    expect(await resultsBodyHasText("sysObjectID.0")).toBe(true);
+    // The virtualizer renders rows on its own ResizeObserver cycle, which
+    // lags the state flush that sets the status text — wait for the row to
+    // be in the DOM before asserting on its contents.
+    const row = await $("[data-testid='result-row']");
+    try {
+      await expect(row).toBeExisting({ timeout: 5000 });
+    } catch (err) {
+      // Dump the results body so a CI failure shows what (if anything)
+      // rendered instead of a bare assertion mismatch.
+      const dbg = await browser.execute(() => {
+        const body = document.querySelector("[data-testid='results-body']");
+        return body ? body.innerHTML.slice(0, 3000) : "(no results-body element)";
+      });
+      console.log("ROW-NOT-RENDERED results-body:", dbg);
+      throw err;
+    }
+    expect(await resultsBodyHasText("sysObjectID")).toBe(true);
 
     // Restore the empty-results state for later spec files (shared window).
     const clearBtn = await $("[data-testid='clear-btn']");
