@@ -238,7 +238,13 @@ jobs:
           releaseDraft: true
           uploadUpdaterJson: false
           releaseAssetNamePattern: '[mainBinaryName]-[version]-[platform]-[arch][setup][ext]'
-          args: '--bundles ${{ matrix.bundles }} ${{ matrix.tauriTarget }}'
+          # Pass the cross-compile triple as --target (a documented `tauri build`
+          # option). A bare triple after --bundles is parsed as an extra bundle
+          # value and fails with a clap "invalid value" error; --target also
+          # steers the action's artifact-path lookup to target/<triple>/release/.
+          args: >-
+            --bundles ${{ matrix.bundles }}
+            ${{ matrix.tauriTarget != '' && format('--target {0}', matrix.tauriTarget) || '' }}
 
       # tauri-action tars the .app during its run, before this step can run,
       # so the release assets it uploaded for macOS are unsigned. Sign
