@@ -24,6 +24,10 @@ Full USM support (RFC 3414) plus the extended SHA-2 hashes from RFC 7860. Any co
 - **Privacy:** none, DES (legacy), AES-128, AES-192, AES-256
 - **Security levels:** noAuthNoPriv · authNoPriv · authPriv
 
+## Installation
+
+Prebuilt, runnable artifacts for Linux (x64/arm64), macOS (x64/arm64), and Windows (x64/arm64) are published as GitHub Releases. Per-platform runtime requirements (FUSE for AppImage, Gatekeeper / SmartScreen notes) are in [docs/INSTALL.md](docs/INSTALL.md).
+
 ## Development
 
 To build, run, or test the project from source, see [DEVELOPMENT.md](DEVELOPMENT.md).
