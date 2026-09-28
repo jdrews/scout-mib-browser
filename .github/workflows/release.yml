@@ -1,0 +1,390 @@
+name: Release
+
+# User-driven release pipeline (the "logstation model"): a maintainer runs this
+# from Actions -> Release -> Run workflow, types a tag name, and the pipeline
+# builds every target, attaches the artifacts to a GitHub Release, and
+# publishes a goreleaser-style SHA256SUMS file.
+#
+# Spec: docs/specs/2026-09-27-cross-platform-release-artifacts.md
+#
+# Design notes:
+# - tauri-apps/tauri-action (pinned) is the build backbone: it runs
+#   `tauri build` per leg and, when GITHUB_TOKEN is present, creates the draft
+#   Release with auto-generated notes and uploads the assets. Without a token
+#   (e.g. a local `act` run) it builds only and skips the Release; the publish
+#   steps below are gated the same way.
+# - Native runners wherever they exist: Linux arm64 on `ubuntu-24.04-arm`
+#   (AppImages cannot be cross-compiled); only Windows arm64 and macOS x64
+#   are cross-compiled.
+# - v1 ships only runnable artifacts (AppImage / dmg+app / NSIS+portable zip);
+#   per-leg `--bundles` selection keeps the deferred package formats
+#   (deb/rpm/msi) out of the release.
+# - Code signing is a documented v1 gap: macOS is ad-hoc signed post-build
+#   (tauri-action tars the .app during its run, so the signed .dmg and
+#   .app.tar.gz are re-uploaded with --clobber afterwards); Windows and Linux
+#   are unsigned (Gatekeeper / SmartScreen notes in docs/INSTALL.md).
+# - `uploadUpdaterJson` is disabled: with a six-leg matrix, each leg would
+#   overwrite latest.json with only its own assets. Auto-update is a follow-up.
+# - Re-dispatch semantics: re-running with a tag that has an existing DRAFT
+#   release reuses it and overwrites its assets. Against a PUBLISHED release,
+#   tauri-action fails with "release not found" — delete the published release
+#   first (`gh release delete <tag> --cleanup-tag`).
+# - The tag should be `v<major.minor.patch>` matching tauri.conf.json; a
+#   mismatch is warned about (artifact names always derive from
+#   tauri.conf.json, the single source of truth).
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'New tag name (e.g. v0.1.0)'
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verify:
+    name: Verify (release gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libdbus-1-dev \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libssl-dev \
+            libsoup-3.0-dev \
+            librsvg2-dev \
+            pkg-config
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+
+      # Pre-commit checklist (see AGENTS.md): a broken commit must not burn
+      # six build runners.
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets --all-features
+
+      - name: Run tests
+        run: cargo test --workspace --all-features
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Svelte check
+        run: npx svelte-check --threshold warning
+
+      # R7: tag/version drift. Warn, don't fail — the maintainer may still
+      # want a differently-named tag; artifact names always use the
+      # tauri.conf.json version.
+      - name: Warn on tag/version mismatch
+        run: |
+          VER=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          TAG="${{ inputs.tag }}"
+          if [ "$TAG" != "v$VER" ]; then
+            echo "::warning::Tag '$TAG' does not match 'v$VER' (tauri.conf.json). Artifact names always derive from tauri.conf.json."
+          fi
+
+  build:
+    name: Build ${{ matrix.os }} ${{ matrix.arch }}
+    needs: [verify]
+    runs-on: ${{ matrix.platform }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x64 — native.
+          - platform: 'ubuntu-24.04'
+            os: 'linux'
+            arch: 'amd64'
+            tauriTarget: ''
+            rustTargets: ''
+            bundles: 'appimage'
+          # Linux arm64 — native on the ARM64 hosted runner (AppImages cannot
+          # be cross-compiled; the arm64 system deps are installed natively).
+          - platform: 'ubuntu-24.04-arm'
+            os: 'linux'
+            arch: 'aarch64'
+            tauriTarget: ''
+            rustTargets: ''
+            bundles: 'appimage'
+          # macOS x64 — cross-compiled from the Apple Silicon runner (Tauri
+          # uses the system WKWebView, so no native C deps need cross-building).
+          - platform: 'macos-latest'
+            os: 'macos'
+            arch: 'x64'
+            tauriTarget: 'x86_64-apple-darwin'
+            rustTargets: 'x86_64-apple-darwin'
+            bundles: 'app,dmg'
+          # macOS arm64 — native on the Apple Silicon runner.
+          - platform: 'macos-latest'
+            os: 'macos'
+            arch: 'aarch64'
+            tauriTarget: 'aarch64-apple-darwin'
+            rustTargets: 'aarch64-apple-darwin'
+            bundles: 'app,dmg'
+          # Windows x64 — native.
+          - platform: 'windows-latest'
+            os: 'windows'
+            arch: 'x64'
+            tauriTarget: ''
+            rustTargets: ''
+            bundles: 'nsis'
+          # Windows arm64 — cross-compiled; the ARM64 MSVC build tools must be
+          # installed by the custom step below (tauri-action only runs
+          # `tauri build --target aarch64-pc-windows-msvc`).
+          - platform: 'windows-latest'
+            os: 'windows'
+            arch: 'arm64'
+            tauriTarget: 'aarch64-pc-windows-msvc'
+            rustTargets: 'aarch64-pc-windows-msvc'
+            bundles: 'nsis'
+            arm: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libdbus-1-dev \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libssl-dev \
+            libsoup-3.0-dev \
+            librsvg2-dev \
+            pkg-config \
+            sccache
+
+      - name: Install Windows ARM64 MSVC build tools
+        if: matrix.arm
+        run: |
+          # MSVC v143 "C++ ARM64 build tools" component: provides the ARM64
+          # CRT/libraries the cross-compile links against. The NSIS installer
+          # itself is x86 (runs via emulation on ARM); only the app binary
+          # needs the arm64 toolchain.
+          $vsInstaller = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe"
+          & $vsInstaller modify --add Microsoft.VisualStudio.Component.VC.Tools.ARM64 --quiet --wait
+
+      # sccache: cache per-crate compilations so a changed source only rebuilds
+      # what actually changed. RUSTC_WRAPPER is what Swatinem/rust-cache looks
+      # for to also cache the sccache dir (alongside target/ and the registry).
+      # sccache is preinstalled on the macOS/Windows runners.
+      - name: Enable sccache
+        run: |
+          echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          echo "SCCACHE_IDLE_TIMEOUT=0" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          targets: ${{ matrix.rustTargets }}
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          cache-on-failure: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build with tauri-action
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
+        with:
+          # Without a token (e.g. a local `act` run) the action builds only and
+          # skips the Release; the publish steps below are gated the same way.
+          tagName: ${{ env.GH_TOKEN != '' && inputs.tag || '' }}
+          releaseName: 'Scout MIB Browser ${{ inputs.tag }}'
+          releaseBody: |
+            ## Install
+            Per-platform runtime requirements (FUSE for AppImage, Gatekeeper /
+            SmartScreen notes for the unsigned v1 artifacts):
+            https://github.com/${{ github.repository }}/blob/main/docs/INSTALL.md
+          generateReleaseNotes: true
+          releaseDraft: true
+          uploadUpdaterJson: false
+          releaseAssetNamePattern: '[mainBinaryName]-[version]-[platform]-[arch][setup][ext]'
+          args: '--bundles ${{ matrix.bundles }} ${{ matrix.tauriTarget }}'
+
+      # tauri-action tars the .app during its run, before this step can run,
+      # so the release assets it uploaded for macOS are unsigned. Sign
+      # ad-hoc (v1; Developer-ID + notarization is a follow-up), then re-tar
+      # (same command the action uses) and rebuild the DMG around the signed
+      # app, and replace the release assets.
+      - name: Ad-hoc sign and repackage (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          VER=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          ARCH="${{ matrix.arch }}"
+          # src-tauri is a workspace member, so the cargo target dir is the
+          # workspace root's target/ (cross-targets nest under it); locate
+          # the bundle rather than hardcoding the path.
+          APP=$(find . -path "*/release/bundle/macos/Scout MIB Browser.app" | head -1)
+          [ -n "$APP" ] || { echo "::error::.app bundle not found"; exit 1; }
+          codesign --force --sign - --deep "$APP"
+          rm -f "$APP.tar.gz"
+          tar czf "$APP.tar.gz" -C "$(dirname "$APP")" "$(basename "$APP")"
+          mv "$APP.tar.gz" "scout-mib-browser-${VER}-darwin-${ARCH}.app.tar.gz"
+          rm -f "$(dirname "$APP")/../dmg/Scout MIB Browser_${VER}_*.dmg"
+          hdiutil create -volname "Scout MIB Browser" -srcfolder "$APP" -format UDZO "scout-mib-browser-${VER}-darwin-${ARCH}.dmg"
+          if [ -n "${GH_TOKEN:-}" ]; then
+            # Draft releases are not resolvable by tag via the API, so look
+            # the release up by id (the list API includes drafts).
+            REL_ID=$(TAG="${{ inputs.tag }}" gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --paginate --jq 'env.TAG as $t | .[] | select(.tag_name == $t) | .id')
+            if [ -z "$REL_ID" ]; then
+              echo "::error::Release for tag '${{ inputs.tag }}' not found"
+              exit 1
+            fi
+            gh release upload "$REL_ID" \
+              "scout-mib-browser-${VER}-darwin-${ARCH}.dmg" \
+              "scout-mib-browser-${VER}-darwin-${ARCH}.app.tar.gz" \
+              --clobber
+          fi
+
+      # tauri-action emits no portable zip: zip the release binary + the
+      # bundled resources (the mibs) for both arches.
+      - name: Build portable zip (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ver = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $arch = '${{ matrix.arch }}'
+          # src-tauri is a workspace member, so the cargo target dir is the
+          # workspace root's target/ (cross-targets nest under it); locate
+          # the bundle rather than hardcoding the path.
+          $installer = Get-ChildItem -Recurse -Filter "Scout MIB Browser_$ver_$arch-setup.exe" | Select-Object -First 1
+          if (-not $installer) { throw "NSIS installer not found" }
+          Rename-Item $installer.FullName "scout-mib-browser-$ver-windows-$arch-setup.exe"
+          $bin = Get-ChildItem -Recurse -Filter "scout-mib-browser.exe" | Where-Object { $_.Directory.Name -eq 'release' } | Select-Object -First 1
+          if (-not $bin) { throw "release binary not found" }
+          New-Item -ItemType Directory -Force portable | Out-Null
+          Copy-Item $bin.FullName "portable/"
+          $res = Get-ChildItem -Recurse -Directory -Filter "resources" | Where-Object { $_.Parent.Name -eq 'nsis' } | Select-Object -First 1
+          if ($res) {
+            Copy-Item $res.FullName "portable/" -Recurse
+          }
+          Compress-Archive -Path "portable/*" -DestinationPath "scout-mib-browser-$ver-windows-$arch.zip"
+          if ($env:GH_TOKEN) {
+            # Draft releases are not resolvable by tag via the API, so look
+            # the release up by id (the list API includes drafts).
+            $env:TAG = "${{ inputs.tag }}"
+            $relId = gh api "repos/${env:GITHUB_REPOSITORY}/releases?per_page=100" --paginate --jq 'env.TAG as $t | .[] | select(.tag_name == $t) | .id'
+            Remove-Item Env:TAG
+            if (-not $relId) {
+              throw "Release for tag '${{ inputs.tag }}' not found"
+            }
+            gh release upload $relId "scout-mib-browser-$ver-windows-$arch.zip"
+          }
+
+      # Canonical names (must match releaseAssetNamePattern so SHA256SUMS
+      # references names users can match to their downloads).
+      - name: Rename AppImage to canonical name (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          VER=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          # src-tauri is a workspace member, so the cargo target dir is the
+          # workspace root's target/; locate the bundle rather than
+          # hardcoding the path.
+          APPIMAGE=$(find . -path "*/bundle/appimage/Scout MIB Browser_${VER}_${{ matrix.arch }}.AppImage" | head -1)
+          [ -n "$APPIMAGE" ] || { echo "::error::AppImage not found"; exit 1; }
+          mv "$APPIMAGE" "scout-mib-browser-${VER}-linux-${{ matrix.arch }}.AppImage"
+
+      # The checksum job downloads these; the files are already canonical-named
+      # above, so the names match the published release assets.
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.os }}-${{ matrix.arch }}
+          if-no-files-found: error
+          path: |
+            scout-mib-browser-*.AppImage
+            scout-mib-browser-*.dmg
+            scout-mib-browser-*.app.tar.gz
+            scout-mib-browser-*-setup.exe
+            scout-mib-browser-*.zip
+
+  checksum:
+    name: Checksums + publish
+    needs: [build]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      # No name: download every workflow artifact, each into a subdirectory
+      # named after the artifact.
+      - uses: actions/download-artifact@v4
+
+      - name: Generate SHA256SUMS
+        run: |
+          set -euo pipefail
+          for d in */; do
+            [ -d "$d" ] || continue
+            mv "$d"* .
+          done
+          COUNT=$(ls scout-mib-browser-* 2>/dev/null | wc -l)
+          if [ "$COUNT" -ne 10 ]; then
+            echo "::error::Expected 10 release artifacts, found $COUNT"
+            ls -la
+            exit 1
+          fi
+          # goreleaser-style: one line per canonical-named artifact.
+          sha256sum scout-mib-browser-* > SHA256SUMS
+          cat SHA256SUMS
+
+      # The release (draft) was created by tauri-action in the build legs.
+      # Gated on the token so a local `act` run (no token) stops at SHA256SUMS.
+      - name: Upload SHA256SUMS to the Release and publish the draft
+        if: env.GH_TOKEN != ''
+        run: |
+          set -euo pipefail
+          # Draft releases are not resolvable by tag via the API, so look
+          # the release up by id (the list API includes drafts).
+          REL_ID=$(TAG="${{ inputs.tag }}" gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --paginate --jq 'env.TAG as $t | .[] | select(.tag_name == $t) | .id')
+          if [ -z "$REL_ID" ]; then
+            echo "::error::Release for tag '${{ inputs.tag }}' not found"
+            exit 1
+          fi
+          gh release upload "$REL_ID" SHA256SUMS
+          gh release edit "$REL_ID" --draft false
+
+      - name: Upload SHA256SUMS as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SHA256SUMS
+          path: SHA256SUMS

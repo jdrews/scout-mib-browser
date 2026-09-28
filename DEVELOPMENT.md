@@ -99,6 +99,39 @@ act -j e2e -P ubuntu-latest=act-ubuntu --pull=false
 - This act version has no `-I` flag — select the image with `-P <platform>=<image>` (the workflow uses `runs-on: ubuntu-latest`).
 - All three jobs pass with this image (verified: `verify-rust`, `verify-web`, and `e2e` — 16/16 spec files).
 
+### Running the Release Workflow Locally (throwaway)
+
+The release workflow (`.github/workflows/release.yml`) is a `workflow_dispatch`, so
+simulate the dispatch with an event file. act can only run the Linux x64 leg
+(no macOS/Windows/ARM runners), so the checksum job's artifact-count guard
+(10 files) correctly fails on the partial matrix — that is the expected
+outcome, not a bug:
+
+```bash
+# event payload: the required `tag` dispatch input
+printf '{"event":"workflow_dispatch","inputs":{"tag":"v0.1.0-act-local"}}' > /tmp/release-event.json
+
+export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock
+act \
+  -P ubuntu-latest=docker.io/scout/act-latest-user1001:latest \
+  -P ubuntu-24.04=docker.io/scout/act-latest-user1001:latest \
+  -P ubuntu-24.04-arm=docker.io/scout/act-latest-user1001:latest \
+  --pull=false \
+  --artifact-server-path /tmp/act-artifacts \
+  -j verify -j build -j checksum \
+  --matrix platform:ubuntu-24.04 \
+  -e /tmp/release-event.json
+```
+
+- `--matrix key:value` (colon, not `=`) filters the build matrix to one leg.
+- `--artifact-server-path` enables act's local artifact server so the
+  `upload-artifact` → `download-artifact` round trip works.
+- Without a `GITHUB_TOKEN`, tauri-action builds only and skips the Release,
+  and the publish steps are skipped — the run ends at SHA256SUMS generation.
+- Verified: `verify` passes, the Linux x64 leg builds the AppImage and uploads
+  it as `scout-mib-browser-<ver>-linux-amd64.AppImage`, and the checksum job
+  fails the count guard with `Expected 10 release artifacts, found 1`.
+
 ## E2E Testing
 
 End-to-end tests use [WebdriverIO](https://webdriver.io/) with the embedded Tauri WebDriver provider. The test runner starts a Vite dev server, launches the app headless via Xvfb, and drives the UI through WebDriver.
