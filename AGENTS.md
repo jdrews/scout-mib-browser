@@ -35,7 +35,7 @@ Commit messages must follow the [7 rules](https://chris.beams.io/posts/git-commi
 
 ## Running CI locally
 
-Run the CI workflow locally with `act`. See [DEVELOPMENT.md → Running CI Locally with act](DEVELOPMENT.md#running-ci-locally-with-act) for prerequisites (rootless podman socket + `DOCKER_HOST`) and the required podman image fix. Quick form:
+Run the CI workflow locally with `act`. See [DEVELOPMENT.md → Running CI Locally with act](DEVELOPMENT.md#running-ci-locally-with-act) for prerequisites (rootless podman socket + `DOCKER_HOST`) and the one-time `act-ubuntu` runner image build (podman `/var/run` fix, non-privileged `runner` user, pre-installed e2e Python deps). Quick form:
 
 ```bash
 systemctl --user enable --now podman.socket

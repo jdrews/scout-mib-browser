@@ -86,6 +86,11 @@ cleanup() {
 trap cleanup EXIT
 
 # ── Mock SNMP agents ─────────────────────────────────────────────────────────
+# snmpsim 1.2.2 races on makedirs("/tmp/snmpsim") when agents start
+# concurrently: losers hit FileExistsError and exit before listening. Create
+# it up front so all agents take the "already exists" path.
+mkdir -p /tmp/snmpsim
+
 echo "Starting mock SNMP agent on port $AGENT_PORT..."
 python3 "$REPO_ROOT/scripts/snmpsim-test.py" --port "$AGENT_PORT" \
   > "$WORK_DIR/agent.log" 2>&1 &

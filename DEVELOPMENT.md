@@ -72,20 +72,16 @@ Run the GitHub Actions workflow (`.github/workflows/ci.yml`) locally with [act](
 
   (With a normal Docker daemon, just ensure it's running and set `DOCKER_HOST` if it's non-default.)
 
-### Image fix required for podman
+### Building the runner image
 
-The stock `catthehacker/ubuntu:act-latest` image has `/var/run` as a symlink to `/run`, which breaks podman's `CopyToContainer` (`path escapes from parent`, [nektos/act#6092](https://github.com/nektos/act/issues/6092)). Build a one-time wrapper image with a real `/var/run` directory (in a scratch dir):
-
-```dockerfile
-FROM catthehacker/ubuntu:act-latest
-RUN rm -f /var/run && mkdir -p /var/run
-```
+`act` runs each job as the image's default user, so the runner image
+([scripts/act-runner.Dockerfile](scripts/act-runner.Dockerfile)) is shaped
+to mirror a real GitHub Actions runner (see the comments in the file for
+the why behind each piece). Build it once from the repo root:
 
 ```bash
-docker build -f Dockerfile -t act-ubuntu .
+docker build -f scripts/act-runner.Dockerfile -t act-ubuntu .
 ```
-
-(Not needed when the engine is Docker — use the stock image directly.)
 
 ### Running
 
@@ -101,6 +97,7 @@ act -j e2e -P ubuntu-latest=act-ubuntu --pull=false
 
 - `--pull=false` is required: the wrapper image is local, not on a registry.
 - This act version has no `-I` flag — select the image with `-P <platform>=<image>` (the workflow uses `runs-on: ubuntu-latest`).
+- All three jobs pass with this image (verified: `verify-rust`, `verify-web`, and `e2e` — 16/16 spec files).
 
 ## E2E Testing
 
