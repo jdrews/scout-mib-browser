@@ -290,19 +290,48 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $ver = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
           $arch = '${{ matrix.arch }}'
+          $triple = '${{ matrix.tauriTarget }}'
           # src-tauri is a workspace member, so the cargo target dir is the
-          # workspace root's target/ (cross-targets nest under it); locate
-          # the bundle rather than hardcoding the path.
-          $installer = Get-ChildItem -Recurse -Filter "Scout MIB Browser_$ver_$arch-setup.exe" | Select-Object -First 1
+          # workspace root's target/ (cross-targets nest under it). Check the
+          # canonical path first: a recursive Get-ChildItem -Filter search is
+          # unreliable on the Windows runner (it misses files that provably
+          # exist), so the canonical path is the source of truth and the
+          # recursive search is only a diagnostic fallback.
+          $outDir = if ($triple) { "target\$triple\release" } else { "target\release" }
+          function Resolve-File {
+            param([string]$Canonical, [string]$Filter, [string]$Label)
+            if (Test-Path -LiteralPath $Canonical) { return $Canonical }
+            Write-Host "Canonical $Label not found at: $Canonical"
+            $hit = Get-ChildItem -Recurse -File -Filter $Filter -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($hit) { Write-Host "Found via recursive search: $($hit.FullName)"; return $hit.FullName }
+            # Diagnostics: list the actual release/bundle tree via direct paths
+            Write-Host "=== $Label diagnostics ==="
+            $bundleDir = "$outDir\bundle"
+            if (Test-Path -LiteralPath $bundleDir) {
+              Get-ChildItem -LiteralPath $bundleDir -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.Name)" }
+            } elseif (Test-Path -LiteralPath $outDir) {
+              Write-Host "  (no bundle dir; release dir contents:)"
+              Get-ChildItem -LiteralPath $outDir -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "    $($_.Name)" }
+            } else {
+              Write-Host "  release dir not found: $outDir"
+            }
+            Write-Host "=== end diagnostics ==="
+            return $null
+          }
+          # NSIS installer. Move it to the repo root (not just rename in
+          # place) so the artifact upload, which globs the repo root, finds it.
+          $installer = Resolve-File -Canonical "$outDir\bundle\nsis\Scout MIB Browser_$ver_$arch-setup.exe" -Filter "Scout MIB Browser_$ver_$arch-setup.exe" -Label "NSIS installer"
           if (-not $installer) { throw "NSIS installer not found" }
-          Rename-Item $installer.FullName "scout-mib-browser-$ver-windows-$arch-setup.exe"
-          $bin = Get-ChildItem -Recurse -Filter "scout-mib-browser.exe" | Where-Object { $_.Directory.Name -eq 'release' } | Select-Object -First 1
+          Move-Item -LiteralPath $installer "scout-mib-browser-$ver-windows-$arch-setup.exe"
+          # Release binary
+          $bin = Resolve-File -Canonical "$outDir\scout-mib-browser.exe" -Filter "scout-mib-browser.exe" -Label "release binary"
           if (-not $bin) { throw "release binary not found" }
           New-Item -ItemType Directory -Force portable | Out-Null
-          Copy-Item $bin.FullName "portable/"
-          $res = Get-ChildItem -Recurse -Directory -Filter "resources" | Where-Object { $_.Parent.Name -eq 'nsis' } | Select-Object -First 1
-          if ($res) {
-            Copy-Item $res.FullName "portable/" -Recurse
+          Copy-Item -LiteralPath $bin "portable/"
+          # Bundled resources (the mibs) - optional
+          $res = "$outDir\bundle\nsis\resources"
+          if (Test-Path -LiteralPath $res) {
+            Copy-Item -LiteralPath $res "portable/" -Recurse
           }
           Compress-Archive -Path "portable/*" -DestinationPath "scout-mib-browser-$ver-windows-$arch.zip"
           if ($env:GH_TOKEN) {
