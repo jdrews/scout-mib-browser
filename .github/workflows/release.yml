@@ -196,7 +196,14 @@ jobs:
       # sccache: cache per-crate compilations so a changed source only rebuilds
       # what actually changed. RUSTC_WRAPPER is what Swatinem/rust-cache looks
       # for to also cache the sccache dir (alongside target/ and the registry).
-      # sccache is preinstalled on the macOS/Windows runners.
+      # sccache is preinstalled on the Windows runner; the macOS runner image
+      # lacks it, so install it via Homebrew (the Linux leg installs it via
+      # apt above). Without the binary, RUSTC_WRAPPER makes every cargo
+      # invocation fail with "No such file or directory".
+      - name: Install sccache (macOS)
+        if: runner.os == 'macOS'
+        run: brew install sccache
+
       - name: Enable sccache
         run: |
           echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
