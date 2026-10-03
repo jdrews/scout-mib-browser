@@ -300,10 +300,10 @@ jobs:
           $triple = '${{ matrix.tauriTarget }}'
           # src-tauri is a workspace member, so the cargo target dir is the
           # workspace root's target/ (cross-targets nest under it). Check the
-          # canonical path first: a recursive Get-ChildItem -Filter search is
-          # unreliable on the Windows runner (it misses files that provably
-          # exist), so the canonical path is the source of truth and the
-          # recursive search is only a diagnostic fallback.
+          # canonical path first; the recursive search is a fallback.
+          # PowerShell variable names include underscores, so an unbraced
+          # "$ver_" is one undefined variable that expands to empty — always
+          # brace ${ver}/${arch} in these strings.
           $outDir = if ($triple) { "target\$triple\release" } else { "target\release" }
           function Resolve-File {
             param([string]$Canonical, [string]$Filter, [string]$Label)
@@ -327,9 +327,9 @@ jobs:
           }
           # NSIS installer. Move it to the repo root (not just rename in
           # place) so the artifact upload, which globs the repo root, finds it.
-          $installer = Resolve-File -Canonical "$outDir\bundle\nsis\Scout MIB Browser_$ver_$arch-setup.exe" -Filter "Scout MIB Browser_$ver_$arch-setup.exe" -Label "NSIS installer"
+          $installer = Resolve-File -Canonical "$outDir\bundle\nsis\Scout MIB Browser_${ver}_${arch}-setup.exe" -Filter "Scout MIB Browser_${ver}_${arch}-setup.exe" -Label "NSIS installer"
           if (-not $installer) { throw "NSIS installer not found" }
-          Move-Item -LiteralPath $installer "scout-mib-browser-$ver-windows-$arch-setup.exe"
+          Move-Item -LiteralPath $installer "scout-mib-browser-${ver}-windows-${arch}-setup.exe"
           # Release binary
           $bin = Resolve-File -Canonical "$outDir\scout-mib-browser.exe" -Filter "scout-mib-browser.exe" -Label "release binary"
           if (-not $bin) { throw "release binary not found" }
@@ -340,7 +340,7 @@ jobs:
           if (Test-Path -LiteralPath $res) {
             Copy-Item -LiteralPath $res "portable/" -Recurse
           }
-          Compress-Archive -Path "portable/*" -DestinationPath "scout-mib-browser-$ver-windows-$arch.zip"
+          Compress-Archive -Path "portable/*" -DestinationPath "scout-mib-browser-${ver}-windows-${arch}.zip"
           if ($env:GH_TOKEN) {
             # Draft releases are not resolvable by tag via the API, so look
             # the release up by id (the list API includes drafts).
@@ -350,7 +350,7 @@ jobs:
             if (-not $relId) {
               throw "Release for tag '${{ inputs.tag }}' not found"
             }
-            gh release upload $relId "scout-mib-browser-$ver-windows-$arch.zip"
+            gh release upload $relId "scout-mib-browser-${ver}-windows-${arch}.zip"
           }
 
       # Canonical names (must match releaseAssetNamePattern so SHA256SUMS
