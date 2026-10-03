@@ -315,68 +315,56 @@ jobs:
           fi
 
       # tauri-action emits no portable zip: zip the release binary + the
-      # bundled resources (the mibs) for both arches.
+      # bundled resources (the mibs) for both arches. Bash (the uniform
+      # shell for all six legs); the zip is made with 7z, which is
+      # preinstalled on the Windows runner.
       - name: Build portable zip (Windows)
         if: runner.os == 'Windows'
+        shell: bash
         run: |
-          $ErrorActionPreference = 'Stop'
-          $ver = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
-          $arch = '${{ matrix.arch }}'
-          $triple = '${{ matrix.tauriTarget }}'
+          set -euo pipefail
+          ver=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          arch='${{ matrix.arch }}'
+          triple='${{ matrix.tauriTarget }}'
           # src-tauri is a workspace member, so the cargo target dir is the
-          # workspace root's target/ (cross-targets nest under it). Check the
-          # canonical path first; the recursive search is a fallback.
-          # PowerShell variable names include underscores, so an unbraced
-          # "$ver_" is one undefined variable that expands to empty — always
-          # brace ${ver}/${arch} in these strings.
-          $outDir = if ($triple) { "target\$triple\release" } else { "target\release" }
-          function Resolve-File {
-            param([string]$Canonical, [string]$Filter, [string]$Label)
-            if (Test-Path -LiteralPath $Canonical) { return $Canonical }
-            Write-Host "Canonical $Label not found at: $Canonical"
-            $hit = Get-ChildItem -Recurse -File -Filter $Filter -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($hit) { Write-Host "Found via recursive search: $($hit.FullName)"; return $hit.FullName }
-            # Diagnostics: list the actual release/bundle tree via direct paths
-            Write-Host "=== $Label diagnostics ==="
-            $bundleDir = "$outDir\bundle"
-            if (Test-Path -LiteralPath $bundleDir) {
-              Get-ChildItem -LiteralPath $bundleDir -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.Name)" }
-            } elseif (Test-Path -LiteralPath $outDir) {
-              Write-Host "  (no bundle dir; release dir contents:)"
-              Get-ChildItem -LiteralPath $outDir -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "    $($_.Name)" }
-            } else {
-              Write-Host "  release dir not found: $outDir"
-            }
-            Write-Host "=== end diagnostics ==="
-            return $null
-          }
+          # workspace root's target/ (cross-targets nest under it). An empty
+          # triple yields target//release, which is harmless.
+          out_dir="target/${triple}/release"
           # NSIS installer. Move it to the repo root (not just rename in
           # place) so the artifact upload, which globs the repo root, finds it.
-          $installer = Resolve-File -Canonical "$outDir\bundle\nsis\Scout MIB Browser_${ver}_${arch}-setup.exe" -Filter "Scout MIB Browser_${ver}_${arch}-setup.exe" -Label "NSIS installer"
-          if (-not $installer) { throw "NSIS installer not found" }
-          Move-Item -LiteralPath $installer "scout-mib-browser-${ver}-windows-${arch}-setup.exe"
+          installer="$out_dir/bundle/nsis/Scout MIB Browser_${ver}_${arch}-setup.exe"
+          if [ ! -f "$installer" ]; then
+            echo "::error::NSIS installer not found at $installer"
+            find . -name "*-setup.exe" 2>/dev/null | head -10
+            exit 1
+          fi
+          mv "$installer" "scout-mib-browser-${ver}-windows-${arch}-setup.exe"
           # Release binary
-          $bin = Resolve-File -Canonical "$outDir\scout-mib-browser.exe" -Filter "scout-mib-browser.exe" -Label "release binary"
-          if (-not $bin) { throw "release binary not found" }
-          New-Item -ItemType Directory -Force portable | Out-Null
-          Copy-Item -LiteralPath $bin "portable/"
+          bin="$out_dir/scout-mib-browser.exe"
+          if [ ! -f "$bin" ]; then
+            echo "::error::release binary not found at $bin"
+            exit 1
+          fi
+          mkdir -p portable
+          cp "$bin" portable/
           # Bundled resources (the mibs) - optional
-          $res = "$outDir\bundle\nsis\resources"
-          if (Test-Path -LiteralPath $res) {
-            Copy-Item -LiteralPath $res "portable/" -Recurse
-          }
-          Compress-Archive -Path "portable/*" -DestinationPath "scout-mib-browser-${ver}-windows-${arch}.zip"
-          if ($env:GH_TOKEN) {
+          res="$out_dir/bundle/nsis/resources"
+          if [ -d "$res" ]; then
+            cp -r "$res" portable/
+          fi
+          # Zip the portable contents (7z stores entries relative to the
+          # directory, matching the old Compress-Archive -Path "portable/*").
+          ( cd portable && 7z a -y "../scout-mib-browser-${ver}-windows-${arch}.zip" . )
+          if [ -n "${GH_TOKEN:-}" ]; then
             # Draft releases are not resolvable by tag via the API, so look
             # the release up by id (the list API includes drafts).
-            $env:TAG = "${{ inputs.tag }}"
-            $relId = gh api "repos/${env:GITHUB_REPOSITORY}/releases?per_page=100" --paginate --jq 'env.TAG as $t | .[] | select(.tag_name == $t) | .id'
-            Remove-Item Env:TAG
-            if (-not $relId) {
-              throw "Release for tag '${{ inputs.tag }}' not found"
-            }
-            gh release upload $relId "scout-mib-browser-${ver}-windows-${arch}.zip"
-          }
+            rel_id=$(TAG="${{ inputs.tag }}" gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --paginate --jq 'env.TAG as $t | .[] | select(.tag_name == $t) | .id')
+            if [ -z "$rel_id" ]; then
+              echo "::error::Release for tag '${{ inputs.tag }}' not found"
+              exit 1
+            fi
+            gh release upload "$rel_id" "scout-mib-browser-${ver}-windows-${arch}.zip"
+          fi
 
       # Canonical names (must match releaseAssetNamePattern so SHA256SUMS
       # references names users can match to their downloads).
