@@ -127,6 +127,15 @@ jobs:
         with:
           cache-on-failure: true
 
+      # The wdio tauri-service runs an environment diagnostic per spec file
+      # that checks `which tauri-driver` even in embedded mode; the missing
+      # binary logs an error per spec. Installing it silences the noise —
+      # the embedded driver is still what runs the tests. Cached by
+      # Swatinem/rust-cache (~/.cargo/bin), so this is a no-op on
+      # subsequent runs. Pinned so a new release can't trigger recompiles.
+      - name: Install tauri-driver (satisfies e2e diagnostics)
+        run: cargo install tauri-driver@2.1.0
+
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
