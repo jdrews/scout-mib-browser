@@ -45,6 +45,10 @@ On Fedora, the AppImage bundler may fail with "More than one architectures were 
 ARCH=x86_64 NO_STRIP=true npm run build
 ```
 
+## App Icon
+
+The app icon is the Lucide `radar` glyph on the daisyUI dark palette. The 1024×1024 source is `src-tauri/app-icon.png`; the bundled set is the five files listed in `bundle.icon` (`src-tauri/icons/`: 32x32, 128x128, 128x128@2x, `.icns`, `.ico`). To regenerate after changing the source, run `npx tauri icon src-tauri/app-icon.png` from `src-tauri/` and then **delete the extras it generates** (`Square*Logo*.png`, `android/`, `ios/`, `64x64.png`, `icon.png`) — this app is desktop-only and the bundler only consumes the five listed files.
+
 ## Bundled MIBs
 
 `src-tauri/mibs/` holds ~57 standard IETF MIBs (core, network, security, DISMAN) taken from [net-snmp's mibs tree](https://github.com/net-snmp/net-snmp/tree/master/mibs) (BSD-licensed; each file keeps its original copyright header). They ship as Tauri resources (`bundle.resources` in `tauri.conf.json`) and are loaded automatically **only when none of the configured MIB directories contain files** — on systems with net-snmp installed, the system MIBs win, so no module is loaded twice. Dev/source builds read `src-tauri/mibs/` directly (the app falls back to the checkout path when the resource dir has no `mibs/`).
