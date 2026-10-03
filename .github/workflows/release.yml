@@ -29,9 +29,12 @@ name: Release
 #   release reuses it and overwrites its assets. Against a PUBLISHED release,
 #   tauri-action fails with "release not found" — delete the published release
 #   first (`gh release delete <tag> --cleanup-tag`).
-# - The tag should be `v<major.minor.patch>` matching tauri.conf.json; a
-#   mismatch is warned about (artifact names always derive from
-#   tauri.conf.json, the single source of truth).
+# - The tag is the single source of truth for the release version: each
+#   build leg injects it into tauri.conf.json before the build, so the
+#   bundle metadata, tauri-action's [version] asset naming, and the
+#   post-build rename steps all agree. The repo's tauri.conf.json holds
+#   a dev marker (0.1.0-dev) for local builds and is never bumped for
+#   releases.
 
 on:
   workflow_dispatch:
@@ -98,16 +101,23 @@ jobs:
       - name: Svelte check
         run: npx svelte-check --threshold warning
 
-      # R7: tag/version drift. Warn, don't fail — the maintainer may still
-      # want a differently-named tag; artifact names always use the
-      # tauri.conf.json version.
-      - name: Warn on tag/version mismatch
+      # R7 (revised): the tag is the single source of truth for the
+      # release version; the build legs inject it into tauri.conf.json
+      # before the build. Validate the shape here so a malformed tag
+      # fails before six build runners start.
+      - name: Validate tag format
         run: |
-          VER=$(node -p "require('./src-tauri/tauri.conf.json').version")
           TAG="${{ inputs.tag }}"
+          VER="${TAG#v}"
           if [ "$TAG" != "v$VER" ]; then
-            echo "::warning::Tag '$TAG' does not match 'v$VER' (tauri.conf.json). Artifact names always derive from tauri.conf.json."
+            echo "::error::Tag must start with 'v' (got '$TAG')"
+            exit 1
           fi
+          if ! echo "$VER" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::Tag must be v<major.minor.patch>[-prerelease] (got '$TAG')"
+            exit 1
+          fi
+          echo "Tag OK: $TAG -> version $VER"
 
   build:
     name: Build ${{ matrix.os }} ${{ matrix.arch }}
@@ -168,6 +178,18 @@ jobs:
             arm: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The tag is the single source of truth for the release version:
+      # inject it into tauri.conf.json before the build so the bundle
+      # metadata, tauri-action's [version] asset naming, and the
+      # post-build rename steps (which read the file) all agree. The
+      # repo file holds a dev marker for local builds.
+      - name: Set version from tag
+        run: |
+          VER="${{ inputs.tag }}"
+          VER="${VER#v}"
+          node -e "const f='./src-tauri/tauri.conf.json';const c=JSON.parse(require('fs').readFileSync(f,'utf8'));c.version='$VER';require('fs').writeFileSync(f,JSON.stringify(c,null,2)+'\n')"
+          echo "tauri.conf.json version set to $(node -p "require('./src-tauri/tauri.conf.json').version")"
 
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
