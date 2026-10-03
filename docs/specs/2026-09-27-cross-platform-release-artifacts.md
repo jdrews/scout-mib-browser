@@ -202,7 +202,7 @@ New `docs/INSTALL.md`, linked from `README.md` and this spec, documenting per-pl
 | R4 — macOS Gatekeeper / Windows SmartScreen on unsigned v1 artifacts | Ad-hoc sign macOS; document the OS trust warnings in `docs/INSTALL.md`; full signing/notarization is a tracked follow-up. |
 | R5 — Six slow release builds (full Rust compile each) | Reuse `ci.yml` caching (rust-cache + sccache + npm cache); builds run in parallel; `verify` gates before any build starts. |
 | R6 — `bundle.targets: "all"` emits deferred package formats | Select explicit `--bundles` per platform (appimage / app+dmg / nsis) so v1 ships only runnable artifacts; packages remain a one-line later addition. |
-| R7 — Tag/version drift (tag name vs `tauri.conf.json` version) | Derive artifact names from `tauri.conf.json`; document that the tag should be `v<major.minor.patch>` matching it; warn on mismatch. |
+| R7 — Tag/version drift (tag name vs `tauri.conf.json` version) | The tag is the single source of truth for the release version: validated up front in the gate job, then injected into `tauri.conf.json` by each build leg before the build. The repo file holds a dev marker (`0.1.0-dev`) for local builds and is never bumped for releases. |
 | R8 — `tauri-action` is a moving target (`@v1`); behavior can shift under a floating tag | Pin `tauri-apps/tauri-action` to a specific version/SHA in the workflow; bump deliberately. |
 | R9 — tauri-action creates the Release per matrix leg; a partial failure could leave a half-populated release | `releaseDraft: true` keeps it unpublished on failure; the `checksum` job (which `needs` the whole matrix) publishes only when every target succeeded. |
 
