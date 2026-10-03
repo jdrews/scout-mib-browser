@@ -383,15 +383,48 @@ describe("Table retrieval (multi-component index, synthetic agent)", () => {
   });
 
   it("Stop cancels a Get Table run", async () => {
-    await selectTreeNode("ifStackTable");
-    await go("getTable");
+    // The in-flight window is short: the snmpsim replay answers in
+    // milliseconds, so a 600-row fetch takes only a few hundred ms. A
+    // separate "wait for the in-flight status, then click" sequence loses
+    // the race when the run completes between the status read and the
+    // click round-trip (the Stop button is then already replaced by Go).
+    // Instead, poll for the Stop button and click it within the same
+    // page-context execute — the check and the click are atomic, so the
+    // run cannot complete in between. If a run finishes before the button
+    // is ever seen, restart and try again.
+    let cancelled = false;
+    for (let attempt = 1; attempt <= 5 && !cancelled; attempt++) {
+      await selectTreeNode("ifStackTable");
+      await go("getTable");
 
-    // Wait until the run is visibly in flight, then cancel it.
-    await waitForStatus(/^Get Table: \d+ bindings\.\.\.$/);
-    await (await $("[data-testid='stop-btn']")).click();
+      const clicked = await browser
+        .waitUntil(
+          async () =>
+            await browser.execute(() => {
+              const btn = document.querySelector("[data-testid='stop-btn']");
+              if (!btn) return false;
+              btn.click();
+              return true;
+            }),
+          {
+            timeout: 4000,
+            interval: 50,
+            timeoutMsg: "Stop button never appeared (run finished too fast)",
+          },
+        )
+        .then(() => true)
+        .catch(() => false);
+      if (!clicked) continue;
 
-    const status = await waitForStatus(/Table retrieval cancelled/);
-    expect(status).toBe("Table retrieval cancelled");
+      // If the run had already completed before the click landed, the Stop
+      // handler no-ops and the status shows the completed run — retry.
+      const status = await waitForStatus(
+        /Table retrieval cancelled|Table complete: \d+/,
+        15000,
+      );
+      cancelled = status === "Table retrieval cancelled";
+    }
+    expect(cancelled).toBe(true);
   });
 
   it("decodes an Integer + IpAddress index and flags missing cells", async () => {
