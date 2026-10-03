@@ -185,6 +185,9 @@ jobs:
       # post-build rename steps (which read the file) all agree. The
       # repo file holds a dev marker for local builds.
       - name: Set version from tag
+        # Bash syntax (VAR=... assignments); the Windows runner's default
+        # shell is PowerShell, so pin bash (Git Bash is preinstalled).
+        shell: bash
         run: |
           VER="${{ inputs.tag }}"
           VER="${VER#v}"
