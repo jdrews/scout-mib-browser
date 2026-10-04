@@ -442,7 +442,10 @@ jobs:
           # do not accept a numeric release id. This job has no checkout, so
           # pass --repo explicitly (gh release otherwise falls back to git).
           gh release upload --repo "$GITHUB_REPOSITORY" "${{ inputs.tag }}" SHA256SUMS
-          gh release edit --repo "$GITHUB_REPOSITORY" "${{ inputs.tag }}" --draft false
+          # --draft is a boolean flag, so publishing requires the equals form
+          # (--draft=false); the space form leaves `false` as a stray positional
+          # arg and fails with "accepts 1 arg(s), received 2".
+          gh release edit --repo "$GITHUB_REPOSITORY" "${{ inputs.tag }}" --draft=false
 
       - name: Upload SHA256SUMS as a workflow artifact
         uses: actions/upload-artifact@v4
