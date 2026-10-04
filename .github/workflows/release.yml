@@ -308,8 +308,9 @@ jobs:
               exit 1
             fi
             # `gh release upload` resolves by tag name (drafts included); it
-            # does not accept a numeric release id.
-            gh release upload "${{ inputs.tag }}" \
+            # does not accept a numeric release id. --repo is explicit so this
+            # works even if the checkout step is ever removed.
+            gh release upload --repo "$GITHUB_REPOSITORY" "${{ inputs.tag }}" \
               "scout-mib-browser-${VER}-darwin-${ARCH}.dmg" \
               "scout-mib-browser-${VER}-darwin-${ARCH}.app.tar.gz" \
               --clobber
@@ -364,8 +365,9 @@ jobs:
               exit 1
             fi
             # `gh release upload` resolves by tag name (drafts included); it
-            # does not accept a numeric release id.
-            gh release upload "${{ inputs.tag }}" "scout-mib-browser-${ver}-windows-${arch}.zip"
+            # does not accept a numeric release id. --repo is explicit so this
+            # works even if the checkout step is ever removed.
+            gh release upload --repo "$GITHUB_REPOSITORY" "${{ inputs.tag }}" "scout-mib-browser-${ver}-windows-${arch}.zip"
           fi
 
       # Canonical names (must match releaseAssetNamePattern so SHA256SUMS
@@ -437,9 +439,10 @@ jobs:
             exit 1
           fi
           # `gh release` commands resolve by tag name (drafts included); they
-          # do not accept a numeric release id.
-          gh release upload "${{ inputs.tag }}" SHA256SUMS
-          gh release edit "${{ inputs.tag }}" --draft false
+          # do not accept a numeric release id. This job has no checkout, so
+          # pass --repo explicitly (gh release otherwise falls back to git).
+          gh release upload --repo "$GITHUB_REPOSITORY" "${{ inputs.tag }}" SHA256SUMS
+          gh release edit --repo "$GITHUB_REPOSITORY" "${{ inputs.tag }}" --draft false
 
       - name: Upload SHA256SUMS as a workflow artifact
         uses: actions/upload-artifact@v4
