@@ -208,6 +208,28 @@ jobs:
             pkg-config \
             sccache
 
+      # appimagetool is not packaged for Ubuntu, so install the official
+      # release AppImage. It is extracted (no FUSE required) and its AppRun
+      # is symlinked onto PATH. appimagetool is self-contained: it bundles
+      # mksquashfs and its AppRun puts it on PATH, so no other repack
+      # tooling is needed.
+      - name: Install appimagetool (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          case "${{ matrix.arch }}" in
+            amd64) ait_arch=x86_64 ;;
+            arm64) ait_arch=aarch64 ;;
+            *) echo "::error::No appimagetool build for arch ${{ matrix.arch }}"; exit 1 ;;
+          esac
+          curl -L -o /tmp/appimagetool.AppImage \
+            "https://github.com/AppImage/appimagetool/releases/latest/download/appimagetool-${ait_arch}.AppImage"
+          chmod +x /tmp/appimagetool.AppImage
+          mkdir -p /tmp/appimagetool-extract && cd /tmp/appimagetool-extract
+          /tmp/appimagetool.AppImage --appimage-extract >/dev/null
+          sudo ln -sf /tmp/appimagetool-extract/squashfs-root/AppRun /usr/local/bin/appimagetool
+          appimagetool --version
+
       - name: Install Windows ARM64 MSVC build tools
         if: matrix.arm
         run: |
@@ -369,6 +391,20 @@ jobs:
             # works even if the checkout step is ever removed.
             gh release upload --repo "$GITHUB_REPOSITORY" "${{ inputs.tag }}" "scout-mib-browser-${ver}-windows-${arch}.zip"
           fi
+
+      # The Tauri bundler (linuxdeploy) auto-bundles libwayland alongside
+      # webkit2gtk; that frozen copy is ABI-incompatible with newer hosts and
+      # makes webkit2gtk abort with "Could not create default EGL display:
+      # EGL_BAD_PARAMETER" before the window appears. Strip the bundled
+      # libwayland and re-pack so it resolves from the system at runtime.
+      - name: Strip bundled libwayland from AppImage (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          VER=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          APPIMAGE=$(find . -path "*/bundle/appimage/Scout MIB Browser_${VER}_${{ matrix.arch }}.AppImage" | head -1)
+          [ -n "$APPIMAGE" ] || { echo "::error::AppImage not found"; exit 1; }
+          bash scripts/fix-appimage-wayland.sh "$APPIMAGE"
 
       # Canonical names (must match releaseAssetNamePattern so SHA256SUMS
       # references names users can match to their downloads).
