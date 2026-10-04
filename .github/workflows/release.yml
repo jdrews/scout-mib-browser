@@ -371,11 +371,26 @@ jobs:
           fi
           mkdir -p portable
           cp "$bin" portable/
-          # Bundled resources (the mibs) - optional
-          res="$out_dir/bundle/nsis/resources"
-          if [ -d "$res" ]; then
-            cp -r "$res" portable/
+          # Bundled resources (the mibs). The NSIS bundler copies these from
+          # the source tree (src-tauri/mibs, per tauri.conf.json's
+          # "resources": ["mibs/**/*"]) directly into the installer data, not
+          # into a build-output folder, so the portable zip must copy them
+          # from the source tree too. The app resolves them from
+          # <exe_dir>/mibs (Tauri's Windows resource_dir), so they must sit
+          # next to the binary. Fail the build if they're absent so the zip
+          # never silently ships without MIBs again.
+          mibs_src="src-tauri/mibs"
+          if [ ! -d "$mibs_src" ]; then
+            echo "::error::MIB source dir not found at $mibs_src"
+            exit 1
           fi
+          cp -r "$mibs_src" portable/
+          mib_count=$(find portable/mibs -type f | wc -l)
+          if [ "$mib_count" -eq 0 ]; then
+            echo "::error::portable zip has no MIBs after copy"
+            exit 1
+          fi
+          echo "portable zip includes $mib_count MIBs"
           # Zip the portable contents (7z stores entries relative to the
           # directory, matching the old Compress-Archive -Path "portable/*").
           ( cd portable && 7z a -y "../scout-mib-browser-${ver}-windows-${arch}.zip" . )
