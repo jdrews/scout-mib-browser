@@ -219,7 +219,7 @@ jobs:
           set -euo pipefail
           case "${{ matrix.arch }}" in
             amd64) ait_arch=x86_64 ;;
-            arm64) ait_arch=aarch64 ;;
+            aarch64) ait_arch=aarch64 ;;
             *) echo "::error::No appimagetool build for arch ${{ matrix.arch }}"; exit 1 ;;
           esac
           curl -L -o /tmp/appimagetool.AppImage \
