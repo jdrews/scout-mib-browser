@@ -116,7 +116,7 @@ outcome, not a bug:
 printf '{"event":"workflow_dispatch","inputs":{"tag":"v0.1.0-act-local"}}' > /tmp/release-event.json
 
 export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock
-act \
+act workflow_dispatch \
   -P ubuntu-latest=docker.io/scout/act-latest-user1001:latest \
   -P ubuntu-24.04=docker.io/scout/act-latest-user1001:latest \
   -P ubuntu-24.04-arm=docker.io/scout/act-latest-user1001:latest \
@@ -127,6 +127,11 @@ act \
   -e /tmp/release-event.json
 ```
 
+- `workflow_dispatch` is the event name and MUST be the positional argument
+  (not just the `event` field in the event file). act only populates the
+  `inputs` context from the event file's `inputs` when the event name is
+  `workflow_dispatch`; otherwise `inputs.tag` is empty and the workflow's
+  "Validate tag format" step fails with `Tag must start with 'v' (got '')`.
 - `--matrix key:value` (colon, not `=`) filters the build matrix to one leg.
 - `--artifact-server-path` enables act's local artifact server so the
   `upload-artifact` → `download-artifact` round trip works.
