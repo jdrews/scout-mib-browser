@@ -387,7 +387,7 @@ jobs:
       # The checksum job downloads these; the files are already canonical-named
       # above, so the names match the published release assets.
       - name: Upload workflow artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.os }}-${{ matrix.arch }}
           if-no-files-found: error
@@ -448,7 +448,7 @@ jobs:
           gh release edit --repo "$GITHUB_REPOSITORY" "${{ inputs.tag }}" --draft=false
 
       - name: Upload SHA256SUMS as a workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: SHA256SUMS
           path: SHA256SUMS
