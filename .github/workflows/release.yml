@@ -408,6 +408,13 @@ jobs:
 
       # Canonical names (must match releaseAssetNamePattern so SHA256SUMS
       # references names users can match to their downloads).
+      # tauri-action uploaded the PRE-strip AppImage to the release during the
+      # build step; the strip step above only fixed the local copy. Re-upload
+      # the stripped, canonical-named AppImage with --clobber so the release
+      # asset is the fixed one (mirrors the macOS sign-and-repackage step).
+      # The canonical name matches tauri-action's releaseAssetNamePattern
+      # ([mainBinaryName]-[version]-[platform]-[arch][setup][ext]), so the
+      # upload overwrites the pre-strip asset rather than adding a duplicate.
       - name: Rename AppImage to canonical name (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -419,6 +426,20 @@ jobs:
           APPIMAGE=$(find . -path "*/bundle/appimage/Scout MIB Browser_${VER}_${{ matrix.arch }}.AppImage" | head -1)
           [ -n "$APPIMAGE" ] || { echo "::error::AppImage not found"; exit 1; }
           mv "$APPIMAGE" "scout-mib-browser-${VER}-linux-${{ matrix.arch }}.AppImage"
+          if [ -n "${GH_TOKEN:-}" ]; then
+            # Verify the draft release exists (the list API includes drafts).
+            REL_ID=$(TAG="${{ inputs.tag }}" gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --paginate --jq 'env.TAG as $t | .[] | select(.tag_name == $t) | .id')
+            if [ -z "$REL_ID" ]; then
+              echo "::error::Release for tag '${{ inputs.tag }}' not found"
+              exit 1
+            fi
+            # `gh release upload` resolves by tag name (drafts included);
+            # --repo is explicit so this works even if the checkout step is
+            # ever removed. --clobber overwrites the pre-strip asset.
+            gh release upload --repo "$GITHUB_REPOSITORY" "${{ inputs.tag }}" \
+              "scout-mib-browser-${VER}-linux-${{ matrix.arch }}.AppImage" \
+              --clobber
+          fi
 
       # The checksum job downloads these; the files are already canonical-named
       # above, so the names match the published release assets.
