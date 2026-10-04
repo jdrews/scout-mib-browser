@@ -301,14 +301,15 @@ jobs:
           rm -f "$(dirname "$APP")/../dmg/Scout MIB Browser_${VER}_*.dmg"
           hdiutil create -volname "Scout MIB Browser" -srcfolder "$APP" -format UDZO "scout-mib-browser-${VER}-darwin-${ARCH}.dmg"
           if [ -n "${GH_TOKEN:-}" ]; then
-            # Draft releases are not resolvable by tag via the API, so look
-            # the release up by id (the list API includes drafts).
+            # Verify the draft release exists (the list API includes drafts).
             REL_ID=$(TAG="${{ inputs.tag }}" gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --paginate --jq 'env.TAG as $t | .[] | select(.tag_name == $t) | .id')
             if [ -z "$REL_ID" ]; then
               echo "::error::Release for tag '${{ inputs.tag }}' not found"
               exit 1
             fi
-            gh release upload "$REL_ID" \
+            # `gh release upload` resolves by tag name (drafts included); it
+            # does not accept a numeric release id.
+            gh release upload "${{ inputs.tag }}" \
               "scout-mib-browser-${VER}-darwin-${ARCH}.dmg" \
               "scout-mib-browser-${VER}-darwin-${ARCH}.app.tar.gz" \
               --clobber
@@ -356,14 +357,15 @@ jobs:
           # directory, matching the old Compress-Archive -Path "portable/*").
           ( cd portable && 7z a -y "../scout-mib-browser-${ver}-windows-${arch}.zip" . )
           if [ -n "${GH_TOKEN:-}" ]; then
-            # Draft releases are not resolvable by tag via the API, so look
-            # the release up by id (the list API includes drafts).
+            # Verify the draft release exists (the list API includes drafts).
             rel_id=$(TAG="${{ inputs.tag }}" gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --paginate --jq 'env.TAG as $t | .[] | select(.tag_name == $t) | .id')
             if [ -z "$rel_id" ]; then
               echo "::error::Release for tag '${{ inputs.tag }}' not found"
               exit 1
             fi
-            gh release upload "$rel_id" "scout-mib-browser-${ver}-windows-${arch}.zip"
+            # `gh release upload` resolves by tag name (drafts included); it
+            # does not accept a numeric release id.
+            gh release upload "${{ inputs.tag }}" "scout-mib-browser-${ver}-windows-${arch}.zip"
           fi
 
       # Canonical names (must match releaseAssetNamePattern so SHA256SUMS
@@ -428,15 +430,16 @@ jobs:
         if: env.GH_TOKEN != ''
         run: |
           set -euo pipefail
-          # Draft releases are not resolvable by tag via the API, so look
-          # the release up by id (the list API includes drafts).
+          # Verify the draft release exists (the list API includes drafts).
           REL_ID=$(TAG="${{ inputs.tag }}" gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --paginate --jq 'env.TAG as $t | .[] | select(.tag_name == $t) | .id')
           if [ -z "$REL_ID" ]; then
             echo "::error::Release for tag '${{ inputs.tag }}' not found"
             exit 1
           fi
-          gh release upload "$REL_ID" SHA256SUMS
-          gh release edit "$REL_ID" --draft false
+          # `gh release` commands resolve by tag name (drafts included); they
+          # do not accept a numeric release id.
+          gh release upload "${{ inputs.tag }}" SHA256SUMS
+          gh release edit "${{ inputs.tag }}" --draft false
 
       - name: Upload SHA256SUMS as a workflow artifact
         uses: actions/upload-artifact@v4
