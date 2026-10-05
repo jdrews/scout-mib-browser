@@ -182,4 +182,14 @@ on both success and failure.
 
 ## Testing Windows Artifacts under Wine
 
-The Windows x64 release artifact can be run under Wine to verify it works without a Windows host. Because Scout is a Tauri app, it needs the WebView2 runtime, which Wine lacks and the Evergreen WebView2 installer fails to install under Wine — so the setup feeds the app a Fixed Version Runtime directly. See [docs/wine-windows-artifacts.md](docs/wine-windows-artifacts.md) for the full steps.
+The Windows x64 release artifact can be smoke-tested under Wine to verify it runs
+without a Windows host. Because Scout is a Tauri app, it needs the WebView2
+runtime, which Wine lacks and the Evergreen WebView2 installer fails to install
+under Wine — so the setup feeds the app a Fixed Version Runtime directly.
+
+`npm run test:smoke:windows` (`scripts/smoke-windows.sh`) launches the binary
+under Wine and asserts it comes up, finds the runtime, renders, and loads MIBs.
+It expects the binary and the runtime `.cab` in `test/windows/` (or
+`SCOUT_WINDOWS_BIN` / `SCOUT_WV2_CAB`) and fails with guidance if they're
+missing. See [docs/wine-windows-artifacts.md](docs/wine-windows-artifacts.md)
+for the manual setup steps.

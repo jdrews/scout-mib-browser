@@ -63,3 +63,8 @@ The app starts, finds the runtime, and renders the full UI.
   with `x11vnc -display :N -forever -nopw` and connect to `localhost:5900`. On a Wayland
   host, unset `WAYLAND_DISPLAY` when starting `x11vnc` so it targets the X display.
 - The runtime can crash intermittently (page faults); just relaunch if the window vanishes.
+- **Automated smoke test:** `npm run test:smoke:windows` automates the above and
+  asserts the app comes up, finds the runtime, renders, and loads MIBs. It
+  expects the binary and the runtime `.cab` in `test/windows/` (or
+  `SCOUT_WINDOWS_BIN` / `SCOUT_WV2_CAB`) and fails with guidance if they're
+  missing.
