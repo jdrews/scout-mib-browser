@@ -184,3 +184,17 @@ The `scripts/test-e2e.sh` wrapper handles the full lifecycle: prepares a temp
 the mock SNMP agent on port 11611, starts Vite on port 5173, runs WDIO under
 Xvfb with the isolated environment, and cleans up all processes and temp files
 on both success and failure.
+
+## Testing Windows Artifacts under Wine
+
+The Windows x64 release artifact can be smoke-tested under Wine to verify it runs
+without a Windows host. Because Scout is a Tauri app, it needs the WebView2
+runtime, which Wine lacks and the Evergreen WebView2 installer fails to install
+under Wine — so the setup feeds the app a Fixed Version Runtime directly.
+
+`npm run test:smoke:windows` (`scripts/smoke-windows.sh`) launches the binary
+under Wine and asserts it comes up, finds the runtime, renders, and loads MIBs.
+It expects the binary and the runtime `.cab` in `test/windows/` (or
+`SCOUT_WINDOWS_BIN` / `SCOUT_WV2_CAB`) and fails with guidance if they're
+missing. See [docs/wine-windows-artifacts.md](docs/wine-windows-artifacts.md)
+for the manual setup steps.

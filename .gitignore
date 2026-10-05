@@ -48,3 +48,7 @@ docs/scratch/
 
 # UX assessment run artifacts (screenshots + JSON, regenerated per run)
 docs/ux/
+
+# Windows smoke-test inputs (the x64 binary + WebView2 runtime .cab are
+# dropped here by hand; they are large and never committed)
+test/windows/
