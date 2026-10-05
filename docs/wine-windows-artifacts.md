@@ -54,14 +54,42 @@ wine cmd /c "set WEBVIEW2_BROWSER_EXECUTABLE_FOLDER=$RT&& C:\\scout\\scout-mib-b
 
 The app starts, finds the runtime, and renders the full UI.
 
+## 5. Interact via VNC (click around and explore)
+
+To drive the app by hand rather than just smoke-test it, run it under a
+dedicated `Xvfb` and bridge that display to VNC with `x11vnc`, then connect
+any VNC client.
+
+```sh
+# 1. Start a dedicated Xvfb and point the session at it.
+Xvfb :99 -screen 0 1600x900x24 -nolisten tcp &
+export DISPLAY=:99
+
+# 2. Launch the app (the command from section 4) in the background or a
+#    separate terminal, then bridge the display to VNC.
+x11vnc -display :99 -rfbport 5900 -forever -nopw &
+```
+
+Then connect a VNC client to `localhost:5900`:
+
+- **Desktop:** `vinagre localhost:5900`, or the TigerVNC / RealVNC viewer.
+- **Browser:** [noVNC](https://novnc.com) → connect to `localhost:5900`.
+
+On a **Wayland** host, unset `WAYLAND_DISPLAY` before starting `x11vnc` so it
+targets the X display: `unset WAYLAND_DISPLAY && x11vnc -display :99 -rfbport 5900 -forever -nopw &`.
+
+`-nopw` disables the password (fine on `localhost`); drop it and add `-passwd`
+if you expose the port beyond your machine. Add `-shared` if you want more
+than one VNC client connected at once.
+
 ## Notes
 
 - **MIBs:** the app only auto-loads MIBs on startup if the config
   (`%LOCALAPPDATA%\scout\config.toml`) has a `[mib] directories` entry. Otherwise use
   **File → Add MIB Directory**.
-- **Headless / remote:** run under `xvfb-run -a wine cmd /c "..."`, or serve the display
-  with `x11vnc -display :N -forever -nopw` and connect to `localhost:5900`. On a Wayland
-  host, unset `WAYLAND_DISPLAY` when starting `x11vnc` so it targets the X display.
+- **Headless / remote:** for a non-interactive run, `xvfb-run -a wine cmd /c "..."`.
+  To interact via VNC (click around and explore), see the **Interact via VNC**
+  section above.
 - The runtime can crash intermittently (page faults); just relaunch if the window vanishes.
 - **Automated smoke test:** `npm run test:smoke:windows` automates the above and
   asserts the app comes up, finds the runtime, renders, and loads MIBs. It
