@@ -134,15 +134,43 @@ export DISPLAY="$XVFB_DISPLAY"
 
 APP_LOG=/tmp/scout-smoke-app.log
 
+# ── Wine session teardown ───────────────────────────────────────────────────
+# Tears down the whole Wine session this script started, including the
+# orphaned Windows processes that `pkill -x wineserver` would otherwise leave
+# behind (re-parented to systemd / the subreaper). The orphaned processes are
+# identified by WINEPREFIX in their environment — only the processes this
+# script spawned carry our prefix, so other Wine sessions and non-Wine
+# processes are never touched.
+kill_wine_session() {
+  # The wine launcher (if still around) — SIGTERM so it can tear down cleanly.
+  [ -n "${WINE_LAUNCH_PID:-}" ] && kill "$WINE_LAUNCH_PID" 2>/dev/null || true
+  # The session manager + debugger (exact comm names — unambiguous on Linux).
+  pkill -x wineserver 2>/dev/null || true
+  pkill -x winedbg 2>/dev/null || true
+  sleep 1
+  # Reap the orphaned Windows processes (winedevice.exe, msedgewebview2.exe,
+  # scout-mib-browser.exe, svchost.exe, explorer.exe, ...).
+  local pids p
+  # Guarded with `|| true`: a no-match grep would otherwise exit the script
+  # under `set -e` + `pipefail` (e.g. on the first attempt, before any Wine
+  # processes exist).
+  pids=$(ps -eo pid=,cmd= 2>/dev/null | grep -E 'C:\\|start\.exe /exec' | grep -v grep | awk '{print $1}' || true)
+  for p in $pids; do
+    # Skip our own shell (its command line contains the grep pattern above).
+    [ "$p" = "$$" ] && continue
+    if tr '\0' '\n' < "/proc/$p/environ" 2>/dev/null | grep -qF "WINEPREFIX=$WINE_PREFIX"; then
+      kill -KILL "$p" 2>/dev/null || true
+    fi
+  done
+}
+
 # ── Cleanup ─────────────────────────────────────────────────────────────────
 RESULT=0
 cleanup() {
   RESULT=$?
   echo ""
   echo "Cleaning up ..."
-  # Tear down the Wine session so no orphaned app/webview2 processes linger.
-  pkill -x winedbg 2>/dev/null || true
-  pkill -x wineserver 2>/dev/null || true
+  kill_wine_session
   [ -n "$XVFB_PID" ] && kill "$XVFB_PID" 2>/dev/null || true
   exit $RESULT
 }
@@ -158,10 +186,10 @@ UP=0
 MIB_LOADED=0
 PANEL_TEXT=""
 for ATTEMPT in 1 2; do
-  # Kill any lingering Wine processes from a previous attempt.
-  pkill -x winedbg 2>/dev/null || true
-  pkill -x wineserver 2>/dev/null || true
-  sleep 2
+  # Tear down any lingering Wine session from a previous attempt (including
+  # its orphaned Windows processes).
+  kill_wine_session
+  sleep 1
   echo "Launching the Windows binary under Wine (attempt $ATTEMPT) ..."
   wine cmd /c "set WEBVIEW2_BROWSER_EXECUTABLE_FOLDER=$WV2_RT_WIN&& $WINE_APP_WIN" > "$APP_LOG" 2>&1 &
   WINE_LAUNCH_PID=$!
@@ -189,9 +217,8 @@ for ATTEMPT in 1 2; do
 
   if [ "$UP" -ne 1 ]; then
     echo "Attempt $ATTEMPT did not bring the UI up; retrying ..."
-    pkill -x winedbg 2>/dev/null || true
-    pkill -x wineserver 2>/dev/null || true
-    sleep 3
+    kill_wine_session
+    sleep 2
     continue
   fi
 
@@ -221,9 +248,8 @@ for ATTEMPT in 1 2; do
     break
   fi
   echo "Attempt $ATTEMPT did not load the MIBs; retrying ..."
-  pkill -x winedbg 2>/dev/null || true
-  pkill -x wineserver 2>/dev/null || true
-  sleep 3
+  kill_wine_session
+  sleep 2
 done
 
 # The final screenshot is the last one taken (the MIB poll loop's, or the
