@@ -2,7 +2,7 @@
 --
 -- See DUP-MIB-A: this file defines the SAME module name "DUP-MIB" under a
 -- different file name, so loaded_mibs() reports two entries sharing one
--- mibName. The Manage MIBs dialog must render both rows (keyed by file
+-- mibName. The Manage MIBs page must render both rows (keyed by file
 -- path) instead of hanging on "Loading...".
 
 DUP-MIB DEFINITIONS ::= BEGIN

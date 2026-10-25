@@ -244,7 +244,7 @@ fn main() {
             config::config_write,
             config::config_get_path,
             config::config_write_target,
-            mib_load_directories,
+            mib_load,
             mib_resolve_oid,
             mib_reverse_lookup,
             mib_status,
@@ -252,7 +252,7 @@ fn main() {
             mib_children,
             mib_subtree,
             mib_search,
-            mib_unload,
+            mib_unload_many,
             mib_loaded_list,
             mib_table_columns,
             mib_table_info,
@@ -268,6 +268,7 @@ fn main() {
             snmp_get_table,
             fs_write_file,
             dialog_open_directory,
+            dialog_open_files,
             dialog_save_file,
             log::log_read,
             log::log_clear,
@@ -280,23 +281,25 @@ fn main() {
 
 // ── MIB Commands ─────────────────────────────────────────────────────────────
 
-/// Loads all MIB files from the given directories, plus the bundled
-/// standards MIBs when none of the configured directories contain files.
+/// Loads MIB files from the given directories **plus** the given explicit
+/// files, plus the bundled standards MIBs when neither source has content.
 ///
 /// The parse runs on a cloned working copy *outside* the resolver lock; only
 /// the final index swap is serialized. Read commands (tree, search, Manage
 /// MIBs list) therefore stay responsive while a load is in flight.
 #[tauri::command]
-fn mib_load_directories(
+fn mib_load(
     app: tauri::AppHandle,
     resolver: tauri::State<MibResolverState>,
     directories: Vec<String>,
+    files: Vec<String>,
 ) -> Result<MibLoadStatus, String> {
     let mut dirs = directories.clone();
     // The bundled standards MIBs cover systems without a system MIB directory
     // (Windows/macOS, or Linux without net-snmp). They are skipped when any
-    // user directory has content, so bundled copies never shadow system MIBs.
-    if !directories.iter().any(|d| dir_has_entries(d)) {
+    // user directory has content or explicit files are configured, so bundled
+    // copies never shadow user MIBs.
+    if !directories.iter().any(|d| dir_has_entries(d)) && files.is_empty() {
         if let Some(bundled) = bundled_mibs_dir(&app) {
             info!(
                 "No MIB files in configured directories; using bundled MIBs at {}",
@@ -311,7 +314,7 @@ fn mib_load_directories(
         res.clone()
     };
 
-    let stats = working.load_directories(&dirs);
+    let stats = working.load(&dirs, &files);
 
     let mut res = resolver.inner.write().map_err(|e| e.to_string())?;
     *res = working;
@@ -413,14 +416,15 @@ fn mib_search(
     Ok(res.search(&query))
 }
 
-/// Unloads all nodes from the given MIB module.
+/// Unloads the modules that the given file paths resolve to, in a single
+/// write-lock (one index swap, one status) instead of N separate calls.
 #[tauri::command]
-fn mib_unload(
+fn mib_unload_many(
     resolver: tauri::State<MibResolverState>,
-    mib_name: String,
+    file_paths: Vec<String>,
 ) -> Result<MibLoadStatus, String> {
     let mut res = resolver.inner.write().map_err(|e| e.to_string())?;
-    res.unload_mib(&mib_name);
+    res.unload_mibs_by_paths(&file_paths);
     Ok(mib_status_of(&res))
 }
 
@@ -704,6 +708,20 @@ fn dialog_open_directory(app: tauri::AppHandle) -> Result<Option<String>, String
         .expect("main window not found");
     let path = rfd::FileDialog::new().set_parent(&window).pick_folder();
     Ok(path.map(|p| p.to_string_lossy().to_string()))
+}
+
+/// Opens a native multi-file picker dialog.
+#[tauri::command]
+fn dialog_open_files(app: tauri::AppHandle) -> Result<Option<Vec<String>>, String> {
+    let window = app
+        .get_webview_window("main")
+        .expect("main window not found");
+    let paths = rfd::FileDialog::new().set_parent(&window).pick_files();
+    Ok(paths.map(|ps| {
+        ps.into_iter()
+            .map(|p| p.to_string_lossy().to_string())
+            .collect()
+    }))
 }
 
 /// Opens a native save file dialog.

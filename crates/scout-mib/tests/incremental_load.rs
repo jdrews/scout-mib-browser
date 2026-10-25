@@ -71,7 +71,7 @@ fn setup_two_mibs(tag: &str) -> (PathBuf, Resolver) {
     .unwrap();
 
     let mut resolver = Resolver::default();
-    let stats = resolver.load_directories(&[dir.to_string_lossy().to_string()]);
+    let stats = resolver.load(&[dir.to_string_lossy().to_string()], &[]);
     assert_eq!(stats.parsed, 2, "fresh load must parse both files");
     assert_eq!(stats.cached, 0);
     (dir, resolver)
@@ -100,7 +100,7 @@ fn unchanged_reload_is_served_from_cache() {
     let (dir, mut resolver) = setup_two_mibs("unchanged");
     let nodes_before = resolver.node_count();
 
-    let stats = resolver.load_directories(&dirs(&dir));
+    let stats = resolver.load(&dirs(&dir), &[]);
     assert_eq!(stats.parsed, 0, "nothing changed — no re-parsing");
     assert_eq!(stats.cached, 2);
     assert_eq!(resolver.node_count(), nodes_before, "index must be intact");
@@ -123,7 +123,7 @@ fn changed_file_is_reparsed_and_updated() {
     )
     .unwrap();
 
-    let stats = resolver.load_directories(&dirs(&dir));
+    let stats = resolver.load(&dirs(&dir), &[]);
     assert_eq!(stats.parsed, 1, "only the changed file is re-parsed");
     assert_eq!(stats.cached, 1);
 
@@ -146,7 +146,7 @@ fn removed_file_drops_out_of_index() {
 
     fs::remove_file(dir.join("ALPHA-MIB")).unwrap();
 
-    let stats = resolver.load_directories(&dirs(&dir));
+    let stats = resolver.load(&dirs(&dir), &[]);
     assert_eq!(stats.parsed, 0);
     assert_eq!(stats.cached, 1);
 
@@ -172,7 +172,7 @@ fn new_file_is_parsed_on_next_load() {
     )
     .unwrap();
 
-    let stats = resolver.load_directories(&dirs(&dir));
+    let stats = resolver.load(&dirs(&dir), &[]);
     assert_eq!(stats.parsed, 1, "only the new file is parsed");
     assert_eq!(stats.cached, 2);
 
@@ -192,7 +192,7 @@ fn unload_invalidates_cache_and_reload_restores() {
     assert!(resolver.reverse_lookup("baseValue").is_none());
 
     // Next load re-parses the unloaded file's module and restores it.
-    let stats = resolver.load_directories(&dirs(&dir));
+    let stats = resolver.load(&dirs(&dir), &[]);
     assert!(stats.parsed >= 1, "unloaded module must be re-parsed");
     assert!(resolver.reverse_lookup("baseValue").is_some());
 
@@ -209,7 +209,7 @@ fn nonexistent_directory_is_tolerated() {
     let (dir, mut resolver) = setup_two_mibs("nodir");
     let missing = dir.join("does-not-exist").to_string_lossy().to_string();
 
-    let stats = resolver.load_directories(&[missing]);
+    let stats = resolver.load(&[missing], &[]);
     // All previously loaded files vanished from the directory list.
     assert_eq!(stats.parsed, 0);
     assert_eq!(resolver.node_count(), 0);

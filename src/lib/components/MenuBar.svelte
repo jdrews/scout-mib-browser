@@ -2,7 +2,7 @@
   import { tick } from "svelte";
   import { Check } from "lucide-svelte";
   import { S } from "$lib/stores.svelte";
-  import { configRead, configWrite, mibLoadDirectories, openDirectory, mibTree, mibOidNameMap } from "$lib/tauriCommands";
+  import { addMibDirectory } from "$lib/mibManager";
 
   type MenuName = "file" | "view" | "settings";
 
@@ -105,44 +105,6 @@
       case "connection":
         S.connectionPanelOpen = true;
         break;
-    }
-  }
-
-  async function addMibDirectory() {
-    try {
-      const selected = await openDirectory();
-      if (!selected) return;
-
-      S.statusText = "Loading MIBs...";
-      const config = await configRead();
-      const dirs = config.mib?.directories || [];
-      if (!dirs.includes(selected)) {
-        dirs.push(selected);
-        await configWrite("mib.directories", dirs);
-      }
-
-      const status = await mibLoadDirectories(dirs);
-      S.nodeCount = status.nodeCount;
-      S.fallbackMibs.length = 0;
-      S.fallbackMibs.push(...status.fallbackMibs);
-
-      try {
-        const pairs = await mibOidNameMap();
-        S.oidNameMap = new Map(pairs);
-      } catch (e) {
-        console.error("Failed to load OID name map:", e);
-      }
-
-      const data = await mibTree();
-      S.treeData.length = 0;
-      S.treeData.push(...data);
-      S.treeVersion++;
-      S.statusText = status.filesCached !== undefined
-        ? `Loaded ${status.nodeCount} nodes (${status.filesParsed} parsed, ${status.filesCached} cached)`
-        : `Loaded ${status.nodeCount} nodes`;
-    } catch (err) {
-      S.statusText = `Error: ${err}`;
-      console.error("Failed to add MIB directory:", err);
     }
   }
 

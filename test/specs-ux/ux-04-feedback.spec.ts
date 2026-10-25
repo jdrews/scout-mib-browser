@@ -53,33 +53,35 @@ describe("UX A4 — action → feedback map", function () {
       return gone ? "menu closed" : "menu still open";
     });
 
-    await audit("Open Manage MIBs dialog", async () => {
+    await audit("Open Manage MIBs page", async () => {
       await (await $("[data-testid='menu-file']")).click();
       await (await $("[data-testid='menu-manage-mibs']")).click();
-      await (await $("[data-testid='manage-mibs-dialog']")).waitForExist({ timeout: 5000 });
-      return "dialog opened listing loaded MIBs";
+      await (await $("[data-testid='manage-mibs-page']")).waitForExist({ timeout: 5000 });
+      return "page opened listing loaded MIBs";
     });
 
-    await audit("Unload BROKEN-MIB from dialog", async () => {
-      let unloaded = false;
+    await audit("Unload BROKEN-MIB from the page", async () => {
+      let selected = false;
       for (const r of await $$("[data-testid='mib-row']")) {
         const t = (await r.getText()) ?? "";
         if (t.includes("BROKEN-MIB")) {
-          await (await r.$("[data-testid='unload-btn']")).click();
-          unloaded = true;
+          await (await r.$("[data-testid='mib-select']")).click();
+          selected = true;
           break;
         }
       }
-      return unloaded ? "row removed from list" : "BROKEN-MIB row not found";
+      if (!selected) return "BROKEN-MIB row not found";
+      await (await $("[data-testid='unload-selected-btn']")).click();
+      return "row removed from list";
     });
 
-    await audit("Close Manage MIBs dialog", async () => {
-      await (await $("[data-testid='manage-mibs-close']")).click();
+    await audit("Close Manage MIBs page", async () => {
+      await (await $("[data-testid='back-btn']")).click();
       const gone = await browser.waitUntil(
-        async () => !(await $("[data-testid='manage-mibs-dialog']").isExisting().catch(() => false)),
+        async () => !(await $("[data-testid='manage-mibs-page']").isExisting().catch(() => false)),
         { timeout: 3000, interval: 100 },
       ).then(() => true).catch(() => false);
-      return gone ? "dialog closed" : "dialog still open";
+      return gone ? "page closed" : "page still open";
     });
 
     // ── Connection modal ─────────────────────────────────────────────────────

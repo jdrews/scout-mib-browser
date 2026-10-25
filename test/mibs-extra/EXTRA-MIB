@@ -1,0 +1,26 @@
+-- EXTRA-MIB — e2e explicit-file fixture.
+--
+-- Loaded via the `mib.files` config entry (not a configured directory),
+-- exercising the persistent explicit-file source type.
+
+EXTRA-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, Integer32, enterprises
+        FROM SNMPv2-SMI;
+
+extraMib MODULE-IDENTITY
+    LAST-UPDATED "202601010000Z"
+    ORGANIZATION "Test"
+    CONTACT-INFO "test@test.com"
+    DESCRIPTION "Explicit-file fixture."
+    ::= { enterprises 99203 }
+
+extraMibObjects OBJECT IDENTIFIER ::= { extraMib 1 }
+
+extraThing OBJECT-TYPE
+    SYNTAX Integer32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "Fixture object."
+    ::= { extraMibObjects 1 }
+END

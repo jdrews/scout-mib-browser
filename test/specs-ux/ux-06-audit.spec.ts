@@ -92,14 +92,14 @@ describe("UX A6/A7 — axe + DOM audit + terminology collection", function () {
     await closeBtn.click();
     await (await $("[data-connection-panel]")).waitForExist({ timeout: 5000, reverse: true });
 
-    // ── State: Manage MIBs dialog ────────────────────────────────────────────
+    // ── State: Manage MIBs page ─────────────────────────────────────────────
     await (await $("[data-testid='menu-file']")).click();
     await (await $("[data-testid='menu-manage-mibs']")).click();
-    await (await $("[data-testid='manage-mibs-dialog']")).waitForExist({ timeout: 5000 });
+    await (await $("[data-testid='manage-mibs-page']")).waitForExist({ timeout: 5000 });
     nameAudit["manage-mibs"] = await accessibleNameAudit();
     strings["manage-mibs"] = await collectUserStrings();
     await axeState("manage-mibs");
-    await (await $("[data-testid='manage-mibs-close']")).click();
+    await (await $("[data-testid='back-btn']")).click();
 
     // ── State: System Log pane open ──────────────────────────────────────────
     await (await $("[data-testid='menu-view']")).click();

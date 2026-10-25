@@ -1,6 +1,7 @@
 <script lang="ts">
   import MIBPanel from "./MIBPanel.svelte";
   import ResultsPane from "./ResultsPane.svelte";
+  import ManageMibsPage from "./ManageMibsPage.svelte";
   import { S } from "$lib/stores.svelte";
 
   const MIN_WIDTH = 200;
@@ -38,23 +39,29 @@
   }
 </script>
 
-<div class="flex flex-1 overflow-hidden" bind:this={mainContentEl}>
-  <MIBPanel />
-  {#if S.mibPanelOpen}
-  <div
-    class="resize-handle-h w-[6px] cursor-col-resize flex-shrink-0 bg-base-200 hover:bg-primary/30 transition-colors"
-    onmousedown={onResizeStart}
-    role="separator"
-    aria-orientation="vertical"
-    tabindex="0"
-  >
-    <div class="resize-grip-h mx-auto"></div>
+{#if S.manageMibsOpen}
+  <!-- The Manage MIBs page fills the main content region in place of the
+       MIB Browser + Results Pane. -->
+  <ManageMibsPage />
+{:else}
+  <div class="flex flex-1 overflow-hidden" bind:this={mainContentEl}>
+    <MIBPanel />
+    {#if S.mibPanelOpen}
+    <div
+      class="resize-handle-h w-[6px] cursor-col-resize flex-shrink-0 bg-base-200 hover:bg-primary/30 transition-colors"
+      onmousedown={onResizeStart}
+      role="separator"
+      aria-orientation="vertical"
+      tabindex="0"
+    >
+      <div class="resize-grip-h mx-auto"></div>
+    </div>
+    {/if}
+    <main class="flex flex-col flex-1 overflow-hidden min-w-0">
+      <ResultsPane />
+    </main>
   </div>
-  {/if}
-  <main class="flex flex-col flex-1 overflow-hidden min-w-0">
-    <ResultsPane />
-  </main>
-</div>
+{/if}
 
 <style>
 .resize-handle-h {

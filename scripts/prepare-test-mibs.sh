@@ -52,11 +52,17 @@ brokenThing OBJECT-TYPE
 EOF
 
 # Two files that define the SAME module name ("DUP-MIB") under different file
-# names. Regression fixture for the Manage MIBs dialog: its row list must be
-# keyed per file (not per module name) or duplicate names hang the dialog on
+# names. Regression fixture for the Manage MIBs page: its row list must be
+# keyed per file (not per module name) or duplicate names hang the page on
 # "Loading..." (Svelte each_key_duplicate).
 cat > "$DST_MIBS/DUP-MIB-A" <<'EOF'
--- DUP-MIB (part 1 of 2) — e2e regression fixture. See DUP-MIB-B.
+-- DUP-MIB (part 1 of 2) — e2e regression fixture.
+--
+-- Both DUP-MIB-A and DUP-MIB-B define the SAME MIB module name "DUP-MIB".
+-- This mirrors real directories that contain several versions of one module
+-- (e.g. RFC1623.MIB + RFC1643.MIB + EtherLike-MIB all defining EtherLike-MIB).
+-- The Manage MIBs page must list BOTH rows without hanging on "Loading...":
+-- its {#each} key must be unique per row (file path), not per module name.
 
 DUP-MIB DEFINITIONS ::= BEGIN
 IMPORTS
@@ -82,7 +88,12 @@ END
 EOF
 
 cat > "$DST_MIBS/DUP-MIB-B" <<'EOF'
--- DUP-MIB (part 2 of 2) — e2e regression fixture. See DUP-MIB-A.
+-- DUP-MIB (part 2 of 2) — e2e regression fixture.
+--
+-- See DUP-MIB-A: this file defines the SAME module name "DUP-MIB" under a
+-- different file name, so loaded_mibs() reports two entries sharing one
+-- mibName. The Manage MIBs page must render both rows (keyed by file
+-- path) instead of hanging on "Loading...".
 
 DUP-MIB DEFINITIONS ::= BEGIN
 IMPORTS
@@ -107,5 +118,42 @@ dupThingB OBJECT-TYPE
 END
 EOF
 
+# Explicit-file fixture: a MIB that lives OUTSIDE test/mibs and is added via
+# the `mib.files` config (the Manage MIBs page "File(s)…" source type). The
+# e2e harness seeds it in the config so startup loads it and the page can
+# verify it persists across an Unload All + reload.
+EXTRA_DIR="$REPO_ROOT/test/mibs-extra"
+mkdir -p "$EXTRA_DIR"
+cat > "$EXTRA_DIR/EXTRA-MIB" <<'EOF'
+-- EXTRA-MIB — e2e explicit-file fixture.
+--
+-- Loaded via the `mib.files` config entry (not a configured directory),
+-- exercising the persistent explicit-file source type.
+
+EXTRA-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, Integer32, enterprises
+        FROM SNMPv2-SMI;
+
+extraMib MODULE-IDENTITY
+    LAST-UPDATED "202601010000Z"
+    ORGANIZATION "Test"
+    CONTACT-INFO "test@test.com"
+    DESCRIPTION "Explicit-file fixture."
+    ::= { enterprises 99203 }
+
+extraMibObjects OBJECT IDENTIFIER ::= { extraMib 1 }
+
+extraThing OBJECT-TYPE
+    SYNTAX Integer32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "Fixture object."
+    ::= { extraMibObjects 1 }
+END
+EOF
+
 echo "Prepared test MIBs in $DST_MIBS:"
 ls -1 "$DST_MIBS"
+echo "Prepared explicit-file fixture in $EXTRA_DIR:"
+ls -1 "$EXTRA_DIR"

@@ -5,13 +5,14 @@
   import MainContent from "./MainContent.svelte";
   import ContextMenu from "./ContextMenu.svelte";
   import HexViewModal from "./HexViewModal.svelte";
-  import ManageMibsDialog from "./ManageMibsDialog.svelte";
   import SetValueDialog from "./SetValueDialog.svelte";
   import ConnectionModal from "./ConnectionModal.svelte";
   import SystemLogPane from "./SystemLogPane.svelte";
   import { onMount } from "svelte";
   import { S } from "$lib/stores.svelte";
   import { pluralize } from "$lib/format";
+  import { refreshMibState } from "$lib/mibManager";
+  import { configRead, mibLoad } from "$lib/tauriCommands";
 
   let connState = $derived(S.connectionState);
   let theme = $derived(S.currentTheme);
@@ -20,7 +21,7 @@
     document.documentElement.setAttribute("data-theme", theme);
     S.statusText = "Loading configuration...";
     try {
-      const config = await (await import("$lib/tauriCommands")).configRead();
+      const config = await configRead();
 
       if (config.target) {
         const t = config.target;
@@ -40,23 +41,14 @@
 
       S.saveCredentials = config.ui?.save_credentials ?? true;
 
+      // Startup loads directories + explicit files (the full configured set).
       const dirs = config.mib?.directories || [];
+      const files = config.mib?.files || [];
 
-      if (dirs.length > 0) {
+      if (dirs.length > 0 || files.length > 0) {
         S.statusText = `Loading MIBs from ${dirs.length} directory(ies)...`;
-        const cmds = await import("$lib/tauriCommands");
-        const status = await cmds.mibLoadDirectories(dirs);
-        S.nodeCount = status.nodeCount;
-        S.fallbackMibs.length = 0;
-        S.fallbackMibs.push(...status.fallbackMibs);
-
-        // Refresh OID→name map for frontend resolution.
-        try {
-          const pairs = await cmds.mibOidNameMap();
-          S.oidNameMap = new Map(pairs);
-        } catch (e) {
-          console.error("Failed to load OID name map:", e);
-        }
+        const status = await mibLoad(dirs, files);
+        await refreshMibState(status);
       }
 
       await refreshTree();
@@ -90,7 +82,6 @@
   </div>
   <ContextMenu />
   <HexViewModal />
-  <ManageMibsDialog />
   <SetValueDialog />
   <ConnectionModal />
   <footer class="footer footer-horizontal items-center bg-base-200 border-t border-base-300 text-base-content/60 text-xs flex-shrink-0 px-4 py-2">
