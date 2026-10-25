@@ -23,7 +23,7 @@ fn test_mibs_dir() -> std::path::PathBuf {
 fn curated_mib_set_loads_with_expected_fallback() {
     let dir = test_mibs_dir();
     let mut resolver = Resolver::default();
-    resolver.load_directories(&[dir.to_string_lossy().to_string()]);
+    resolver.load(&[dir.to_string_lossy().to_string()], &[]);
 
     let loaded = resolver.loaded_mibs();
     // Module names may be normalized to uppercase by the parser.

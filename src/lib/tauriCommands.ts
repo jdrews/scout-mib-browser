@@ -61,16 +61,18 @@ export async function mibResolveOid(oid: string): Promise<{ oid: string; name: s
   return invoke("mib_resolve_oid", { oid });
 }
 
-/** Loads all MIB files from the given directories. */
-export async function mibLoadDirectories(
+/** Loads MIB files from the given directories plus the given explicit files. */
+export async function mibLoad(
   directories: string[],
+  files: string[],
 ): Promise<LoadDirectoriesStatus> {
-  return invoke("mib_load_directories", { directories });
+  return invoke("mib_load", { directories, files });
 }
 
-/** Unloads all nodes from the given MIB module. */
-export async function mibUnload(mibName: string): Promise<LoadDirectoriesStatus> {
-  return invoke("mib_unload", { mibName });
+/** Unloads the modules that the given file paths resolve to (one backend
+ * call, one index swap). */
+export async function mibUnloadMany(filePaths: string[]): Promise<LoadDirectoriesStatus> {
+  return invoke("mib_unload_many", { filePaths });
 }
 
 /** Returns metadata about all currently loaded MIB modules. */
@@ -81,6 +83,12 @@ export async function mibLoadedList(): Promise<LoadedMib[]> {
 /** Opens a native directory picker dialog. */
 export async function openDirectory(): Promise<string | null> {
   const result = (await invoke("dialog_open_directory")) as string | null;
+  return result;
+}
+
+/** Opens a native multi-file picker dialog. */
+export async function openFiles(): Promise<string[] | null> {
+  const result = (await invoke("dialog_open_files")) as string[] | null;
   return result;
 }
 

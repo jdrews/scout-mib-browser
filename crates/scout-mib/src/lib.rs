@@ -350,7 +350,7 @@ struct FileStamp {
 }
 
 /// Cached parse result for one MIB file. Kept per file so that unchanged
-/// files survive across `load_directories` calls without re-parsing.
+/// files survive across `load` calls without re-parsing.
 #[derive(Debug, Clone)]
 struct FileEntry {
     stamp: FileStamp,
@@ -397,7 +397,8 @@ pub struct Resolver {
 }
 
 impl Resolver {
-    /// Loads all MIB files from the given directories, incrementally.
+    /// Loads MIB files from the given directories **plus** the given explicit
+    /// files, incrementally.
     ///
     /// Files are keyed by path with an mtime+size stamp; a file whose stamp
     /// is unchanged since the last load is served from the parse cache without
@@ -406,7 +407,13 @@ impl Resolver {
     /// disappeared from disk drop out of the index. Binary and non-text files
     /// are pre-filtered before any parse attempt; mib-rs results take
     /// precedence in the merged index.
-    pub fn load_directories(&mut self, directories: &[String]) -> LoadStats {
+    ///
+    /// Directories are live sources (a new file dropped into one is picked up
+    /// on reload); explicit files are a persistent source type — they survive
+    /// reloads and startup as long as they are passed again. An explicit file
+    /// that also lives in a configured directory is the same file (deduped by
+    /// path); a deleted explicit file drops out on the next load.
+    pub fn load(&mut self, directories: &[String], files: &[String]) -> LoadStats {
         // Collect candidate files across all directories, deduped by path.
         let mut present: BTreeMap<String, (PathBuf, FileStamp)> = BTreeMap::new();
         for dir_str in directories {
@@ -429,6 +436,24 @@ impl Resolver {
                     }
                     None => warn!("Cannot stat MIB file: {}", path.display()),
                 }
+            }
+        }
+
+        // Explicit files join the same candidate set; a file that also lives in
+        // a configured directory dedupes by path (or_insert keeps the first).
+        for file_str in files {
+            let path = Path::new(file_str);
+            if !path.is_file() {
+                warn!("MIB file does not exist: {}", file_str);
+                continue;
+            }
+            match file_stamp(path) {
+                Some(stamp) => {
+                    present
+                        .entry(file_str.to_string())
+                        .or_insert_with(|| (path.to_path_buf(), stamp));
+                }
+                None => warn!("Cannot stat MIB file: {}", path.display()),
             }
         }
 
@@ -739,6 +764,29 @@ impl Resolver {
             mib_name,
             oids_to_remove.len()
         );
+    }
+
+    /// Unloads the modules that the given file paths resolve to, reusing the
+    /// per-module removal.
+    ///
+    /// Path-based: each path maps to a module name via `loaded_files`. Paths
+    /// that resolve to the same module (a duplicate-module pair) unload the
+    /// whole merged module once — the node index tags nodes by module name
+    /// only, so per-file precision is not available for shared modules.
+    /// Unknown paths are skipped. Returns the number of modules unloaded.
+    pub fn unload_mibs_by_paths(&mut self, paths: &[String]) -> usize {
+        let mut names: Vec<String> = Vec::new();
+        for path in paths {
+            if let Some(name) = self.loaded_files.get(path) {
+                if !names.iter().any(|n| n == name) {
+                    names.push(name.clone());
+                }
+            }
+        }
+        for name in &names {
+            self.unload_mib(name);
+        }
+        names.len()
     }
 
     /// Root-level nodes (direct roots + orphans) with the grouping context they
@@ -1276,17 +1324,78 @@ mod tests {
 
     /// Inserts a minimal MibNode into the resolver's index.
     fn insert(resolver: &mut Resolver, oid: &str, name: &str, syntax: SyntaxType) {
+        insert_named(resolver, oid, name, syntax, "TEST-MIB");
+    }
+
+    /// Inserts a minimal MibNode tagged with the given module name.
+    fn insert_named(
+        resolver: &mut Resolver,
+        oid: &str,
+        name: &str,
+        syntax: SyntaxType,
+        mib_name: &str,
+    ) {
         resolver.oid_index.insert(
             oid.to_string(),
             MibNode {
                 oid: oid.to_string(),
                 name: name.to_string(),
                 syntax_type: syntax,
-                mib_name: "TEST-MIB".to_string(),
+                mib_name: mib_name.to_string(),
                 is_table: false,
                 ..Default::default()
             },
         );
+    }
+
+    /// Writes a minimal single-object MIB module to `path` (the same shape
+    /// as the `incremental_load` integration fixtures).
+    fn write_mib_file(path: &std::path::Path, module: &str, enterprise: u32) {
+        let ident = format!("{}Mib", module.to_lowercase().replace('-', ""));
+        std::fs::write(
+            path,
+            format!(
+                r#"{module} DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, Integer32, enterprises
+        FROM SNMPv2-SMI;
+
+{ident} MODULE-IDENTITY
+    LAST-UPDATED "202601010000Z"
+    ORGANIZATION "Test"
+    CONTACT-INFO "test@test.com"
+    DESCRIPTION "A test module."
+    ::= {{ enterprises {enterprise} }}
+
+{ident}Objects OBJECT IDENTIFIER ::= {{ {ident} 1 }}
+
+{ident}Thing OBJECT-TYPE
+    SYNTAX Integer32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION "A test object."
+    ::= {{ {ident}Objects 1 }}
+END
+"#
+            ),
+        )
+        .unwrap();
+    }
+
+    /// Temp fixture: `dir-a/A-MIB` (directory source) and `dir-b/B-MIB`
+    /// (explicit-file source, outside any configured directory).
+    fn load_fixture(tag: &str) -> (Vec<String>, Vec<String>, std::path::PathBuf) {
+        let tmp = std::env::temp_dir().join(format!("scout_mib_load_{tag}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let dir_a = tmp.join("dir-a");
+        let dir_b = tmp.join("dir-b");
+        std::fs::create_dir_all(&dir_a).unwrap();
+        std::fs::create_dir_all(&dir_b).unwrap();
+        write_mib_file(&dir_a.join("A-MIB"), "A-MIB", 99010);
+        write_mib_file(&dir_b.join("B-MIB"), "B-MIB", 99011);
+        let dirs = vec![dir_a.display().to_string()];
+        let files = vec![dir_b.join("B-MIB").display().to_string()];
+        (dirs, files, tmp)
     }
 
     #[test]
@@ -2027,6 +2136,173 @@ mod tests {
             Some("1.3.6.1.4.1.99999.1")
         );
         assert_eq!(resolver.reverse_lookup("sysDescr"), None);
+    }
+
+    #[test]
+    fn unload_mibs_by_paths_removes_resolved_modules_preserves_others() {
+        let mut resolver = Resolver::default();
+        insert_named(
+            &mut resolver,
+            "1.3.6.1.2.1.1.1",
+            "sysDescr",
+            SyntaxType::OctetString,
+            "SNMPv2-MIB",
+        );
+        insert_named(
+            &mut resolver,
+            "1.3.6.1.4.1.99999.1",
+            "vendorObj",
+            SyntaxType::Integer32,
+            "VENDOR-MIB",
+        );
+        resolver
+            .name_index
+            .insert("sysDescr".to_string(), "1.3.6.1.2.1.1.1".to_string());
+        resolver
+            .name_index
+            .insert("vendorObj".to_string(), "1.3.6.1.4.1.99999.1".to_string());
+        resolver
+            .loaded_files
+            .insert("/mibs/SNMPv2-MIB".to_string(), "SNMPv2-MIB".to_string());
+        resolver
+            .loaded_files
+            .insert("/mibs/VENDOR-MIB".to_string(), "VENDOR-MIB".to_string());
+
+        let unloaded = resolver.unload_mibs_by_paths(&["/mibs/SNMPv2-MIB".to_string()]);
+
+        assert_eq!(unloaded, 1);
+        assert_eq!(resolver.node_count(), 1);
+        assert_eq!(
+            resolver.reverse_lookup("vendorObj"),
+            Some("1.3.6.1.4.1.99999.1")
+        );
+        assert_eq!(resolver.reverse_lookup("sysDescr"), None);
+    }
+
+    #[test]
+    fn unload_mibs_by_paths_unknown_path_is_noop() {
+        let mut resolver = Resolver::default();
+        insert_named(
+            &mut resolver,
+            "1.3.6.1.2.1.1.1",
+            "sysDescr",
+            SyntaxType::OctetString,
+            "SNMPv2-MIB",
+        );
+        resolver
+            .loaded_files
+            .insert("/mibs/SNMPv2-MIB".to_string(), "SNMPv2-MIB".to_string());
+
+        let unloaded = resolver.unload_mibs_by_paths(&["/mibs/NOPE".to_string()]);
+
+        assert_eq!(unloaded, 0);
+        assert_eq!(resolver.node_count(), 1);
+    }
+
+    #[test]
+    fn unload_mibs_by_paths_duplicate_module_unloads_whole_module() {
+        // Two files resolve to the same module (a duplicate-module pair): the
+        // merged module is unloaded once, removing both files' contribution.
+        let mut resolver = Resolver::default();
+        insert_named(
+            &mut resolver,
+            "1.3.6.1.4.1.99201.1.1",
+            "dupThing",
+            SyntaxType::Integer32,
+            "DUP-MIB",
+        );
+        resolver
+            .loaded_files
+            .insert("/mibs/DUP-MIB-A".to_string(), "DUP-MIB".to_string());
+        resolver
+            .loaded_files
+            .insert("/mibs/DUP-MIB-B".to_string(), "DUP-MIB".to_string());
+
+        let unloaded = resolver
+            .unload_mibs_by_paths(&["/mibs/DUP-MIB-A".to_string(), "/mibs/DUP-MIB-B".to_string()]);
+
+        assert_eq!(unloaded, 1);
+        assert_eq!(resolver.node_count(), 0);
+    }
+
+    #[test]
+    fn load_explicit_files_alongside_directories() {
+        let (dirs, files, tmp) = load_fixture("alongside");
+        let mut resolver = Resolver::default();
+        resolver.load(&dirs, &files);
+
+        let mibs = resolver.loaded_mibs();
+        let names: Vec<&str> = mibs.iter().map(|m| m.mib_name.as_str()).collect();
+        assert!(names.contains(&"A-MIB"), "directory file loaded: {names:?}");
+        assert!(names.contains(&"B-MIB"), "explicit file loaded: {names:?}");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn load_explicit_file_retained_across_reload() {
+        let (dirs, files, tmp) = load_fixture("retain");
+        let mut resolver = Resolver::default();
+        resolver.load(&dirs, &files);
+        let first = resolver.node_count();
+        assert!(first > 0, "first load parsed the fixture MIBs");
+
+        // A second load pass (a directory reload or startup) keeps the
+        // explicit file: it is in `present` again, so its cache entry
+        // survives instead of being dropped.
+        let stats = resolver.load(&dirs, &files);
+        assert!(
+            stats.cached >= 1,
+            "explicit file served from cache: {stats:?}"
+        );
+        assert_eq!(resolver.node_count(), first);
+        let mibs = resolver.loaded_mibs();
+        let names: Vec<&str> = mibs.iter().map(|m| m.mib_name.as_str()).collect();
+        assert!(
+            names.contains(&"B-MIB"),
+            "explicit file still loaded: {names:?}"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn load_deleted_explicit_file_drops_out() {
+        let (dirs, files, tmp) = load_fixture("deleted");
+        let mut resolver = Resolver::default();
+        resolver.load(&dirs, &files);
+        assert!(
+            resolver.loaded_mibs().iter().any(|m| m.mib_name == "B-MIB"),
+            "explicit file loaded"
+        );
+
+        std::fs::remove_file(tmp.join("dir-b/B-MIB")).unwrap();
+        resolver.load(&dirs, &files);
+
+        assert!(
+            !resolver.loaded_mibs().iter().any(|m| m.mib_name == "B-MIB"),
+            "deleted explicit file dropped out"
+        );
+        assert!(
+            resolver.loaded_mibs().iter().any(|m| m.mib_name == "A-MIB"),
+            "directory file unaffected"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn load_explicit_file_deduped_with_directory_file() {
+        let (dirs, _files, tmp) = load_fixture("dedup");
+        // The explicit file also lives in a configured directory: one entry.
+        let files = vec![tmp.join("dir-a/A-MIB").display().to_string()];
+        let mut resolver = Resolver::default();
+        resolver.load(&dirs, &files);
+
+        let count = resolver
+            .loaded_mibs()
+            .iter()
+            .filter(|m| m.mib_name == "A-MIB")
+            .count();
+        assert_eq!(count, 1, "deduped by path");
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

@@ -3,7 +3,7 @@
 -- Both DUP-MIB-A and DUP-MIB-B define the SAME MIB module name "DUP-MIB".
 -- This mirrors real directories that contain several versions of one module
 -- (e.g. RFC1623.MIB + RFC1643.MIB + EtherLike-MIB all defining EtherLike-MIB).
--- The Manage MIBs dialog must list BOTH rows without hanging on "Loading...":
+-- The Manage MIBs page must list BOTH rows without hanging on "Loading...":
 -- its {#each} key must be unique per row (file path), not per module name.
 
 DUP-MIB DEFINITIONS ::= BEGIN

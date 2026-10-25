@@ -151,7 +151,7 @@ impl AppConfig {
     pub(crate) fn to_toml_value(&self) -> toml::Value {
         let mut table = toml::map::Map::new();
 
-        // MIB section — always include directories.
+        // MIB section — always include directories and explicit files.
         let mut mib_table = toml::map::Map::new();
         mib_table.insert(
             "directories".to_string(),
@@ -160,6 +160,16 @@ impl AppConfig {
                     .directories
                     .iter()
                     .map(|d| toml::Value::String(d.clone()))
+                    .collect(),
+            ),
+        );
+        mib_table.insert(
+            "files".to_string(),
+            toml::Value::Array(
+                self.mib
+                    .files
+                    .iter()
+                    .map(|f| toml::Value::String(f.clone()))
                     .collect(),
             ),
         );
@@ -258,15 +268,21 @@ impl AppConfig {
 /// Configuration for MIB file discovery.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MibConfig {
-    /// Directories to search for MIB files.
+    /// Directories to search for MIB files (live sources).
     #[serde(default = "default_mib_directories")]
     pub directories: Vec<String>,
+
+    /// Explicit MIB files loaded alongside the directories (persistent
+    /// sources; a deleted file drops out on the next load).
+    #[serde(default)]
+    pub files: Vec<String>,
 }
 
 impl Default for MibConfig {
     fn default() -> Self {
         Self {
             directories: default_mib_directories(),
+            files: Vec::new(),
         }
     }
 }
@@ -274,7 +290,7 @@ impl Default for MibConfig {
 impl MibConfig {
     /// Returns `true` if all fields hold their default values.
     pub(crate) fn is_default(&self) -> bool {
-        self.directories == default_mib_directories()
+        self.directories == default_mib_directories() && self.files.is_empty()
     }
 }
 
@@ -623,6 +639,14 @@ pub fn config_write(
                             .collect();
                     }
                 }
+                "files" => {
+                    if let Some(arr) = value.as_array() {
+                        cfg.mib.files = arr
+                            .iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect();
+                    }
+                }
                 _ => return Err(format!("unknown mib key: {}", key)),
             },
             "target" => match key {
@@ -846,6 +870,7 @@ mod tests {
             cfg.mib.directories,
             vec!["/usr/share/snmp/mibs".to_string()]
         );
+        assert!(cfg.mib.files.is_empty());
         assert_eq!(cfg.target.host, "");
         assert_eq!(cfg.target.port, 161);
         assert_eq!(cfg.target.version, SnmpVersion::V2c);
@@ -923,6 +948,35 @@ mod tests {
         assert_eq!(loaded.target.v3_username, "admin");
         assert_eq!(loaded.target.v3_auth_passphrase, "auth-pass");
         assert!(loaded.ui.save_credentials);
+    }
+
+    #[test]
+    fn mib_files_round_trip() {
+        let mut cfg = AppConfig::default();
+        cfg.mib.files = vec!["/home/user/mibs/EXTRA-MIB".to_string()];
+
+        let value = cfg.to_toml_value();
+        let toml_str = toml::to_string_pretty(&value).unwrap();
+        assert!(toml_str.contains("EXTRA-MIB"));
+
+        // Read back with defaults; explicit files survive the round trip.
+        let loaded: AppConfig = toml::from_str(&toml_str).unwrap();
+        assert_eq!(
+            loaded.mib.files,
+            vec!["/home/user/mibs/EXTRA-MIB".to_string()]
+        );
+        assert_eq!(
+            loaded.mib.directories,
+            vec!["/usr/share/snmp/mibs".to_string()]
+        );
+    }
+
+    #[test]
+    fn mib_files_absent_in_toml_deserializes_to_empty() {
+        // A pre-existing config file without a `files` key loads cleanly.
+        let toml_str = toml::to_string_pretty(&AppConfig::default()).unwrap();
+        let loaded: AppConfig = toml::from_str(&toml_str).unwrap();
+        assert!(loaded.mib.files.is_empty());
     }
 
     #[test]

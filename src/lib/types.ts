@@ -72,6 +72,7 @@ export type ConnectionState = "unknown" | "disconnected" | "connecting" | "conne
 export interface AppConfig {
   mib?: {
     directories?: string[];
+    files?: string[];
   };
   target?: Omit<TargetConfig, "host" | "port"> & Partial<Pick<TargetConfig, "host" | "port">>;
   ui?: {

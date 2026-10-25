@@ -187,13 +187,13 @@ describe("UX A1 — state screenshot pass (both themes)", function () {
     await closeConnectionModal();
     await (await $("[data-testid='port-input']").setValue(String(AGENT_PORT)));
 
-    // 12a — Manage MIBs dialog
+    // 12a — Manage MIBs page
     await (await $("[data-testid='menu-file']")).click();
     await (await $("[data-testid='menu-manage-mibs']")).click();
-    await (await $("[data-testid='manage-mibs-dialog']")).waitForExist({ timeout: 5000 });
+    await (await $("[data-testid='manage-mibs-page']")).waitForExist({ timeout: 5000 });
     await browser.pause(300);
     await shot("12a-manage-mibs-dark");
-    await (await $("[data-testid='manage-mibs-close']")).click();
+    await (await $("[data-testid='back-btn']")).click();
 
     // 12b — System Log pane open
     await (await $("[data-testid='menu-view']")).click();
@@ -279,10 +279,10 @@ describe("UX A1 — state screenshot pass (both themes)", function () {
     // 12a/12b — Manage MIBs + System Log
     await (await $("[data-testid='menu-file']")).click();
     await (await $("[data-testid='menu-manage-mibs']")).click();
-    await (await $("[data-testid='manage-mibs-dialog']")).waitForExist({ timeout: 5000 });
+    await (await $("[data-testid='manage-mibs-page']")).waitForExist({ timeout: 5000 });
     await browser.pause(300);
     await shot("12a-manage-mibs-light");
-    await (await $("[data-testid='manage-mibs-close']")).click();
+    await (await $("[data-testid='back-btn']")).click();
 
     await (await $("[data-testid='menu-view']")).click();
     await (await $("[data-testid='menu-system-log']")).click();

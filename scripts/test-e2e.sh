@@ -29,11 +29,13 @@ WORK_DIR="$(mktemp -d /tmp/scout-e2e-XXXXXX)"
 export XDG_CONFIG_HOME="$WORK_DIR/config"
 mkdir -p "$XDG_CONFIG_HOME/scout"
 
-# Pre-seeded config: curated MIBs + local mock agent. The app reads this at
-# startup, so tests never touch the developer's real ~/.config/scout.
+# Pre-seeded config: curated MIBs + one explicit file (mib.files) + local
+# mock agent. The app reads this at startup, so tests never touch the
+# developer's real ~/.config/scout.
 cat > "$XDG_CONFIG_HOME/scout/config.toml" <<EOF
 [mib]
 directories = ["$REPO_ROOT/test/mibs"]
+files = ["$REPO_ROOT/test/mibs-extra/EXTRA-MIB"]
 
 [target]
 community = "public"
@@ -43,7 +45,7 @@ version = "v2c"
 EOF
 
 # test/mibs is committed; regenerate if the checkout is incomplete.
-if [ ! -f "$REPO_ROOT/test/mibs/BROKEN-MIB" ]; then
+if [ ! -f "$REPO_ROOT/test/mibs/BROKEN-MIB" ] || [ ! -f "$REPO_ROOT/test/mibs-extra/EXTRA-MIB" ]; then
   echo "test/mibs incomplete — running prepare-test-mibs.sh..."
   bash "$REPO_ROOT/scripts/prepare-test-mibs.sh"
 fi

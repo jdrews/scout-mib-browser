@@ -27,72 +27,195 @@ describe("Menus & settings (app-level settings)", () => {
     await (await $("nav")).click();
   });
 
-  it("Manage MIBs dialog", async () => {
+  // ── Manage MIBs page (full-page view, Results Pane table pattern) ────────
+
+  /** Reads the visible table rows as (name, node count) pairs. */
+  async function readMibRows(): Promise<{ name: string; count: number }[]> {
+    const rows = await $$("[data-testid='mib-row']");
+    const out: { name: string; count: number }[] = [];
+    for (const r of rows) {
+      const tds = await r.$$("td");
+      const name = ((await tds[1].getText()) ?? "").trim();
+      const countText = (await (await r.$("[data-testid='mib-node-count']")).getText()) ?? "";
+      out.push({ name, count: Number(countText.replace(/\D/g, "")) });
+    }
+    return out;
+  }
+
+  async function openManageMibsPage(): Promise<void> {
     await (await $("[data-testid='menu-file']")).click();
     await (await $("[data-testid='menu-manage-mibs']")).click();
+    await (await $("[data-testid='manage-mibs-page']")).waitForExist({ timeout: 15000 });
+    // Wait for the list to finish loading (the footer renders immediately,
+    // so the rows are the load-complete signal).
+    await browser.waitUntil(
+      async () => (await $$("[data-testid='mib-row']")).length > 0,
+      { timeout: 15000, interval: 250 },
+    );
+  }
 
-    // Dialog opens and lists each seeded MIB with its node count.
-    await expect(await $("[data-testid='manage-mibs-dialog']")).toBeExisting();
-    for (const name of ["SNMPv2-SMI", "SNMPv2-MIB", "SNMPv2-TC", "IF-MIB", "BROKEN-MIB"]) {
-      const rows = await $$("[data-testid='mib-row']");
-      let found = false;
-      for (const r of rows) {
-        if (((await r.getText()) ?? "").includes(name)) found = true;
-      }
-      expect(found).toBe(true);
+  it("Manage MIBs page opens and lists seeded MIBs", async () => {
+    await openManageMibsPage();
+
+    // Lists each seeded MIB (directory files + the explicit file).
+    const rows = await readMibRows();
+    for (const name of ["SNMPv2-SMI", "SNMPv2-MIB", "SNMPv2-TC", "IF-MIB", "BROKEN-MIB", "EXTRA-MIB"]) {
+      expect(rows.some((r) => r.name === name)).toBe(true);
+    }
+    // MIBs that define OIDs carry a positive node count. (SNMPv2-TC is
+    // textual-conventions only, so it legitimately indexes 0 nodes.)
+    for (const name of ["SNMPv2-SMI", "SNMPv2-MIB", "IF-MIB", "BROKEN-MIB", "EXTRA-MIB"]) {
+      const row = rows.find((r) => r.name === name);
+      expect(row!.count).toBeGreaterThan(0);
     }
 
     // Regression: DUP-MIB-A and DUP-MIB-B define the same module name. Both
     // rows must render — rows are keyed by file path, so duplicate module
     // names cannot trip Svelte's each_key_duplicate check (which would kill
-    // the update flush and hang the dialog on "Loading...").
-    let dupCount = 0;
-    for (const r of await $$("[data-testid='mib-row']")) {
-      if (((await r.getText()) ?? "").includes("DUP-MIB")) dupCount++;
-    }
-    expect(dupCount).toBe(2);
+    // the update flush and hang the page on "Loading...").
+    expect(rows.filter((r) => r.name === "DUP-MIB").length).toBe(2);
 
+    // BROKEN-MIB carries the FALLBACK badge.
+    let brokenRow: WebdriverIO.Element | null = null;
+    for (const r of await $$("[data-testid='mib-row']")) {
+      if (((await r.getText()) ?? "").includes("BROKEN-MIB")) brokenRow = r;
+    }
+    expect(brokenRow).not.toBeNull();
+    expect((await (brokenRow!.$$("span.badge"))).length).toBe(1);
+
+    // Footer: nothing selected, node count matches the app footer.
+    const footer = (await (await $("[data-testid='mibs-footer']")).getText()) ?? "";
+    expect(footer).toMatch(/^0 of \d+ MIBs selected · \d+ nodes loaded$/);
+
+    // Back returns to the MIB Browser view.
+    await (await $("[data-testid='back-btn']")).click();
+    await (await $("[data-testid='manage-mibs-page']")).waitForExist({ reverse: true, timeout: 5000 });
+  });
+
+  it("Manage MIBs page sorts by Name and Nodes", async () => {
+    await openManageMibsPage();
+    const defaults = await readMibRows();
+    expect(defaults.length).toBeGreaterThan(0);
+
+    const byName = (a: { name: string; count: number }, b: { name: string; count: number }) =>
+      a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+    const minName = defaults.reduce((m, r) => (byName(r, m) < 0 ? r : m));
+    const maxName = defaults.reduce((m, r) => (byName(r, m) > 0 ? r : m));
+    const minCount = defaults.reduce((m, r) => (r.count < m.count ? r : m));
+    const maxCount = defaults.reduce((m, r) => (r.count > m.count ? r : m));
+
+    // Name header: click = ascending, click again = descending.
+    await (await $("[data-testid='sort-name']")).click();
+    let sorted = await readMibRows();
+    expect(sorted[0].name.toLowerCase()).toBe(minName.name.toLowerCase());
+    expect(sorted[sorted.length - 1].name.toLowerCase()).toBe(maxName.name.toLowerCase());
+    await (await $("[data-testid='sort-name']")).click();
+    sorted = await readMibRows();
+    expect(sorted[0].name.toLowerCase()).toBe(maxName.name.toLowerCase());
+    expect(sorted[sorted.length - 1].name.toLowerCase()).toBe(minName.name.toLowerCase());
+
+    // Nodes header: numeric compare, ascending then descending.
+    await (await $("[data-testid='sort-nodes']")).click();
+    sorted = await readMibRows();
+    expect(sorted[0].count).toBe(minCount.count);
+    expect(sorted[sorted.length - 1].count).toBe(maxCount.count);
+    await (await $("[data-testid='sort-nodes']")).click();
+    sorted = await readMibRows();
+    expect(sorted[0].count).toBe(maxCount.count);
+    expect(sorted[sorted.length - 1].count).toBe(minCount.count);
+
+    // A third click clears back to the default (backend) order.
+    await (await $("[data-testid='sort-nodes']")).click();
+    sorted = await readMibRows();
+    expect(sorted.map((r) => r.name)).toEqual(defaults.map((r) => r.name));
+  });
+
+  it("Manage MIBs page filters", async () => {
+    // The page is still open from the sort case.
+    const filter = await $("[data-testid='mibs-filter-input']");
+    const all = await readMibRows();
+
+    // "fallback" isolates the broken MIB.
+    await filter.setValue("fallback");
+    let rows = await readMibRows();
+    expect(rows.length).toBe(1);
+    expect(rows[0].name).toBe("BROKEN-MIB");
+
+    // No-match state.
+    await filter.setValue("zzz-no-such-mib");
+    await expect(await $("[data-testid='mibs-no-match']")).toBeExisting();
+
+    // Clearing restores the full list.
+    await filter.setValue("");
+    expect((await readMibRows()).length).toBe(all.length);
+  });
+
+  it("Manage MIBs page select-all + Unload Selected", async () => {
+    // The page is still open from the filter case, unfiltered.
     const before = await nodeCount();
+    const all = await readMibRows();
 
-    // Unload IF-MIB.
-    let ifRow: WebdriverIO.Element | null = null;
-    let ifRowCount = 0;
-    for (const r of await $$("[data-testid='mib-row']")) {
-      const t = (await r.getText()) ?? "";
-      if (t.includes("IF-MIB")) {
-        ifRow = r;
-        ifRowCount = Number(t.match(/(\d+) nodes?/)![1]);
-      }
-    }
-    expect(ifRow).not.toBeNull();
-    await (await (ifRow!.$("[data-testid='unload-btn']"))).click();
-    expect(await waitForStatus(/^Unloaded IF-MIB$/, 15000)).toBe("Unloaded IF-MIB");
+    // Select-all selects every visible row.
+    await (await $("[data-testid='select-all-mibs']")).click();
+    const footer = (await (await $("[data-testid='mibs-footer']")).getText()) ?? "";
+    expect(footer).toMatch(new RegExp(`^${all.length} of ${all.length} MIBs selected`));
 
-    // It disappears from the list.
-    let stillThere = false;
-    for (const r of await $$("[data-testid='mib-row']")) {
-      if (((await r.getText()) ?? "").includes("IF-MIB")) stillThere = true;
-    }
-    expect(stillThere).toBe(false);
+    // Unload Selected removes them; the footer node count drops by the sum of
+    // the distinct modules' node counts (duplicate-module rows share one
+    // module's count, so dedup by module name).
+    const distinctSum = Object.values(
+      Object.fromEntries(all.map((r) => [r.name, r.count])),
+    ).reduce((a, b) => a + b, 0);
 
-    // Footer node count decreased by IF-MIB's node count.
-    expect(await nodeCount()).toBe(before - ifRowCount);
+    await (await $("[data-testid='unload-selected-btn']")).click();
+    expect(await waitForStatus(/^Unloaded \d+ MIBs$/, 30000)).toMatch(/^Unloaded \d+ MIBs$/);
 
-    // ifTable is no longer in the tree.
-    await expandTo(CHAIN_TO_MIB2);
-    let hasIfTable = false;
-    for (const n of await $$("[data-tree-node]")) {
-      if (((await n.getAttribute("title")) ?? "").startsWith("ifTable (")) hasIfTable = true;
-    }
-    expect(hasIfTable).toBe(false);
+    // The list is empty and the app footer shows no loaded nodes.
+    await browser.waitUntil(
+      async () => (await $$("[data-testid='mib-row']")).length === 0,
+      { timeout: 15000, interval: 250 },
+    );
+    const nodeCountText = (await (await $("[data-testid='node-count']")).getText()) ?? "";
+    expect(nodeCountText).toBe("");
+    expect(before).toBe(distinctSum);
+  });
 
-    // Close the dialog, then restore state for later spec files: reloading the
-    // window re-runs startup (config -> mibLoadDirectories), which rebuilds the
-    // resolver from disk and brings IF-MIB back.
-    await (await $("[data-testid='manage-mibs-close']")).click();
+  it("Manage MIBs page Unload All + reload restores", async () => {
+    // Reload the window: startup re-runs (config -> mibLoad), rebuilding the
+    // resolver from disk (directories + explicit files).
     await browser.url("http://localhost:5173");
     await waitForAppReady();
-    expect(await nodeCount()).toBe(before);
+    expect(await nodeCount()).toBeGreaterThan(0);
+
+    await openManageMibsPage();
+    await (await $("[data-testid='unload-all-btn']")).click();
+    expect(await waitForStatus(/^Unloaded all MIBs$/, 30000)).toBe("Unloaded all MIBs");
+    await browser.waitUntil(
+      async () => (await $$("[data-testid='mib-row']")).length === 0,
+      { timeout: 15000, interval: 250 },
+    );
+
+    // Reload again: the explicit file (EXTRA-MIB) persisted in config and is
+    // loaded alongside the directory MIBs.
+    await browser.url("http://localhost:5173");
+    await waitForAppReady();
+    expect(await nodeCount()).toBeGreaterThan(0);
+    await openManageMibsPage();
+    const rows = await readMibRows();
+    expect(rows.some((r) => r.name === "EXTRA-MIB")).toBe(true);
+  });
+
+  it("Manage MIBs page Add dropdown", async () => {
+    // The page is still open from the previous case.
+    await (await $("[data-testid='add-menu-btn']")).click();
+    await expect(await $("[data-testid='add-dir-item']")).toBeExisting();
+    await expect(await $("[data-testid='add-files-item']")).toBeExisting();
+
+    // Restore state for later spec files: reload re-runs startup and brings
+    // the MIBs back.
+    await browser.url("http://localhost:5173");
+    await waitForAppReady();
+    expect(await nodeCount()).toBeGreaterThan(0);
   });
 
   it("View menu toggles System Log", async () => {
