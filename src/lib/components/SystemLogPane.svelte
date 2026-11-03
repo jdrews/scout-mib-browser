@@ -193,15 +193,18 @@
 </aside>
 
 <style>
+/* daisyUI 5.7 exposes theme colors as full --color-* values; alpha tints
+   go through color-mix — the legacy oklch(var(--p) / a) form references
+   variables that no longer exist (see TreeNode.svelte). */
 .muted-level {
-  color: oklch(var(--bc) / 0.6);
+  color: color-mix(in oklab, var(--color-base-content) 60%, transparent);
 }
 .resize-handle-v {
   position: relative;
 }
 .resize-handle-v:hover,
 .resize-handle-v:active {
-  background-color: oklch(var(--p) / 0.15);
+  background-color: color-mix(in oklab, var(--color-primary) 15%, transparent);
 }
 .resize-grip-v {
   position: absolute;
@@ -211,9 +214,9 @@
   height: 2px;
   width: 32px;
   border-radius: 1px;
-  background-color: oklch(var(--bc) / 0.2);
+  background-color: color-mix(in oklab, var(--color-base-content) 20%, transparent);
 }
 .resize-handle-v:hover .resize-grip-v {
-  background-color: oklch(var(--p) / 0.6);
+  background-color: color-mix(in oklab, var(--color-primary) 60%, transparent);
 }
 </style>

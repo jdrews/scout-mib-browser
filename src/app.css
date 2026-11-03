@@ -3,12 +3,91 @@
   themes: dark --default, light;
 };
 
-/* UX-16: the stock light base-content leaves muted variants (e.g.
-   text-base-content/60 on base-200) at ~4.5:1 — right at the WCAG AA line.
-   Darken the theme token so all opacity-mixed derivatives clear 4.5:1 with
-   margin, instead of patching individual usages. */
+/*
+ * Scout visual direction — docs/specs/2026-11-02-ux-visual-polish.md
+ *
+ * Precise, calm, instrumented: the daisyUI neutral ramps (cool graphite in
+ * dark, white steps in light) stay; the accents move into the product's
+ * world — instrument teal — and the stock neon violet / magenta / amber are
+ * retired or toned.
+ *
+ * daisyUI 5.7 ships themes as plain `--color-*` values, and these
+ * unlayered [data-theme] rules come after its layered theme rules in the
+ * cascade, so the overrides below ARE the theme.
+ */
+@theme {
+  /* Type: one family, two faces — sans for UI and MIB names, mono for
+     OIDs, values, paths, hex, and logs. System stacks kept as fallbacks
+     (WebKitGTK hinting quality is checked in the manual dev pass). */
+  --font-sans:
+    "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto,
+    sans-serif;
+  --font-mono:
+    "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas,
+    monospace;
+
+}
+
+/* Motion: one curve, a short duration set (quick = toggles/hover,
+   base = modals/menus). daisyUI 5.7 defines no --animation-* vars, so
+   components consume these as utilities (ease-smooth, duration-quick,
+   duration-base) directly. `static` forces emission — no utility reads
+   them until the motion pass lands, and Tailwind would otherwise
+   tree-shake unused theme vars. */
+@theme static {
+  --ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-quick: 140ms;
+  --duration-base: 180ms;
+}
+
+/* Dark theme — instrument teal on the kept graphite ramp. */
+[data-theme="dark"] {
+  /* Primary: stock violet (oklch(58% 0.233 277)) → instrument teal.
+     Carries selection, focus, the live status LED, and key figures. */
+  --color-primary: oklch(76% 0.11 196);
+  --color-primary-content: oklch(20% 0.05 200);
+
+  /* Secondary: stock magenta retired → neutral, paired with the ramp. */
+  --color-secondary: oklch(14% 0.005 285.823);
+  --color-secondary-content: oklch(92% 0.004 286.32);
+
+  /* Accent: same teal family — text-accent data marks stop being a
+     fourth hue. */
+  --color-accent: oklch(70% 0.09 196);
+  --color-accent-content: oklch(22% 0.05 200);
+
+  /* Semantics: neon stock toned down to sit inside the ramp. The stock
+     *-content pairings are kept — they are the validated text colors for
+     these chips. */
+  --color-warning: oklch(80% 0.13 84);
+  --color-error: oklch(68% 0.15 15);
+  --color-success: oklch(74% 0.14 163);
+  --color-info: oklch(72% 0.10 235);
+}
+
+/* Light theme — same hues tuned for white surfaces: keep the lightness,
+   drop the chroma (the dark-theme chips are too dark to pair with the
+   light-theme *-content text). */
 [data-theme="light"] {
+  /* UX-16: the stock light base-content leaves muted variants (e.g.
+     text-base-content/60 on base-200) at ~4.5:1 — right at the WCAG AA
+     line. Darken the theme token so all opacity-mixed derivatives clear
+     4.5:1 with margin, instead of patching individual usages. */
   --color-base-content: oklch(15% 0.006 285.885);
+
+  --color-primary: oklch(45% 0.12 196);
+  --color-primary-content: oklch(98% 0.01 200);
+
+  --color-secondary: oklch(14% 0.005 285.823);
+  --color-secondary-content: oklch(92% 0.004 286.32);
+
+  --color-accent: oklch(40% 0.10 196);
+  --color-accent-content: oklch(98% 0.01 200);
+
+  --color-warning: oklch(82% 0.13 84);
+  --color-error: oklch(71% 0.14 13.428);
+  --color-success: oklch(76% 0.13 163.223);
+  --color-info: oklch(74% 0.11 232.661);
 }
 
 *, *::before, *::after {
@@ -21,7 +100,9 @@ html, body {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family:
+    "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto,
+    sans-serif;
   overflow: hidden;
 }
 
@@ -34,11 +115,13 @@ body {
   background: transparent;
 }
 
+/* daisyUI 5.7 exposes no --bc variable — the old oklch(var(--bc) / a)
+   thumb color was dead CSS; the tint mixes from the live token. */
 ::-webkit-scrollbar-thumb {
-  background-color: oklch(var(--bc) / 0.3);
+  background-color: color-mix(in oklab, var(--color-base-content) 30%, transparent);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: oklch(var(--bc) / 0.5);
+  background-color: color-mix(in oklab, var(--color-base-content) 50%, transparent);
 }

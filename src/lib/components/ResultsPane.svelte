@@ -1197,12 +1197,15 @@
     overflow: hidden;
     -webkit-line-clamp: 3;
   }
-  /* Row/column highlighted while the inspector reports on it. */
+  /* Row/column highlighted while the inspector reports on it. daisyUI 5.7
+     exposes theme colors as full --color-* values, so the tint goes through
+     color-mix — the legacy oklch(var(--p) / a) form references variables
+     that no longer exist. */
   .inspector-selected {
-    background-color: oklch(var(--p) / 0.12);
-    box-shadow: inset 2px 0 0 oklch(var(--p));
+    background-color: color-mix(in oklab, var(--color-primary) 12%, transparent);
+    box-shadow: inset 2px 0 0 var(--color-primary);
   }
   .inspector-col-selected {
-    background-color: oklch(var(--p) / 0.15);
+    background-color: color-mix(in oklab, var(--color-primary) 15%, transparent);
   }
 </style>
