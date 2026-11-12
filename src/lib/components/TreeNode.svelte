@@ -295,9 +295,13 @@
 </li>
 
 <style>
+  /* Selection mark is the teal band + border; text stays base-content —
+     primary-content (the button-on-teal pairing) is too dark for the 20%
+     tint (measured 1.4:1 in dark; base-content clears 10.7:1 / 4.9:1 with
+     the 60% OID suffix, both themes). */
   .tree-row.selected {
-    background-color: oklch(var(--p) / 0.2);
-    color: var(--fallback-pc, oklch(var(--pc)));
+    background-color: color-mix(in oklab, var(--color-primary) 20%, transparent);
+    color: var(--color-base-content);
   }
 
   .tree-row.fallback-node {
