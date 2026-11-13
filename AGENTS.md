@@ -21,6 +21,10 @@ Run these from the repo root before considering work done:
 3. **TypeScript check**: `npx tsc --noEmit`
 4. **Svelte check**: `npx svelte-check --threshold warning` (no errors)
 
+## Branching
+
+- `main` is protected — never push to it. All changes land via a feature branch + pull request.
+
 ## Commit messages
 
 Commit messages must follow the [7 rules](https://chris.beams.io/posts/git-commit/):
