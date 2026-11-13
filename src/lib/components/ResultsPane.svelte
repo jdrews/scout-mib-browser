@@ -467,6 +467,14 @@
     return `width: ${w}px; min-width: ${w}px; max-width: ${w}px;`;
   }
 
+  /** Min-width style for the idx columns (D5): content can stretch the
+      column past the default, so long names stop clipping; a user's drag
+      width becomes the floor. The instance column keeps the fixed widthCss. */
+  function minWidthCss(key: string, fallback: number): string {
+    const w = colWidth(key, fallback);
+    return `min-width: ${w}px;`;
+  }
+
   /** Width style for data columns — auto until the user drags them. */
   function overrideCss(key: string): string {
     const w = gridColWidths[key];
@@ -740,14 +748,53 @@
   const HASH_W = 40;
   const IDX_W = 96;
   const INST_W = 120;
+
+  // D5: idx columns are min-width only, so a long header name
+  // (ifPhysAddress) stretches them past the 96 px default. The offsets must
+  // track the rendered width, not the default, or the frozen group overlaps
+  // its neighbour.
+  let measuredIdWidths = $state<Record<string, number>>({});
+
+  function idColWidth(key: string, fallback: number): number {
+    return measuredIdWidths[key] ?? colWidth(key, fallback);
+  }
+
   function stickyLeft(i: number): string {
     // i = 1 is the first identity column after "#".
     let left = HASH_W;
     for (let k = 1; k < i; k++) {
-      left += hasDecodedIndexes ? colWidth(`idx:${k - 1}`, IDX_W) : INST_W;
+      left += hasDecodedIndexes ? idColWidth(`idx:${k - 1}`, IDX_W) : INST_W;
     }
     return `${left}px`;
   }
+
+  let fontsReady = $state(false);
+  $effect(() => {
+    // The mono face loads async; the swap changes idx-column widths, so
+    // re-measure once the fonts settle.
+    void document.fonts?.ready.then(() => (fontsReady = true));
+  });
+
+  $effect(() => {
+    if (!isGridView || !resultsBodyEl) return;
+    // Reading these registers the effect against everything that can change
+    // an idx column's rendered width: row data, the sort arrow, user drag
+    // widths, and the font load. The measurement is stable — a column's width
+    // depends on its content and min-width, never on the offset it feeds.
+    void visibleGridRows.length;
+    void gridSortKey;
+    void fontsReady;
+    const table = resultsBodyEl.querySelector("table[data-testid='grid-table']");
+    if (!table) return;
+    for (let i = 0; i < gridIndexCols.length; i++) {
+      const key = `idx:${i}`;
+      colWidth(key, IDX_W);
+      const th = table.querySelector(`th[data-grid-col="${key}"]`);
+      if (!th) continue;
+      const w = Math.ceil(th.getBoundingClientRect().width);
+      if (w > 0 && measuredIdWidths[key] !== w) measuredIdWidths[key] = w;
+    }
+  });
 
   async function handleExport(format: ExportFormat) {
     exportMenuOpen = false;
@@ -844,10 +891,16 @@
       {#if bindings.length > 0 || isGridView || isSubtreeView}
         <button data-testid="clear-btn" aria-label="Clear results" class="btn btn-sm btn-ghost" title="Clear results" onclick={clearAll}><Trash2 class="w-4 h-4" /></button>
         {#if !isGridView && !isSubtreeView}
-          <button data-testid="names-toggle" class="btn btn-sm {showResolvedNames ? 'btn-ghost' : 'btn-primary'}" onclick={() => showResolvedNames = !showResolvedNames}>{showResolvedNames ? "MIB Names" : "Raw OIDs"}</button>
-          <button data-testid="raw-toggle" title="Show values as raw bytes: hex + ASCII dump (byte values) and wire encoding (scalars)" class="btn btn-sm {showRaw ? 'btn-primary' : 'btn-ghost'}" onclick={() => showRaw = !showRaw}>
-            <Binary class="w-4 h-4 inline-block" /> Raw
-          </button>
+          <!-- D2: the two display toggles join into one segmented control —
+               two floating pills read as two unrelated buttons. Inactive
+               segments are plain btn (ghost is transparent, which would
+               erase the join's border); active is btn-active (teal fill). -->
+          <div role="group" aria-label="Value display" class="join">
+            <button data-testid="names-toggle" aria-pressed={!showResolvedNames} class="btn btn-sm join-item {showResolvedNames ? '' : 'btn-active'}" onclick={() => showResolvedNames = !showResolvedNames}>{showResolvedNames ? "MIB Names" : "Raw OIDs"}</button>
+            <button data-testid="raw-toggle" aria-pressed={showRaw} title="Show values as raw bytes: hex + ASCII dump (byte values) and wire encoding (scalars)" class="btn btn-sm join-item {showRaw ? 'btn-active' : ''}" onclick={() => showRaw = !showRaw}>
+              <Binary class="w-4 h-4 inline-block" /> Raw
+            </button>
+          </div>
         {/if}
       {/if}
       <input data-testid="filter-input" aria-label="Filter results" type="text" placeholder="Filter" class="input input-bordered input-sm w-40 font-mono" bind:value={filterText} />
@@ -915,7 +968,7 @@
               <th class="sticky top-0 left-0 z-30 bg-base-100 px-2 py-1.5 text-xs w-10 min-w-10 max-w-10">#</th>
               {#if hasDecodedIndexes}
                 {#each gridIndexCols as col, i (col.oid)}
-                  <th data-grid-col="idx:{i}" title={col.implied ? `${col.name} (implied)` : col.name} class="sticky top-0 z-30 bg-base-200 px-2 py-1.5 text-xs cursor-pointer select-none relative" style="left: {stickyLeft(i + 1)}px; {widthCss(`idx:${i}`, IDX_W)}" onclick={() => toggleGridSort(`idx:${i}`)}>
+                  <th data-grid-col="idx:{i}" title={col.implied ? `${col.name} (implied)` : col.name} class="sticky top-0 z-30 bg-base-200 px-2 py-1.5 text-xs cursor-pointer select-none relative" style="left: {stickyLeft(i + 1)}px; {minWidthCss(`idx:${i}`, IDX_W)}" onclick={() => toggleGridSort(`idx:${i}`)}>
                     <span class="flex items-center gap-1">
                       <span class="truncate">{col.name}</span>
                       {#if gridSortKey === `idx:${i}`}{#if gridSortDir === 1}<ArrowUp class="w-4 h-4 shrink-0" />{:else}<ArrowDown class="w-4 h-4 shrink-0" />{/if}{/if}
@@ -956,7 +1009,7 @@
                 <td class="sticky left-0 z-10 bg-base-200 px-2 text-xs text-base-content/60 w-10 min-w-10 max-w-10">{i + 1}</td>
                 {#if hasDecodedIndexes}
                   {#each row.index_values as val, i (i)}
-                    <td class="sticky z-10 bg-base-200 px-2 font-mono text-15 truncate" style="left: {stickyLeft(i + 1)}px; {widthCss(`idx:${i}`, IDX_W)}" title={val === null ? "(implied)" : row.instance_id}>
+                    <td class="sticky z-10 bg-base-200 px-2 font-mono text-15 truncate" style="left: {stickyLeft(i + 1)}px; {minWidthCss(`idx:${i}`, IDX_W)}" title={val === null ? "(implied)" : row.instance_id}>
                       {#if val === null}<span class="text-base-content/40 italic">—</span>{:else}{val}{/if}
                     </td>
                   {/each}

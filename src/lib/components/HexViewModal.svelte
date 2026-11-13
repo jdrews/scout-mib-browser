@@ -81,7 +81,7 @@
         >
           {#if copied}<Check class="w-4 h-4 text-success" />{:else}<Copy class="w-4 h-4" />{/if}
         </button>
-        <button data-testid="hex-close-btn" class="btn btn-ghost btn-sm btn-circle shrink-0" aria-label="Close hex view" onclick={close}>
+        <button data-testid="hex-close-btn" class="btn btn-ghost btn-sm btn-square shrink-0" aria-label="Close hex view" onclick={close}>
           <X class="w-4 h-4" />
         </button>
       </div>
