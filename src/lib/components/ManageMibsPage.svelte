@@ -3,6 +3,7 @@
   import { S } from "$lib/stores.svelte";
   import { mibLoadedList } from "$lib/tauriCommands";
   import { addMibDirectory, addMibFiles, unloadMibs } from "$lib/mibManager";
+  import { pluralize } from "$lib/format";
   import type { LoadedMib } from "$lib/types";
 
   type SortCol = "name" | "path" | "nodes";
@@ -27,7 +28,7 @@
       S.statusText = `Error: ${err}`;
       console.error("Failed to load MIB list:", err);
     }
-    // Mark complete after the fetch so "Loading..." covers the whole window.
+    // Mark complete after the fetch so "Loading…" covers the whole window.
     dataLoaded = true;
   }
 
@@ -196,13 +197,13 @@
         </div>
         <button data-testid="unload-selected-btn" class="btn btn-sm" disabled={selected.length === 0} onclick={unloadSelected}>Unload Selected</button>
         <button data-testid="unload-all-btn" class="btn btn-sm btn-error" onclick={unloadAll}>Unload All</button>
-        <input data-testid="mibs-filter-input" aria-label="Filter MIBs" type="text" placeholder="Filter..." class="input input-bordered input-sm w-40 font-mono" bind:value={filterText} />
+        <input data-testid="mibs-filter-input" aria-label="Filter MIBs" type="text" placeholder="Filter" class="input input-bordered input-sm w-40 font-mono" bind:value={filterText} />
       </div>
     </div>
 
     <div class="flex-1 overflow-auto">
       {#if !dataLoaded}
-        <p class="text-base-content/60 text-sm text-center mt-12">Loading...</p>
+        <p class="text-base-content/60 text-sm text-center mt-12">Loading…</p>
       {:else if mibs.length === 0}
         <p class="text-base-content/60 text-sm text-center mt-12">No MIBs loaded.<br/>Use Add MIB Directory to get started.</p>
       {:else if visibleMibs.length === 0}
@@ -279,7 +280,7 @@
     </div>
 
     <div data-testid="mibs-footer" class="px-4 py-2 border-t border-base-300 text-xs text-base-content/60">
-      {selected.length} of {mibs.length} MIBs selected · {S.nodeCount} nodes loaded
+      {selected.length} of {mibs.length} MIBs selected · {pluralize(S.nodeCount, "node")} loaded
     </div>
   </div>
 {/if}

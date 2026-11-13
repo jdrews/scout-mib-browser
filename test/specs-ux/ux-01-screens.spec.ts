@@ -57,7 +57,7 @@ describe("UX A1 — state screenshot pass (both themes)", function () {
   async function walkSystem() {
     await selectTreeNode("system");
     await go("walk");
-    await waitForStatus(/^walk complete: \d+ binding\(s\)$/, 60000);
+    await waitForStatus(/^Walk complete: \d+ bindings?$/, 60000);
   }
 
   async function walkIfTable() {
@@ -66,7 +66,7 @@ describe("UX A1 — state screenshot pass (both themes)", function () {
     await expandTo(CHAIN_TO_INTERFACES);
     await selectTreeNode("ifTable");
     await go("getTable");
-    await waitForStatus(/^Table complete: \d+ row\(s\), \d+ column\(s\)$/, 60000);
+    await waitForStatus(/^Table complete: \d+ rows?, \d+ columns?$/, 60000);
   }
 
   async function warningsState() {
@@ -78,7 +78,7 @@ describe("UX A1 — state screenshot pass (both themes)", function () {
     await setTheme(activeTheme);
     await typeOid(UNKNOWN_INSTANCE_OID);
     await go("get");
-    await waitForStatus(/^Get complete: \d+ binding\(s\)$/, 30000);
+    await waitForStatus(/^Get complete: \d+ bindings?$/, 30000);
   }
 
   async function midStreamAttempt(): Promise<void> {
@@ -94,7 +94,7 @@ describe("UX A1 — state screenshot pass (both themes)", function () {
       await browser.waitUntil(
         async () => {
           const s = await statusText();
-          if (/bindings\.\.\./.test(s)) {
+          if (/bindings…/.test(s)) {
             sawRunning = true;
             return true;
           }
@@ -110,7 +110,7 @@ describe("UX A1 — state screenshot pass (both themes)", function () {
       midStream.statusAtShot = await statusText();
       await shot(`04-walk-running-${activeTheme}`);
     }
-    const done = await waitForStatus(/complete: \d+ binding\(s\)/, 60000);
+    const done = await waitForStatus(/complete: \d+ bindings?/, 60000);
     midStream.goToCompleteMs = Date.now() - t0;
     console.log(`[ux] mid-stream ${sawRunning ? "captured" : "missed"}; walk mib-2 took ${midStream.goToCompleteMs} ms (${done})`);
     await (await $("[data-testid='clear-btn']")).click();

@@ -19,8 +19,8 @@ describe("Get Subtree (MIB tree hierarchy query)", () => {
     await selectTreeNode("system");
     await go("getSubtree");
 
-    expect(await waitForStatus(/^Get Subtree complete: \d+ node\(s\) under .+$/)).toBe(
-      `Get Subtree complete: ${SYSTEM_SUBTREE_COUNT} node(s) under ${SYSTEM_OID}`
+    expect(await waitForStatus(/^Get Subtree complete: \d+ nodes? under .+$/)).toBe(
+      `Get Subtree complete: ${SYSTEM_SUBTREE_COUNT} nodes under ${SYSTEM_OID}`
     );
 
     const rows = await $$("[data-testid='subtree-row']");
@@ -59,8 +59,8 @@ describe("Get Subtree (MIB tree hierarchy query)", () => {
     await selectTreeNode("sysORTable");
     await go("getSubtree");
 
-    expect(await waitForStatus(/^Get Subtree complete: \d+ node\(s\) under .+$/)).toBe(
-      `Get Subtree complete: 5 node(s) under ${SYSTEM_OID}.9`
+    expect(await waitForStatus(/^Get Subtree complete: \d+ nodes? under .+$/)).toBe(
+      `Get Subtree complete: 5 nodes under ${SYSTEM_OID}.9`
     );
 
     const rows = await $$("[data-testid='subtree-row']");
@@ -78,8 +78,8 @@ describe("Get Subtree (MIB tree hierarchy query)", () => {
     await selectTreeNode("sysDescr");
     await go("getSubtree");
 
-    expect(await waitForStatus(/^Get Subtree complete: \d+ node\(s\) under .+$/)).toBe(
-      `Get Subtree complete: 0 node(s) under ${SYSTEM_OID}.1`
+    expect(await waitForStatus(/^Get Subtree complete: \d+ nodes? under .+$/)).toBe(
+      `Get Subtree complete: 0 nodes under ${SYSTEM_OID}.1`
     );
     await expect(await $("[data-testid='subtree-empty']")).toBeExisting();
     expect((await $$("[data-testid='subtree-row']")).length).toBe(0);

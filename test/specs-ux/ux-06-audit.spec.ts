@@ -47,7 +47,7 @@ describe("UX A6/A7 — axe + DOM audit + terminology collection", function () {
 
     // ── State: results list view with controls visible ───────────────────────
     await go("get");
-    await waitForStatus(/^Get complete: \d+ binding\(s\)$/, 30000);
+    await waitForStatus(/^Get complete: \d+ bindings?$/, 30000);
     nameAudit["results-list"] = await accessibleNameAudit();
     strings["results-list"] = await collectUserStrings();
     await axeState("results-list");
@@ -57,7 +57,7 @@ describe("UX A6/A7 — axe + DOM audit + terminology collection", function () {
     await selectTreeNode("ifTable");
     await setOperation("getTable");
     await go();
-    await waitForStatus(/^Table complete: \d+ row\(s\), \d+ column\(s\)$/, 60000);
+    await waitForStatus(/^Table complete: \d+ rows?, \d+ columns?$/, 60000);
     nameAudit["grid-view"] = await accessibleNameAudit();
     strings["grid-view"] = await collectUserStrings();
     await axeState("grid-view");
@@ -67,7 +67,7 @@ describe("UX A6/A7 — axe + DOM audit + terminology collection", function () {
     await setTheme("dark");
     await typeOid(UNKNOWN_INSTANCE_OID);
     await go("get");
-    await waitForStatus(/^Get complete: \d+ binding\(s\)$/, 30000);
+    await waitForStatus(/^Get complete: \d+ bindings?$/, 30000);
     strings["warnings-partial"] = await collectUserStrings();
     await axeState("warnings-partial");
 

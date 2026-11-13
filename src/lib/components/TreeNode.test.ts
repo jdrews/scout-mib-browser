@@ -107,7 +107,7 @@ describe("middle truncation of overflowing names", () => {
 
     const text = span.textContent ?? "";
     expect(text).not.toBe(LONG);
-    const [head, tail] = text.split("...");
+    const [head, tail] = text.split("…");
     expect(head.length).toBeGreaterThan(0);
     expect(tail.length).toBeGreaterThan(0);
     // True middle truncation: head is a prefix, tail is a suffix of the full name.

@@ -177,7 +177,7 @@ describe("runTestConnection", () => {
 
     // The function should have set state before awaiting snmpConnect
     expect(S.connectionState).toBe("connecting");
-    expect(S.statusText).toContain("Testing connection to 192.168.1.1:161...");
+    expect(S.statusText).toContain("Testing connection to 192.168.1.1:161…");
 
     resolveDeferred!();
     const result = await promise;

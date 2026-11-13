@@ -141,7 +141,7 @@ describe("System log mouse scrolling", () => {
     await expandTo(CHAIN_TO_SYSTEM);
     await selectTreeNode("system");
     await go("walk");
-    await waitForStatus(/^walk complete: \d+ binding\(s\)$/);
+    await waitForStatus(/^Walk complete: \d+ bindings?$/);
 
     // Wait until the log actually has more content than fits (scrollable).
     await browser.waitUntil(
@@ -210,7 +210,7 @@ describe("System log mouse scrolling", () => {
     // for the pane's poller to pick it up.
     const winBefore = await logWindowFingerprint();
     await go("get");
-    await waitForStatus(/^Get complete: \d+ binding\(s\)$/);
+    await waitForStatus(/^Get complete: \d+ bindings?$/);
 
     const stayed = await browser.waitUntil(
       async () => {
@@ -230,7 +230,7 @@ describe("System log mouse scrolling", () => {
 
     const winBefore2 = await logWindowFingerprint();
     await go("get");
-    await waitForStatus(/^Get complete: \d+ binding\(s\)$/);
+    await waitForStatus(/^Get complete: \d+ bindings?$/);
 
     const followed = await browser.waitUntil(
       async () => {
@@ -251,7 +251,7 @@ describe("System log mouse scrolling", () => {
     // walk is required to trigger it.
     await selectTreeNode("mgmt.mib-2");
     await go("walk");
-    await waitForStatus(/^walk complete: \d+ binding\(s\)$/);
+    await waitForStatus(/^Walk complete: \d+ bindings?$/);
 
     const s0 = await scrollState();
     expect(s0.resultsMax).toBeGreaterThan(5000); // large enough to trigger the bug

@@ -28,8 +28,8 @@ describe("Operations (executions against the mock agent)", () => {
     await selectTreeNode("sysDescr");
     await go("get");
 
-    const status = await waitForStatus(/^Get complete: \d+ binding\(s\)$/);
-    expect(status).toBe("Get complete: 1 binding(s)");
+    const status = await waitForStatus(/^Get complete: \d+ bindings?$/);
+    expect(status).toBe("Get complete: 1 binding");
 
     // One row with the resolved name and OCTET STRING type. The queried OID is
     // the scalar instance (node OID + .0, appended at query time).
@@ -37,7 +37,7 @@ describe("Operations (executions against the mock agent)", () => {
     expect(await resultsBodyHasText("OCTET STRING")).toBe(true);
 
     const footer = (await (await $("[data-testid='results-footer']").getText())) ?? "";
-    expect(footer).toContain("1 of 1 bindings");
+    expect(footer).toContain("1 of 1 binding");
 
     // A successful Get proves reachability and flips the footer indicator,
     // even when no Test Connection was run (or a previous one failed).
@@ -49,8 +49,8 @@ describe("Operations (executions against the mock agent)", () => {
     // sysDescr is still selected; GetNext on the node OID returns its first
     // instance, which is greater than the requested root.
     await go("getNext");
-    const status = await waitForStatus(/^GetNext complete: \d+ binding\(s\)$/);
-    expect(status).toBe("GetNext complete: 1 binding(s)");
+    const status = await waitForStatus(/^Get Next complete: \d+ bindings?$/);
+    expect(status).toBe("Get Next complete: 1 binding");
 
     // Show raw OIDs so the returned OID is visible in the row.
     await (await $("[data-testid='names-toggle']")).click();
@@ -70,8 +70,8 @@ describe("Operations (executions against the mock agent)", () => {
     // clicking Go again must continue from there, appending the next row
     // instead of repeating or replacing the result.
     await go();
-    expect(await waitForStatus(/^GetNext complete: \d+ binding\(s\)$/)).toBe(
-      "GetNext complete: 1 binding(s)"
+    expect(await waitForStatus(/^Get Next complete: \d+ bindings?$/)).toBe(
+      "Get Next complete: 1 binding"
     );
 
     // Raw OIDs so the returned OID is visible in the rows.
@@ -86,8 +86,8 @@ describe("Operations (executions against the mock agent)", () => {
 
     // One more step: sysUpTime.0 follows sysObjectID.0 and is appended too.
     await go();
-    expect(await waitForStatus(/^GetNext complete: \d+ binding\(s\)$/)).toBe(
-      "GetNext complete: 1 binding(s)"
+    expect(await waitForStatus(/^Get Next complete: \d+ bindings?$/)).toBe(
+      "Get Next complete: 1 binding"
     );
     rows = await $$("[data-testid='result-row']");
     expect(rows.length).toBe(3);
@@ -103,21 +103,21 @@ describe("Operations (executions against the mock agent)", () => {
     await selectTreeNode("system");
     await go("walk");
 
-    const status = await waitForStatus(/^walk complete: (\d+) binding\(s\)$/, 60000);
-    const n = Number(status.match(/^walk complete: (\d+)/)![1]);
+    const status = await waitForStatus(/^Walk complete: (\d+) bindings?$/, 60000);
+    const n = Number(status.match(/^Walk complete: (\d+)/)![1]);
     expect(n).toBe(SYSTEM_WALK_COUNT);
     expect(n).toBeGreaterThan(5);
 
     const footer = (await (await $("[data-testid='results-footer']").getText())) ?? "";
-    expect(footer).toContain(`${n} of ${n} bindings`);
+    expect(footer).toContain(`${n} of ${n} binding${n === 1 ? "" : "s"}`);
   });
 
   it("Bulk Walk works", async () => {
     await selectTreeNode("system");
     await go("bulkWalk");
 
-    const status = await waitForStatus(/^bulkWalk complete: (\d+) binding\(s\)$/, 60000);
-    const n = Number(status.match(/^bulkWalk complete: (\d+)/)![1]);
+    const status = await waitForStatus(/^Walk \(Bulk\) complete: (\d+) bindings?$/, 60000);
+    const n = Number(status.match(/^Walk \(Bulk\) complete: (\d+)/)![1]);
     // The recording is deterministic — same count as the Walk above.
     expect(n).toBe(SYSTEM_WALK_COUNT);
   });
@@ -151,7 +151,7 @@ describe("Operations (executions against the mock agent)", () => {
       if (cancelled) {
         expect(await waitForStatus(/^Walk cancelled$/, 15000)).toBe("Walk cancelled");
       } else {
-        await waitForStatus(/complete: \d+ binding\(s\)/, 30000);
+        await waitForStatus(/complete: \d+ bindings?/, 30000);
       }
       // Go is re-enabled either way.
       const goBtn = await $("[data-testid='go-btn']");

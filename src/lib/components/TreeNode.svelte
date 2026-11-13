@@ -45,7 +45,7 @@
 
   // Long dot-joined names (collapsed empty-folder runs) overflow the row. The
   // CSS ellipsis would cut the END — where sibling names differ — so once the
-  // full name doesn't fit, truncate in the middle instead ("a.b...c.d"). The
+  // full name doesn't fit, truncate in the middle instead ("a.b…c.d"). The
   // title attribute keeps the full name for hover.
   let displayName = $state(node.name);
   let nameEl: HTMLSpanElement;
@@ -69,7 +69,7 @@
     for (let attempt = 0; attempt < 5 && budget > 6; attempt++) {
       const suffixLen = Math.ceil(budget / 2); // keep more of the end
       const prefixLen = budget - suffixLen;
-      displayName = `${full.slice(0, prefixLen)}...${full.slice(full.length - suffixLen)}`;
+      displayName = `${full.slice(0, prefixLen)}…${full.slice(full.length - suffixLen)}`;
       await tick();
       if (node.name !== full) return;
       if (el.scrollWidth <= el.clientWidth + 1) return;
@@ -280,7 +280,7 @@
       <span class="badge badge-outline badge-warning badge-xs">unresolved</span>
     {/if}
     {#if loading}
-      <span class="ml-auto pl-2 text-[10px] opacity-40">loading...</span>
+      <span class="ml-auto pl-2 text-[11px] opacity-40">loading…</span>
     {:else}
       <span class="ml-auto pl-2 font-mono text-[10px] opacity-60">{truncatedOid}</span>
     {/if}

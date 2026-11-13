@@ -75,7 +75,7 @@ export async function runTestConnection(cfg: TargetConfig): Promise<ConnectionSt
 
   clearResultTimer();
   S.connectionState = "connecting" as any;
-  S.statusText = `Testing connection to ${cfg.host}:${cfg.port}...`;
+  S.statusText = `Testing connection to ${cfg.host}:${cfg.port}…`;
 
   await Promise.resolve();
 

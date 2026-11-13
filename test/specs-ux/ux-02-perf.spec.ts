@@ -77,7 +77,7 @@ describe("UX A2 — perceived-performance probes (N=5)", function () {
         { timeout: 15000, interval: 25 },
       );
       samples.go_to_first_feedback.push(Date.now() - tGo);
-      await waitForStatus(/^Get complete: \d+ binding\(s\)$/, 30000);
+      await waitForStatus(/^Get complete: \d+ bindings?$/, 30000);
 
       // ── Walk: time-to-first-binding and go-to-complete (31-binding subtree) ─
       await selectTreeNode("system");
@@ -89,7 +89,7 @@ describe("UX A2 — perceived-performance probes (N=5)", function () {
         { timeout: 30000, interval: 25 },
       );
       samples.walk_time_to_first_binding.push(Date.now() - tWalk);
-      await waitForStatus(/^walk complete: \d+ binding\(s\)$/, 60000);
+      await waitForStatus(/^Walk complete: \d+ bindings?$/, 60000);
       samples.walk_go_to_complete.push(Date.now() - tWalk);
 
       // ── Grid render: go-to-complete and status-to-rows (ifTable) ──────────
@@ -98,7 +98,7 @@ describe("UX A2 — perceived-performance probes (N=5)", function () {
       await setOperation("getTable");
       const tTable = Date.now();
       await (await $("[data-testid='go-btn']")).click();
-      await waitForStatus(/^Table complete: \d+ row\(s\), \d+ column\(s\)$/, 60000);
+      await waitForStatus(/^Table complete: \d+ rows?, \d+ columns?$/, 60000);
       samples.table_go_to_complete.push(Date.now() - tTable);
       const tStatus = Date.now();
       const grid = await $("[data-testid='grid-table']");
@@ -112,7 +112,7 @@ describe("UX A2 — perceived-performance probes (N=5)", function () {
       reduceMetric("autocomplete_latency", "ms", samples.autocomplete_latency, "oid-input setValue('sysdescr') -> autocomplete-list visible (150 ms debounce + mibSearch IPC); flag if median > 300 ms"),
       reduceMetric("go_to_first_feedback", "ms", samples.go_to_first_feedback, "Go click -> status-text first change off 'Ready'"),
       reduceMetric("walk_time_to_first_binding", "ms", samples.walk_time_to_first_binding, "Go click (walk system) -> first result-row rendered (100 ms flush timer in play)"),
-      reduceMetric("walk_go_to_complete", "ms", samples.walk_go_to_complete, "Go click -> 'walk complete: 31 binding(s)' on the pinned subtree"),
+      reduceMetric("walk_go_to_complete", "ms", samples.walk_go_to_complete, "Go click -> 'Walk complete: 31 bindings' on the pinned subtree"),
       reduceMetric("table_go_to_complete", "ms", samples.table_go_to_complete, "Go click (ifTable) -> 'Table complete' status"),
       reduceMetric("table_status_to_grid", "ms", samples.table_status_to_grid, "'Table complete' status -> grid-table rows in DOM"),
     ];

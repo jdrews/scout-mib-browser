@@ -124,7 +124,7 @@ describe("Inspector pane", () => {
     await expandTo(CHAIN_TO_SYSTEM);
     await selectTreeNode("sysDescr");
     await go();
-    await waitForStatus(/Get complete: \d+ binding\(s\)/, 30000);
+    await waitForStatus(/Get complete: \d+ bindings?/, 30000);
 
     const row = await $("[data-testid='result-row']");
     await expect(row).toBeExisting();

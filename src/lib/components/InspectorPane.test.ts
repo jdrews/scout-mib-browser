@@ -116,7 +116,7 @@ describe("InspectorPane", () => {
     const view = render(InspectorPane);
     await waitFor(() => expect(view.getByTestId("inspector-table-section")).toBeTruthy());
     const section = view.getByTestId("inspector-table-section");
-    expect(section.textContent).toContain("2 column(s)");
+    expect(section.textContent).toContain("2 columns");
     expect(section.textContent).toContain("ifIndex");
   });
 

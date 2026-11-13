@@ -22,7 +22,7 @@ describe("Results pane (result set manipulation)", () => {
     await expandTo(CHAIN_TO_SYSTEM);
     await selectTreeNode("system");
     await go("walk");
-    await waitForStatus(new RegExp(`^walk complete: ${SYSTEM_WALK_COUNT} binding\\(s\\)$`), 60000);
+    await waitForStatus(new RegExp(`^Walk complete: ${SYSTEM_WALK_COUNT} bindings$`), 60000);
   });
 
   it("filter narrows rows", async () => {

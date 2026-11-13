@@ -19,7 +19,7 @@ describe("Tolerance (malformed data handling)", () => {
     await go("get");
 
     // The Get itself "completes" — with one warned binding.
-    expect(await waitForStatus(/^Get complete: \d+ binding\(s\)$/)).toBe("Get complete: 1 binding(s)");
+    expect(await waitForStatus(/^Get complete: \d+ bindings?$/)).toBe("Get complete: 1 binding");
 
     // Warnings banner shows kind + message; partial badge is shown.
     const banner = await $("[data-testid='warnings-banner']");
@@ -32,7 +32,7 @@ describe("Tolerance (malformed data handling)", () => {
 
     // The app remains responsive — status bar shows a completed state.
     const status = (await (await $("[data-testid='status-text']").getText())) ?? "";
-    expect(status).toMatch(/^Get complete: 1 binding\(s\)$/);
+    expect(status).toMatch(/^Get complete: 1 binding$/);
   });
 
   it("fallback MIB banner uses plain language", async () => {
