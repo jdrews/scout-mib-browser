@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowDown, ArrowUp, ArrowUpDown, Binary, Pencil, Trash2, TriangleAlert, X } from "lucide-svelte";
+  import { ArrowDown, ArrowUp, Binary, Pencil, Trash2, TriangleAlert, X } from "lucide-svelte";
   import { S, clearResults } from "$lib/stores.svelte";
   import type { VariableBinding, SnmpValue, ResultSet, TreeNode, TableResult, TableRowData, TableCell, TableIndexColumn, ResultRow, MibNodeDetails } from "$lib/types";
   import { hexDumpLines, interpretBytes, interpretationLabel, asn1TypeCodeText, BYTES_PER_ROW } from "$lib/hexdump";
@@ -826,7 +826,7 @@
         <span class="text-xs text-primary font-mono">{progress}</span>
       {/if}
       {#if isPartial}
-        <button data-testid="partial-badge" class="badge badge-warning badge-sm gap-1 cursor-pointer hover:opacity-80" title="Show warnings" onclick={showWarnings}><TriangleAlert class="w-3 h-3" /> Partial Results</button>
+        <button data-testid="partial-badge" class="badge badge-warning badge-sm gap-1 cursor-pointer hover:opacity-80" title="Show warnings" onclick={showWarnings}><TriangleAlert class="w-4 h-4" /> Partial Results</button>
       {/if}
       {#if bindings.length > 0 || isGridView}
         <div data-export-menu class="dropdown dropdown-end relative">
@@ -858,14 +858,14 @@
       <div class="flex-1 min-w-0">
         {#each results.warnings as w}
           <div class="flex gap-1 items-start">
-            <TriangleAlert class="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <TriangleAlert class="w-4 h-4 shrink-0 mt-0.5" />
             <span class="font-semibold">{w.kind}</span>
             <span>: {w.message}</span>
             {#if w.oid}<span class="font-mono opacity-70">({w.oid})</span>{/if}
           </div>
         {/each}
       </div>
-      <button data-testid="warnings-dismiss" aria-label="Dismiss warnings" title="Dismiss warnings" class="btn btn-ghost btn-xs shrink-0 -my-1" onclick={() => (warningsDismissed = true)}><X class="w-3.5 h-3.5" /></button>
+      <button data-testid="warnings-dismiss" aria-label="Dismiss warnings" title="Dismiss warnings" class="btn btn-ghost btn-xs shrink-0 -my-1" onclick={() => (warningsDismissed = true)}><X class="w-4 h-4" /></button>
     </div>
   {/if}
 
@@ -906,6 +906,9 @@
       {:else}
         <!-- results-body is the scroll container so sticky top/left both work. -->
         <table data-testid="grid-table" class="table table-sm w-full min-w-max border-separate border-spacing-0">
+          <!-- I2: sort arrows appear on the active column only — the ghost
+               ArrowUpDown in every inactive header was half the grid header
+               (up to 22 columns of noise that meant nothing until clicked). -->
           <thead>
             <tr>
               <th class="sticky top-0 left-0 z-30 bg-base-100 px-2 py-1.5 text-xs w-10 min-w-10 max-w-10">#</th>
@@ -914,7 +917,7 @@
                   <th data-grid-col="idx:{i}" title={col.implied ? `${col.name} (implied)` : col.name} class="sticky top-0 z-30 bg-base-200 px-2 py-1.5 text-xs cursor-pointer select-none relative" style="left: {stickyLeft(i + 1)}px; {widthCss(`idx:${i}`, IDX_W)}" onclick={() => toggleGridSort(`idx:${i}`)}>
                     <span class="flex items-center gap-1">
                       <span class="truncate">{col.name}</span>
-                      {#if gridSortKey === `idx:${i}`}{#if gridSortDir === 1}<ArrowUp class="w-3 h-3 shrink-0" />{:else}<ArrowDown class="w-3 h-3 shrink-0" />{/if}{:else}<ArrowUpDown class="w-3 h-3 shrink-0 opacity-40" />{/if}
+                      {#if gridSortKey === `idx:${i}`}{#if gridSortDir === 1}<ArrowUp class="w-4 h-4 shrink-0" />{:else}<ArrowDown class="w-4 h-4 shrink-0" />{/if}{/if}
                     </span>
                     <span class="col-resize-handle absolute top-0 right-0 h-full w-1.5 cursor-col-resize z-10 hover:bg-primary/60" onclick={(e) => e.stopPropagation()} onmousedown={(e) => startColResize(e, `idx:${i}`)}></span>
                   </th>
@@ -923,7 +926,7 @@
                 <th data-grid-col="instance" class="sticky top-0 z-30 bg-base-100 px-2 py-1.5 text-xs cursor-pointer select-none relative" style="left: {stickyLeft(1)}px; {widthCss('instance', INST_W)}" onclick={() => toggleGridSort("instance")}>
                   <span class="flex items-center gap-1">
                     <span class="truncate">Instance</span>
-                    {#if gridSortKey === "instance"}{#if gridSortDir === 1}<ArrowUp class="w-3 h-3 shrink-0" />{:else}<ArrowDown class="w-3 h-3 shrink-0" />{/if}{:else}<ArrowUpDown class="w-3 h-3 shrink-0 opacity-40" />{/if}
+                    {#if gridSortKey === "instance"}{#if gridSortDir === 1}<ArrowUp class="w-4 h-4 shrink-0" />{:else}<ArrowDown class="w-4 h-4 shrink-0" />{/if}{/if}
                   </span>
                   <span class="col-resize-handle absolute top-0 right-0 h-full w-1.5 cursor-col-resize z-10 hover:bg-primary/60" onclick={(e) => e.stopPropagation()} onmousedown={(e) => startColResize(e, "instance")}></span>
                 </th>
@@ -939,7 +942,7 @@
                 >
                   <span class="flex items-center gap-1">
                     <span class="truncate">{columnName(colOid)}</span>
-                    {#if gridSortKey === colOid}{#if gridSortDir === 1}<ArrowUp class="w-3 h-3 shrink-0" />{:else}<ArrowDown class="w-3 h-3 shrink-0" />{/if}{:else}<ArrowUpDown class="w-3 h-3 shrink-0 opacity-40" />{/if}
+                    {#if gridSortKey === colOid}{#if gridSortDir === 1}<ArrowUp class="w-4 h-4 shrink-0" />{:else}<ArrowDown class="w-4 h-4 shrink-0" />{/if}{/if}
                   </span>
                   <span class="col-resize-handle absolute top-0 right-0 h-full w-1.5 cursor-col-resize z-10 hover:bg-primary/60" onclick={(e) => e.stopPropagation()} onmousedown={(e) => startColResize(e, colOid)}></span>
                 </th>
@@ -973,7 +976,7 @@
                     >
                       <div class="flex items-start gap-1">
                         {#if cell.missing}
-                          <span class="text-base-content/60 italic flex items-center gap-1">— missing <TriangleAlert class="w-3 h-3 shrink-0" /></span>
+                          <span class="text-base-content/60 italic flex items-center gap-1">— missing <TriangleAlert class="w-4 h-4 shrink-0" /></span>
                         {:else if cell.value}
                           <!-- Auto-width columns size to their content and stay as
                                plain inline text; only user-resized (fixed-width)
@@ -995,7 +998,7 @@
                               title="Set value"
                               onclick={(e) => { e.stopPropagation(); openSetValueForValue(`${colOid}.${row.instance_id}`, `${columnName(colOid)}.${row.instance_id}`, cellValue.value); }}
                             >
-                              <Pencil class="w-3 h-3" />
+                              <Pencil class="w-4 h-4" />
                             </button>
                           {/if}
                         {/if}
@@ -1065,15 +1068,15 @@
         <div bind:this={flatHeaderEl} class="flex bg-base-200 border-b-2 border-base-content/60 sticky top-0 z-10 text-xs font-semibold uppercase tracking-wider" style="min-width: {showRaw ? 'max-content' : ''}">
           <div data-testid="sort-oid" class="cursor-pointer px-2 py-1.5 truncate select-none flex items-center gap-1" style="width: {colOid}px; min-width: {COL_MIN_OID}px; max-width: {COL_MAX_OID}px;" onclick={() => toggleSort("oid")}>
             <span class="truncate">OID</span>
-            {#if sortColumn === "oid"}{#if sortAsc}<ArrowUp class="w-3 h-3 shrink-0" />{:else}<ArrowDown class="w-3 h-3 shrink-0" />{/if}{:else}<ArrowUpDown class="w-3 h-3 shrink-0" />{/if}
+            {#if sortColumn === "oid"}{#if sortAsc}<ArrowUp class="w-4 h-4 shrink-0" />{:else}<ArrowDown class="w-4 h-4 shrink-0" />{/if}{/if}
           </div>
           <div data-testid="sort-value" class="flex-1 min-w-30 cursor-pointer px-2 py-1.5 truncate select-none flex items-center gap-1" onclick={() => toggleSort("value")}>
             <span class="truncate">Value</span>
-            {#if sortColumn === "value"}{#if sortAsc}<ArrowUp class="w-3 h-3 shrink-0" />{:else}<ArrowDown class="w-3 h-3 shrink-0" />{/if}{:else}<ArrowUpDown class="w-3 h-3 shrink-0" />{/if}
+            {#if sortColumn === "value"}{#if sortAsc}<ArrowUp class="w-4 h-4 shrink-0" />{:else}<ArrowDown class="w-4 h-4 shrink-0" />{/if}{/if}
           </div>
           <div data-testid="sort-type" class="cursor-pointer px-2 py-1.5 truncate select-none flex items-center gap-1" style="width: {colType}px; min-width: {COL_MIN_TYPE}px; max-width: {COL_MAX_TYPE}px;" onclick={() => toggleSort("type")}>
             <span class="truncate">Type</span>
-            {#if sortColumn === "type"}{#if sortAsc}<ArrowUp class="w-3 h-3 shrink-0" />{:else}<ArrowDown class="w-3 h-3 shrink-0" />{/if}{:else}<ArrowUpDown class="w-3 h-3 shrink-0" />{/if}
+            {#if sortColumn === "type"}{#if sortAsc}<ArrowUp class="w-4 h-4 shrink-0" />{:else}<ArrowDown class="w-4 h-4 shrink-0" />{/if}{/if}
           </div>
         </div>
 
@@ -1147,7 +1150,7 @@
                   {showRaw ? exportMod.rawValueDisplay(row.snmpValue) : row.value}
                 </span>
               {/if}
-              {#if row.warning}<TriangleAlert class="w-3.5 h-3.5 shrink-0 mt-0.5 text-warning" />{/if}
+              {#if row.warning}<TriangleAlert class="w-4 h-4 shrink-0 mt-0.5 text-warning" />{/if}
               {#if writableStateFor(row.fullPath) === true}
                 <button
                   data-testid="set-pencil"
@@ -1155,7 +1158,7 @@
                   title="Set value"
                   onclick={(e) => { e.stopPropagation(); openSetValueForValue(row.fullPath, row.displayName, row.snmpValue); }}
                 >
-                  <Pencil class="w-3 h-3" />
+                  <Pencil class="w-4 h-4" />
                 </button>
               {/if}
             </div>

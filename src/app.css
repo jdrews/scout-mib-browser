@@ -111,6 +111,15 @@
   --btn-fg: var(--color-base-100);
 }
 
+/* Icons (I1): one stroke app-wide. Lucide's default is a 2-unit stroke at
+   the 24 px default size; at the app's unified 16 px size a 1.5 stroke
+   keeps the visual weight. lucide-svelte emits stroke-width as an SVG
+   presentation attribute, which author CSS overrides, so this single rule
+   covers every icon — current and future — without per-instance props. */
+.lucide {
+  stroke-width: 1.5;
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
 }

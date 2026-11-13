@@ -192,9 +192,9 @@
   >
     <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">Inspector</span>
     {#if open}
-      <ChevronDown class="w-3.5 h-3.5 ml-auto text-base-content/60" />
+      <ChevronDown class="w-4 h-4 ml-auto text-base-content/60" />
     {:else}
-      <ChevronUp class="w-3.5 h-3.5 ml-auto text-base-content/60" />
+      <ChevronUp class="w-4 h-4 ml-auto text-base-content/60" />
     {/if}
   </button>
 
@@ -232,7 +232,7 @@
                 <p class="text-[10px] font-semibold uppercase tracking-wide text-base-content/60">Live value</p>
                 {#if liveValue.bytes && liveValue.bytes.length > 0}
                   <button data-testid="inspector-hex-view-btn" class="btn btn-ghost btn-xs gap-1" title="Open full hex view" onclick={openHexView}>
-                    <Binary class="w-3 h-3 shrink-0" /> Hex view
+                    <Binary class="w-4 h-4 shrink-0" /> Hex view
                   </button>
                 {/if}
               </div>
