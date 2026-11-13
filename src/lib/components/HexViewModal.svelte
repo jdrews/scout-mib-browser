@@ -69,7 +69,7 @@
     <div data-testid="hex-view-modal" class="modal-box w-full max-w-3xl max-h-[85vh] flex flex-col">
       <div class="flex items-start gap-2">
         <div class="min-w-0 flex-1">
-          <h2 id="hex-view-title" data-testid="hex-view-name" class="font-semibold text-sm break-all">{target.displayName}</h2>
+          <h2 id="hex-view-title" data-testid="hex-view-name" class="font-semibold text-base break-all">{target.displayName}</h2>
           <p class="font-mono text-xs break-all text-base-content/70 mt-0.5">{target.oid}</p>
         </div>
         <button
@@ -86,7 +86,7 @@
         </button>
       </div>
 
-      <div class="flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-mono text-base-content/60 mt-2 mb-2">
+      <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs font-mono text-base-content/60 mt-2 mb-2">
         {#if typeCode !== undefined}
           <span>type: {asn1TypeCodeText(typeCode)}</span>
         {/if}
@@ -98,7 +98,7 @@
 
       <!-- Uncapped dump — the modal exists precisely because the inline and
            inspector dumps are row-capped. -->
-      <div data-testid="hex-view-dump" class="flex-1 min-h-0 overflow-auto border border-base-300 rounded-box bg-base-200/50 p-2 font-mono text-[11px] leading-tight">
+      <div data-testid="hex-view-dump" class="flex-1 min-h-0 overflow-auto border border-base-300 rounded-box bg-base-200/50 p-2 font-mono text-xs leading-tight">
         {#each hexDumpLines(bytes) as r (r.offset)}
           <div class="flex gap-2 whitespace-pre">
             <span class="w-8 shrink-0 text-right text-base-content/40">{r.offset}</span>

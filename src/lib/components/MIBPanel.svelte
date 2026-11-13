@@ -198,14 +198,14 @@
 
 {#if S.mibPanelOpen}
 <nav aria-label="MIB tree" class="flex flex-col bg-base-200 border-r border-base-300 flex-shrink-0" style="width: {width}px">
-  <div data-testid="mib-panel-header" class="px-4 py-3 text-sm font-semibold uppercase tracking-wide text-base-content/60 bg-base-100 border-b border-base-300 flex items-center">
+  <div data-testid="mib-panel-header" class="px-4 py-3 text-sm font-medium text-base-content/60 bg-base-100 border-b border-base-300 flex items-center">
     MIB Browser
     <span class="ml-auto flex items-center gap-1">
       {#if S.fallbackMibs.length > 0 && S.fallbackBannerDismissed}
         <!-- Compact amber indicator (UX-18): click reopens the banner. -->
         <button
           data-testid="fallback-indicator"
-          class="flex items-center gap-1.5 text-xs font-normal normal-case tracking-normal hover:opacity-80"
+          class="flex items-center gap-1.5 text-xs hover:opacity-80"
           aria-label="{S.fallbackMibs.length} {S.fallbackMibs.length === 1 ? 'MIB' : 'MIBs'} loaded with reduced information — show details"
           onclick={() => (S.fallbackBannerDismissed = false)}
         >
@@ -322,6 +322,6 @@
   >
     <PanelLeftOpen class="w-4 h-4" />
   </button>
-  <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60" style="writing-mode: vertical-rl;">MIB Browser</span>
+  <span class="text-xs font-medium text-base-content/60" style="writing-mode: vertical-rl;">MIB Browser</span>
 </nav>
 {/if}

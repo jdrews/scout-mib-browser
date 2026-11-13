@@ -336,7 +336,7 @@
 </script>
 
 <div class="flex items-start gap-2 flex-wrap">
-  <h3 id="set-value-dialog-title" data-testid="set-dialog-title" class="text-lg font-bold break-all">
+  <h3 id="set-value-dialog-title" data-testid="set-dialog-title" class="text-base font-semibold break-all">
     {target.name ?? target.oid}
   </h3>
   {#if syntax}

@@ -107,11 +107,11 @@
   <dialog role="dialog" aria-modal="true" aria-labelledby="connection-dialog-title" bind:this={panelEl} class="modal modal-open" onclick={handleBackdropClick}>
     <div data-connection-panel class="modal-box max-w-120">
       <button data-autofocus aria-label="Close connection dialog" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick={(e) => { e.stopPropagation(); close(); }}><X class="w-4 h-4" /></button>
-      <h3 id="connection-dialog-title" class="text-lg font-bold">Target Connection</h3>
+      <h3 id="connection-dialog-title" class="text-base font-semibold">Target Connection</h3>
 
       <div class="space-y-4 mt-4">
         <div role="group" aria-labelledby="label-snmp-version">
-          <label id="label-snmp-version" class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60 mb-1.5 block">SNMP Version</label>
+          <label id="label-snmp-version" class="label-text text-xs font-medium text-base-content/60 mb-1.5 block">SNMP Version</label>
           <div class="flex gap-1">
             {#each ["v1", "v2c", "v3"] as ver}
               <button
@@ -127,7 +127,7 @@
 
         {#if !isV3}
           <div class="form-control">
-            <label for="community-input" class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Community String</span></label>
+            <label for="community-input" class="label"><span class="label-text text-xs font-medium text-base-content/60">Community String</span></label>
             <input
               id="community-input"
               type="text"
@@ -140,7 +140,7 @@
 
         {#if isV3}
           <div class="form-control">
-            <label for="v3-username-input" class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Username</span></label>
+            <label for="v3-username-input" class="label"><span class="label-text text-xs font-medium text-base-content/60">Username</span></label>
             <input
               id="v3-username-input"
               type="text"
@@ -152,7 +152,7 @@
 
           <div class="grid grid-cols-2 gap-3">
             <div class="form-control">
-              <label for="v3-auth-protocol-select" class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Auth Protocol</span></label>
+              <label for="v3-auth-protocol-select" class="label"><span class="label-text text-xs font-medium text-base-content/60">Auth Protocol</span></label>
               <select
                 id="v3-auth-protocol-select"
                 value={cfg.v3_auth_protocol}
@@ -165,7 +165,7 @@
               </select>
             </div>
             <div class="form-control">
-              <label for="v3-auth-passphrase-input" class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Auth Passphrase</span></label>
+              <label for="v3-auth-passphrase-input" class="label"><span class="label-text text-xs font-medium text-base-content/60">Auth Passphrase</span></label>
               <div class="relative">
                 <input
                   id="v3-auth-passphrase-input"
@@ -192,7 +192,7 @@
 
           <div class="grid grid-cols-2 gap-3">
             <div class="form-control">
-              <label for="v3-priv-protocol-select" class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Priv Protocol</span></label>
+              <label for="v3-priv-protocol-select" class="label"><span class="label-text text-xs font-medium text-base-content/60">Priv Protocol</span></label>
               <select
                 id="v3-priv-protocol-select"
                 value={cfg.v3_priv_protocol}
@@ -205,7 +205,7 @@
               </select>
             </div>
             <div class="form-control">
-              <label for="v3-priv-passphrase-input" class="label"><span class="label-text text-xs font-semibold uppercase tracking-wide text-base-content/60">Priv Passphrase</span></label>
+              <label for="v3-priv-passphrase-input" class="label"><span class="label-text text-xs font-medium text-base-content/60">Priv Passphrase</span></label>
               <div class="relative">
                 <input
                   id="v3-priv-passphrase-input"

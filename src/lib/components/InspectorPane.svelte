@@ -198,7 +198,7 @@
     aria-controls="inspector-body"
     onclick={toggle}
   >
-    <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">Inspector</span>
+    <span class="text-xs font-medium text-base-content/60">Inspector</span>
     {#if open}
       <ChevronDown class="w-4 h-4 ml-auto text-base-content/60" />
     {:else}
@@ -237,7 +237,7 @@
           {#if liveValue}
             <div data-testid="inspector-live-value" class="px-4 py-2 border-b border-base-300 bg-base-200/60">
               <div class="flex items-center justify-between gap-2 mb-1">
-                <p class="text-[10px] font-semibold uppercase tracking-wide text-base-content/60">Live value</p>
+                <p class="text-xs font-medium text-base-content/60">Live value</p>
                 {#if liveValue.bytes && liveValue.bytes.length > 0}
                   <button data-testid="inspector-hex-view-btn" class="btn btn-ghost btn-xs gap-1" title="Open full hex view" onclick={openHexView}>
                     <Binary class="w-4 h-4 shrink-0" /> Hex view
@@ -245,7 +245,7 @@
                 {/if}
               </div>
               <p class="font-mono text-xs break-all">{liveValue.text}</p>
-              <p class="text-[10px] text-base-content/60 mt-0.5">{liveValue.typeLabel}</p>
+              <p class="text-xs text-base-content/60 mt-0.5">{liveValue.typeLabel}</p>
               {#if liveValue.bytes && liveValue.bytes.length > 0}
                 {@const bytes = liveValue.bytes}
                 {@const dumpBytes = bytes.slice(0, INSPECTOR_DUMP_MAX_ROWS * BYTES_PER_ROW)}
@@ -253,20 +253,20 @@
                 {@const interp = interpretBytes(bytes)}
                 <div data-testid="inspector-hexdump" class="mt-2">
                   {#if liveValue.typeCode !== undefined}
-                    <p class="text-[10px] text-base-content/60 mb-1">type: {asn1TypeCodeText(liveValue.typeCode)}</p>
+                    <p class="text-xs text-base-content/60 mb-1">type: {asn1TypeCodeText(liveValue.typeCode)}</p>
                   {/if}
                   {#if interp && interp.kind !== "text"}
-                    <p class="text-[10px] text-base-content/60 mb-1">recognized as {interpretationLabel(interp.kind).toLowerCase()}</p>
+                    <p class="text-xs text-base-content/60 mb-1">recognized as {interpretationLabel(interp.kind).toLowerCase()}</p>
                   {/if}
                   {#each hexDumpLines(dumpBytes) as r (r.offset)}
-                    <div class="flex gap-2 leading-tight font-mono text-[11px]">
+                    <div class="flex gap-2 leading-tight font-mono text-xs">
                       <span class="w-8 shrink-0 text-right text-base-content/40">{r.offset}</span>
                       <span class="shrink-0">{r.hex}</span>
                       <span class="text-base-content/70">{r.ascii}</span>
                     </div>
                   {/each}
                   {#if hiddenBytes > 0}
-                    <p class="text-[10px] text-base-content/40 mt-0.5">… {hiddenBytes} more bytes</p>
+                    <p class="text-xs text-base-content/40 mt-0.5">… {hiddenBytes} more bytes</p>
                   {/if}
                 </div>
               {/if}
@@ -275,7 +275,7 @@
 
           {#if details.description}
             <div data-testid="inspector-description" class="px-4 py-2 border-b border-base-300">
-              <p class="text-[10px] font-semibold uppercase tracking-wide text-base-content/60 mb-1">Description</p>
+              <p class="text-xs font-medium text-base-content/60 mb-1">Description</p>
               <p class="text-xs whitespace-pre-wrap break-words">{details.description}</p>
             </div>
           {/if}
@@ -293,21 +293,21 @@
 
           {#if details.enums && details.enums.length > 0}
             <div data-testid="inspector-enums" class="px-4 py-2 border-b border-base-300">
-              <p class="text-[10px] font-semibold uppercase tracking-wide text-base-content/60 mb-1">Values ({details.enums.length})</p>
+              <p class="text-xs font-medium tabular-nums text-base-content/60 mb-1">Values ({details.enums.length})</p>
               {@render namedValueList(details.enums)}
             </div>
           {/if}
 
           {#if details.bits && details.bits.length > 0}
             <div data-testid="inspector-bits" class="px-4 py-2 border-b border-base-300">
-              <p class="text-[10px] font-semibold uppercase tracking-wide text-base-content/60 mb-1">Bits ({details.bits.length})</p>
+              <p class="text-xs font-medium tabular-nums text-base-content/60 mb-1">Bits ({details.bits.length})</p>
               {@render namedValueList(details.bits)}
             </div>
           {/if}
 
           {#if details.table}
             <div data-testid="inspector-table-section" class="px-4 py-2 border-b border-base-300">
-              <p class="text-[10px] font-semibold uppercase tracking-wide text-base-content/60 mb-1">Table</p>
+              <p class="text-xs font-medium text-base-content/60 mb-1">Table</p>
               <p class="text-xs">
                 {pluralize(details.table.columnOids.length, "column")}, indexed by:
               </p>
@@ -317,7 +317,7 @@
 
           {#if details.indexColumns && details.indexColumns.length > 0}
             <div data-testid="inspector-row-section" class="px-4 py-2">
-              <p class="text-[10px] font-semibold uppercase tracking-wide text-base-content/60 mb-1">Row entry — INDEX</p>
+              <p class="text-xs font-medium text-base-content/60 mb-1">Row entry — INDEX</p>
               {@render indexColumnList(details.indexColumns)}
             </div>
           {/if}
