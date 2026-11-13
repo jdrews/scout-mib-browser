@@ -1,7 +1,7 @@
 # UX Visual Polish — Scout MIB Browser
 
 **Date:** 2026-11-02 (baseline refreshed 2026-11-03)
-**Status:** Direction signed off 2026-11-03 (Phase 0 gate). Phase 1 (token foundation) **merged** to `main` 2026-11-11 via PR #135 (`e63d85e`) — theme (both themes), IBM Plex pair, motion tokens, and the dead-CSS migration, verified against the 2026-11-03 baseline. Phase 2 (the nine passes) not started.
+**Status:** Direction signed off 2026-11-03 (Phase 0 gate). Phase 1 (token foundation) **merged** to `main` 2026-11-11 via PR #135 (`e63d85e`) — theme (both themes), IBM Plex pair, motion tokens, and the dead-CSS migration, verified against the 2026-11-03 baseline. Phase 2 in progress: pass 1 (spacing) done on `feat/ux-visual-polish-spacing` (arbitrary values → scale steps, op-select clip S2, banner S4, dead zone S3; harness 6/6, axe at parity, timings within noise).
 **Method:** Unslop-style visual audit (see [Credit](#credit)) applied to the app's current UI, using this repo's UX assessment capability (`npm run ux:assess`, `docs/specs/2026-08-22-ux-assessment.md`) as the evidence and verification harness.
 **Evidence base:** `docs/ux/2026-11-03/` (fresh baseline, commit `7733df3`, 206 nodes, all 12 states × dark/light + JSON probes — supersedes the 2026-09-12 set, which predated the Manage MIBs page and Set features), current component sources under `src/lib/components/`, and the 2026-08-22 findings/remediation pair (all 18 prior usability findings are closed — this plan is about *visual character*, not usability gaps).
 

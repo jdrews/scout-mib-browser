@@ -211,7 +211,7 @@
         <table data-testid="mibs-table" class="table table-sm w-full">
           <thead>
             <tr>
-              <th class="w-[40px] min-w-[40px] max-w-[40px]">
+              <th class="w-10 min-w-10 max-w-10">
                 <input
                   type="checkbox"
                   bind:this={selectAllInput}
@@ -264,7 +264,7 @@
                   <input type="checkbox" data-testid="mib-select" aria-label={m.mibName} checked={selected.includes(m.filePath)} onchange={() => toggleSelect(m.filePath)} />
                 </td>
                 <td class="text-sm">{m.mibName}</td>
-                <td class="text-xs text-base-content/60 font-mono max-w-[400px] overflow-hidden text-ellipsis whitespace-nowrap" title={m.filePath}>{m.filePath}</td>
+                <td class="text-xs text-base-content/60 font-mono max-w-100 overflow-hidden text-ellipsis whitespace-nowrap" title={m.filePath}>{m.filePath}</td>
                 <td class="text-right font-mono" data-testid="mib-node-count">{m.nodeCount.toLocaleString()}</td>
                 <td>
                   {#if m.isFallback}

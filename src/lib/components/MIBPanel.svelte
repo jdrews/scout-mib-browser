@@ -271,7 +271,10 @@
     </div>
   {/if}
 
-  <div class="flex-1 overflow-y-auto overflow-x-hidden py-2">
+  <!-- Sized to the tree block (min-h-0 lets it shrink and scroll when the
+       tree overflows), so the fallback banner sits directly under the tree
+       instead of floating below a stretched empty zone. -->
+  <div class="min-h-0 overflow-y-auto overflow-x-hidden py-2">
     {#if !hasTree}
       <p class="text-base-content/60 text-sm text-center mt-12">No MIBs loaded.<br/>Use File → Add MIB Directory to get started.</p>
     {:else}
@@ -284,15 +287,16 @@
   </div>
 
   {#if showFallback}
-    <div data-testid="fallback-banner" role="alert" class="alert alert-warning px-3 py-2 text-xs">
-      <span class="flex-1">{fallbackCopy}</span>
-      <button data-testid="fallback-syslog-btn" class="btn btn-sm btn-ghost" onclick={toggleSystemLog}>
+    <!-- mt-2 + the tree block's py-2 = 16 px rhythm under the tree. -->
+    <div data-testid="fallback-banner" role="alert" class="alert alert-warning mt-2 px-3 py-2 text-xs">
+      <span class="flex-1 min-w-0">{fallbackCopy}</span>
+      <button data-testid="fallback-syslog-btn" class="btn btn-sm btn-ghost whitespace-nowrap flex-shrink-0" onclick={toggleSystemLog}>
         System Log
       </button>
       <button
         data-testid="fallback-dismiss-btn"
         aria-label="Dismiss fallback warning"
-        class="btn btn-sm btn-ghost"
+        class="btn btn-sm btn-ghost flex-shrink-0"
         onclick={() => (S.fallbackBannerDismissed = true)}
       >
         <X class="w-3.5 h-3.5" />

@@ -115,7 +115,7 @@
   });
 </script>
 
-<nav aria-label="Application menu" class="flex items-center bg-base-200 border-b border-base-300 px-3 h-[36px] flex-shrink-0 select-none relative" onclick={closeAllMenus}>
+<nav aria-label="Application menu" class="flex items-center bg-base-200 border-b border-base-300 px-3 h-9 flex-shrink-0 select-none relative" onclick={closeAllMenus}>
   <div class="relative" data-menu="file">
     <button data-testid="menu-file" aria-haspopup="menu" aria-expanded={S.fileMenuOpen} class="btn btn-ghost btn-sm" onclick={toggleFileMenu} onkeydown={(e) => onTriggerKeydown(e, "file")}>File</button>
     {#if S.fileMenuOpen}
