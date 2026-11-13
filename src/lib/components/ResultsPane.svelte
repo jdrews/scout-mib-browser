@@ -8,6 +8,7 @@
   import { saveToFile, mibNodeDetails } from "$lib/tauriCommands";
   import { loadColumnSelection, saveColumnSelection } from "$lib/tableColumns";
   import { isWritable, isConfirmedWritable, setDetailsFor } from "$lib/setLogic";
+  import { pluralize } from "$lib/format";
   import { Virtualizer } from "virtua/svelte";
 
   let bindings = $derived(S.executionBindings);
@@ -849,7 +850,7 @@
           </button>
         {/if}
       {/if}
-      <input data-testid="filter-input" aria-label="Filter results" type="text" placeholder="Filter..." class="input input-bordered input-sm w-40 font-mono" bind:value={filterText} />
+      <input data-testid="filter-input" aria-label="Filter results" type="text" placeholder="Filter" class="input input-bordered input-sm w-40 font-mono" bind:value={filterText} />
     </div>
   </div>
 
@@ -1172,17 +1173,17 @@
 
   {#if isGridView && tableResult}
     <div data-testid="grid-footer" class="px-4 py-2 text-xs text-base-content/60 border-t border-base-300 bg-base-100 flex justify-between">
-      <span>Showing {visibleGridRows.length} of {tableResult.total_rows} rows{gridFilterSuffix}</span>
+      <span>Showing {visibleGridRows.length} of {pluralize(tableResult.total_rows, "row")}{gridFilterSuffix}</span>
       {#if gridMissingCells > 0}
-        <span class="text-warning">{gridMissingCells} missing cell(s)</span>
+        <span class="text-warning">{gridMissingCells} missing {gridMissingCells === 1 ? "cell" : "cells"}</span>
       {/if}
     </div>
   {:else if bindings.length > 0 || isSubtreeView}
     <div data-testid="results-footer" class="px-4 py-2 text-xs text-base-content/60 border-t border-base-300 bg-base-100 flex justify-between">
       {#if isSubtreeView}
-        <span>{filteredSubtreeNodes.length} of {(subtreeNodes ?? []).length} nodes</span>
+        <span>{filteredSubtreeNodes.length} of {pluralize((subtreeNodes ?? []).length, "node")}</span>
       {:else}
-        <span>{sortedRows.length} of {bindings.length} bindings</span>
+        <span>{sortedRows.length} of {pluralize(bindings.length, "binding")}</span>
       {/if}
       {#if results?.retries && results.retries > 0}
         <span>{results.retries} retries</span>

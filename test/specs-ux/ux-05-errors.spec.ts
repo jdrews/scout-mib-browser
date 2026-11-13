@@ -55,7 +55,7 @@ describe("UX A5 — error-path wording", function () {
     await setTheme("dark");
     await typeOid(UNKNOWN_INSTANCE_OID);
     await go("get");
-    await waitForStatus(/^Get complete: \d+ binding\(s\)$/, 30000);
+    await waitForStatus(/^Get complete: \d+ bindings?$/, 30000);
 
     const banner = (await (await $("[data-testid='warnings-banner']").getText())) ?? "";
     const badge = (await (await $("[data-testid='partial-badge']").getText())) ?? "";
@@ -145,7 +145,7 @@ describe("UX A5 — error-path wording", function () {
     if (cancelled) {
       captured.walkCancelled = { statusText: await waitForStatus(/^Walk cancelled$/, 15000) };
     } else {
-      const done = await waitForStatus(/complete: \d+ binding\(s\)/, 60000);
+      const done = await waitForStatus(/complete: \d+ bindings?/, 60000);
       captured.walkCancelled = { statusText: done, note: "walk finished before Stop could be clicked (local agent too fast)" };
     }
   });

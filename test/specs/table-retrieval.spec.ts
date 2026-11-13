@@ -46,8 +46,8 @@ describe("Table retrieval (Get Table)", () => {
     await selectTreeNode("ifTable");
     await go("getTable");
 
-    const status = await waitForStatus(/^Table complete: \d+ row\(s\), \d+ column\(s\)$/);
-    expect(status).toBe(`Table complete: ${IF_TABLE_ROWS} row(s), ${IF_TABLE_COLS} column(s)`);
+    const status = await waitForStatus(/^Table complete: \d+ rows?, \d+ columns?$/);
+    expect(status).toBe(`Table complete: ${IF_TABLE_ROWS} rows, ${IF_TABLE_COLS} columns`);
 
     // A table result is always rendered as the grid.
     const grid = await $("[data-testid='grid-table']");
@@ -89,8 +89,8 @@ describe("Table retrieval (Get Table)", () => {
     // of the same subtree returns flat bindings.
     await go("walk");
 
-    const status = await waitForStatus(/^walk complete: \d+ binding\(s\)$/);
-    expect(status).toBe(`walk complete: ${IF_TABLE_FLAT_BINDINGS} binding(s)`);
+    const status = await waitForStatus(/^Walk complete: \d+ bindings?$/);
+    expect(status).toBe(`Walk complete: ${IF_TABLE_FLAT_BINDINGS} bindings`);
 
     const footer = (await (await $("[data-testid='results-footer']").getText())) ?? "";
     expect(footer).toContain(`${IF_TABLE_FLAT_BINDINGS} of ${IF_TABLE_FLAT_BINDINGS} bindings`);
@@ -128,7 +128,7 @@ describe("Table retrieval (Get Table)", () => {
     // Start from a full grid.
     await go("getTable");
     await waitForStatus(
-      new RegExp(`^Table complete: ${IF_TABLE_ROWS} row\\(s\\), ${IF_TABLE_COLS} column\\(s\\)$`),
+      new RegExp(`^Table complete: ${IF_TABLE_ROWS} rows, ${IF_TABLE_COLS} columns$`),
     );
 
     const headerText = async () => ((await (await $("thead").getText())) ?? "");
@@ -318,9 +318,9 @@ describe("Table retrieval (multi-component index, synthetic agent)", () => {
     // Wait for this run's specific count: a stale "Table complete" status from
     // the previous describe would satisfy the generic pattern.
     const status = await waitForStatus(
-      new RegExp(`^Table complete: ${IFSTACK_ROWS} row\\(s\\), 1 column\\(s\\)$`),
+      new RegExp(`^Table complete: ${IFSTACK_ROWS} rows, 1 column$`),
     );
-    expect(status).toBe(`Table complete: ${IFSTACK_ROWS} row(s), 1 column(s)`);
+    expect(status).toBe(`Table complete: ${IFSTACK_ROWS} rows, 1 column`);
   });
 
   it("renders each index component as its own column in index-correct order", async () => {
@@ -436,9 +436,9 @@ describe("Table retrieval (multi-component index, synthetic agent)", () => {
     await go("getTable");
 
     const status = await waitForStatus(
-      /^Table complete: 12 row\(s\), 2 column\(s\) \(1 missing cell\(s\)\)$/,
+      /^Table complete: 12 rows, 2 columns \(1 missing cell\)$/,
     );
-    expect(status).toBe("Table complete: 12 row(s), 2 column(s) (1 missing cell(s))");
+    expect(status).toBe("Table complete: 12 rows, 2 columns (1 missing cell)");
 
     const headerText = (await (await $("thead").getText())) ?? "";
     expect(headerText).toContain("synthIpRow");
@@ -471,7 +471,7 @@ describe("Table retrieval (multi-component index, synthetic agent)", () => {
       await expandTo([...CHAIN_TO_MIB2, "synthTableMib.synthObjects"]);
       await selectTreeNode("synthIpTable");
       await go("getTable");
-      await waitForStatus(/^Table complete: 12 row\(s\), 2 column\(s\) \(1 missing cell\(s\)\)$/);
+      await waitForStatus(/^Table complete: 12 rows, 2 columns \(1 missing cell\)$/);
     }
 
     const resized = await browser.execute(async (noteOid: string) => {
@@ -530,8 +530,8 @@ describe("Table retrieval (multi-component index, synthetic agent)", () => {
     await selectTreeNode("synthImpTable");
     await go("getTable");
 
-    const status = await waitForStatus(/^Table complete: 5 row\(s\), 1 column\(s\)$/);
-    expect(status).toBe("Table complete: 5 row(s), 1 column(s)");
+    const status = await waitForStatus(/^Table complete: 5 rows, 1 column$/);
+    expect(status).toBe("Table complete: 5 rows, 1 column");
 
     const headerText = (await (await $("thead").getText())) ?? "";
     expect(headerText).toContain("synthImpKey");
@@ -558,7 +558,7 @@ describe("Table retrieval (multi-component index, synthetic agent)", () => {
     // grid must be showing for the export menu to exist — retrieve one.
     await selectTreeNode("ifStackTable");
     await go("getTable");
-    await waitForStatus(/^Table complete: \d+ row\(s\), 1 column\(s\)$/);
+    await waitForStatus(/^Table complete: \d+ rows, 1 column$/);
 
     const { gridToJson } = await import("../../src/lib/export");
     const result: TableResult = {

@@ -5,6 +5,7 @@
   import type { MibNodeDetails, NamedValueInfo, SnmpValue, TableIndexColumn } from "$lib/types";
   import { hexDumpLines, interpretBytes, interpretationLabel, asn1TypeCodeText, BYTES_PER_ROW } from "$lib/hexdump";
   import { isConfirmedWritable, effectiveSetOid, setDetailsFor } from "$lib/setLogic";
+  import { dedent, pluralize } from "$lib/format";
 
   const MIN_HEIGHT = 120;
   const MAX_HEIGHT = 800;
@@ -41,7 +42,11 @@
     loading = true;
     mibNodeDetails(target)
       .then((d) => {
-        if (seq === requestSeq) details = d;
+        if (seq !== requestSeq) return;
+        // MIB DESCRIPTION clauses carry their source indentation; strip the
+        // common prefix so the text reads left-aligned, not centered.
+        if (d?.description) details = { ...d, description: dedent(d.description) };
+        else details = d;
       })
       .catch((err) => {
         console.error("Failed to load node details:", err);
@@ -304,7 +309,7 @@
             <div data-testid="inspector-table-section" class="px-4 py-2 border-b border-base-300">
               <p class="text-[10px] font-semibold uppercase tracking-wide text-base-content/60 mb-1">Table</p>
               <p class="text-xs">
-                {details.table.columnOids.length} column(s), indexed by:
+                {pluralize(details.table.columnOids.length, "column")}, indexed by:
               </p>
               {@render indexColumnList(details.table.indexColumns)}
             </div>

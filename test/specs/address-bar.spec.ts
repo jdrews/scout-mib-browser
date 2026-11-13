@@ -101,7 +101,7 @@ describe("Address bar (autocomplete)", () => {
     // binding with a warning). Require exactly 1 binding so a 0-binding
     // result can't satisfy the status wait with an empty results body.
     await (await $("[data-testid='go-btn']")).click();
-    await waitForStatus(/Get complete: 1 binding\(s\)/, 30000);
+    await waitForStatus(/Get complete: 1 binding/, 30000);
     // The virtualizer renders rows on its own ResizeObserver cycle, which
     // lags the state flush that sets the status text — wait for the row to
     // be in the DOM before asserting on its contents.

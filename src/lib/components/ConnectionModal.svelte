@@ -238,7 +238,7 @@
           disabled={connecting || !cfg.host.trim()}
         >
           {#if connecting}
-            Testing...
+            Testing…
           {:else if connectionResult === "success"}
             <Check class="w-4 h-4 inline-block" /> Connected
           {:else if connectionResult === "error"}

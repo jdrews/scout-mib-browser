@@ -5,6 +5,7 @@
   import { persistTargetConfig } from "$lib/tauriCommands";
   import { markConnected, markDisconnected, hasErrorWarning, streamingOutcome } from "$lib/connectionLogic";
   import { setGuard, effectiveSetOid, setDetailsFor } from "$lib/setLogic";
+  import { pluralize } from "$lib/format";
   import type { MibSearchResult, TreeNode, SnmpOperation, VariableBinding, ResultSet, TableInfo, TableResult, MibNodeDetails } from "$lib/types";
 
   let cfg = $derived(S.targetConfig);
@@ -287,7 +288,7 @@
 
     // Walk/Bulk Walk on a table node behaves like anywhere else — a flat
     // subtree walk. Get Table (executeGetTable) is the only grid path.
-    S.statusText = `Starting ${op} on ${oid}...`;
+    S.statusText = `Starting ${operationLabels[op]} on ${oid}…`;
 
     try {
       if (op === "get") {
@@ -297,7 +298,7 @@
         S.executionBindings.push(...result.bindings);
         S.executionResults = result;
         markConnected();
-        S.statusText = `Get complete: ${result.bindings.length} binding(s)`;
+        S.statusText = `Get complete: ${pluralize(result.bindings.length, "binding")}`;
       } else if (op === "getNext") {
         const cmds = await import("$lib/tauriCommands");
         const result = await cmds.snmpGetNext(cfg, [oid]);
@@ -317,7 +318,7 @@
           getNextCursor = null;
         }
         markConnected();
-        S.statusText = `GetNext complete: ${result.bindings.length} binding(s)`;
+        S.statusText = `Get Next complete: ${pluralize(result.bindings.length, "binding")}`;
       } else if (op === "walk" || op === "bulkWalk") {
         const cmds = await import("$lib/tauriCommands");
         let count = 0;
@@ -351,8 +352,8 @@
             }
             count += batch.length;
             buffer.push(...batch);
-            S.walkProgress = `${count} bindings`;
-            S.statusText = `${op}: ${count} bindings...`;
+            S.walkProgress = pluralize(count, "binding");
+            S.statusText = `${operationLabels[op]}: ${pluralize(count, "binding")}…`;
             // Flush every 200 bindings or on timer, whichever comes first.
             if (buffer.length >= 200) {
               S.executionBindings.push(...buffer);
@@ -382,7 +383,7 @@
             const outcome = streamingOutcome(count, result.partial, hasErrorWarning(result.warnings));
             if (outcome === "connected") markConnected();
             else if (outcome === "disconnected") markDisconnected();
-            S.statusText = `${op} complete: ${count} binding(s)`;
+            S.statusText = `${operationLabels[op]} complete: ${pluralize(count, "binding")}`;
           }
         );
       }
@@ -437,7 +438,7 @@
     tableRunActive = true;
 
     const name = info.name || oid;
-    S.statusText = `Detecting table columns for ${name}...`;
+    S.statusText = `Detecting table columns for ${name}…`;
 
     try {
       const allColumns = await cmds.mibTableColumns(oid);
@@ -447,7 +448,7 @@
         return;
       }
 
-      S.statusText = `Fetching table ${name}...`;
+      S.statusText = `Fetching table ${name}…`;
       isWalkActive = true;
       // First progress tick proves the target answered — flip the indicator
       // early instead of waiting for completion on large tables.
@@ -460,8 +461,8 @@
             sawData = true;
             markConnected();
           }
-          S.walkProgress = `${count} bindings`;
-          S.statusText = `Get Table: ${count} bindings...`;
+          S.walkProgress = pluralize(count, "binding");
+          S.statusText = `Get Table: ${pluralize(count, "binding")}…`;
         },
         (result: TableResult) => {
           if (!isWalkActive) return;
@@ -472,9 +473,9 @@
           const outcome = streamingOutcome(result.total_rows, result.partial, hasErrorWarning(result.warnings));
           if (outcome === "connected") markConnected();
           else if (outcome === "disconnected") markDisconnected();
-          let msg = `Table complete: ${result.total_rows} row(s), ${result.columns.length} column(s)`;
+          let msg = `Table complete: ${pluralize(result.total_rows, "row")}, ${pluralize(result.columns.length, "column")}`;
           if (result.missing_cells > 0) {
-            msg += ` (${result.missing_cells} missing cell(s))`;
+            msg += ` (${result.missing_cells} missing ${result.missing_cells === 1 ? "cell" : "cells"})`;
           }
           S.statusText = msg;
         }
@@ -499,13 +500,13 @@
     S.tableResult = null;
     S.walkProgress = "";
     S.queryRootOid = oid;
-    S.statusText = `Loading subtree for ${oid}...`;
+    S.statusText = `Loading subtree for ${oid}…`;
 
     try {
       const cmds = await import("$lib/tauriCommands");
       const nodes = await cmds.mibSubtree(oid);
       S.subtreeNodes = nodes;
-      S.statusText = `Get Subtree complete: ${nodes.length} node(s) under ${oid}`;
+      S.statusText = `Get Subtree complete: ${pluralize(nodes.length, "node")} under ${oid}`;
     } catch (err) {
       console.error("Subtree retrieval failed:", err);
       S.subtreeNodes = [];
@@ -606,7 +607,7 @@
     data-testid="oid-input"
     aria-label="OID or MIB name"
     type="text"
-    placeholder="Enter OID or MIB name (e.g., sysDescr)"
+    placeholder="OID or MIB name"
     autocomplete="off"
     bind:this={oidInputEl}
     class="flex-1 input input-bordered input-sm font-mono"
@@ -641,7 +642,7 @@
       onclick={handleGo}
       disabled={executing || !inputValue.trim()}
     >
-      {executing ? "..." : "Go"}
+      {executing ? "…" : "Go"}
     </button>
   {/if}
 

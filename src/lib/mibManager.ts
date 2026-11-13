@@ -43,7 +43,7 @@ export async function addMibDirectory(): Promise<void> {
     const selected = await openDirectory();
     if (!selected) return;
 
-    S.statusText = "Loading MIBs...";
+    S.statusText = "Loading MIBs…";
     const config = await configRead();
     const dirs = config.mib?.directories ?? [];
     const files = config.mib?.files ?? [];
@@ -71,7 +71,7 @@ export async function addMibFiles(): Promise<void> {
     const selected = await openFiles();
     if (!selected || selected.length === 0) return;
 
-    S.statusText = "Loading MIBs...";
+    S.statusText = "Loading MIBs…";
     const config = await configRead();
     const dirs = config.mib?.directories ?? [];
     const files = config.mib?.files ?? [];

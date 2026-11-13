@@ -55,7 +55,7 @@ describe("Raw view (hex + text) of OID results", () => {
     await expandTo(CHAIN_TO_INTERFACES);
     await selectTreeNode("ifTable");
     await go("walk");
-    await waitForStatus(new RegExp(`^walk complete: ${IF_TABLE_FLAT_BINDINGS} binding\\(s\\)$`), 60000);
+    await waitForStatus(new RegExp(`^Walk complete: ${IF_TABLE_FLAT_BINDINGS} bindings$`), 60000);
   });
 
   // The Raw toggle is component state — leave it off so later specs see the

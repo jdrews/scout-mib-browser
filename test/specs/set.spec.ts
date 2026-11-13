@@ -149,8 +149,8 @@ describe("SNMP Set (set-capable agent)", () => {
   it("walk + address-bar Set updates the result row in place", async () => {
     await typeOid("1.3.6.1.2.1.15433");
     await go("walk");
-    const status = await waitForStatus(/^walk complete: \d+ binding\(s\)$/);
-    expect(status).toBe("walk complete: 5 binding(s)");
+    const status = await waitForStatus(/^Walk complete: \d+ bindings?$/);
+    expect(status).toBe("Walk complete: 5 bindings");
 
     // Initial recording state.
     expect(await rowValue("synthSetName.0")).toBe('"scout"');
@@ -343,8 +343,8 @@ describe("SNMP Set (unknown access)", () => {
     // ucdMem objects are in the recording but not in the loaded MIBs.
     await typeOid("1.3.6.1.4.1.2021.4");
     await go("walk");
-    const status = await waitForStatus(/^walk complete: \d+ binding\(s\)$/);
-    expect(status).toBe("walk complete: 12 binding(s)");
+    const status = await waitForStatus(/^Walk complete: \d+ bindings?$/);
+    expect(status).toBe("Walk complete: 12 bindings");
 
     // Unknown access is not confirmed-writable → no pencil affordance.
     await browser.pause(750);
