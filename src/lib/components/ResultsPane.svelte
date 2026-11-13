@@ -908,7 +908,7 @@
         <table data-testid="grid-table" class="table table-sm w-full min-w-max border-separate border-spacing-0">
           <thead>
             <tr>
-              <th class="sticky top-0 left-0 z-30 bg-base-100 px-2 py-1.5 text-xs w-[40px] min-w-[40px] max-w-[40px]">#</th>
+              <th class="sticky top-0 left-0 z-30 bg-base-100 px-2 py-1.5 text-xs w-10 min-w-10 max-w-10">#</th>
               {#if hasDecodedIndexes}
                 {#each gridIndexCols as col, i (col.oid)}
                   <th data-grid-col="idx:{i}" title={col.implied ? `${col.name} (implied)` : col.name} class="sticky top-0 z-30 bg-base-200 px-2 py-1.5 text-xs cursor-pointer select-none relative" style="left: {stickyLeft(i + 1)}px; {widthCss(`idx:${i}`, IDX_W)}" onclick={() => toggleGridSort(`idx:${i}`)}>
@@ -916,7 +916,7 @@
                       <span class="truncate">{col.name}</span>
                       {#if gridSortKey === `idx:${i}`}{#if gridSortDir === 1}<ArrowUp class="w-3 h-3 shrink-0" />{:else}<ArrowDown class="w-3 h-3 shrink-0" />{/if}{:else}<ArrowUpDown class="w-3 h-3 shrink-0 opacity-40" />{/if}
                     </span>
-                    <span class="col-resize-handle absolute top-0 right-0 h-full w-[5px] cursor-col-resize z-10 hover:bg-primary/60" onclick={(e) => e.stopPropagation()} onmousedown={(e) => startColResize(e, `idx:${i}`)}></span>
+                    <span class="col-resize-handle absolute top-0 right-0 h-full w-1.5 cursor-col-resize z-10 hover:bg-primary/60" onclick={(e) => e.stopPropagation()} onmousedown={(e) => startColResize(e, `idx:${i}`)}></span>
                   </th>
                 {/each}
               {:else}
@@ -925,7 +925,7 @@
                     <span class="truncate">Instance</span>
                     {#if gridSortKey === "instance"}{#if gridSortDir === 1}<ArrowUp class="w-3 h-3 shrink-0" />{:else}<ArrowDown class="w-3 h-3 shrink-0" />{/if}{:else}<ArrowUpDown class="w-3 h-3 shrink-0 opacity-40" />{/if}
                   </span>
-                  <span class="col-resize-handle absolute top-0 right-0 h-full w-[5px] cursor-col-resize z-10 hover:bg-primary/60" onclick={(e) => e.stopPropagation()} onmousedown={(e) => startColResize(e, "instance")}></span>
+                  <span class="col-resize-handle absolute top-0 right-0 h-full w-1.5 cursor-col-resize z-10 hover:bg-primary/60" onclick={(e) => e.stopPropagation()} onmousedown={(e) => startColResize(e, "instance")}></span>
                 </th>
               {/if}
               {#each visibleGridColumns as colOid (colOid)}
@@ -941,7 +941,7 @@
                     <span class="truncate">{columnName(colOid)}</span>
                     {#if gridSortKey === colOid}{#if gridSortDir === 1}<ArrowUp class="w-3 h-3 shrink-0" />{:else}<ArrowDown class="w-3 h-3 shrink-0" />{/if}{:else}<ArrowUpDown class="w-3 h-3 shrink-0 opacity-40" />{/if}
                   </span>
-                  <span class="col-resize-handle absolute top-0 right-0 h-full w-[5px] cursor-col-resize z-10 hover:bg-primary/60" onclick={(e) => e.stopPropagation()} onmousedown={(e) => startColResize(e, colOid)}></span>
+                  <span class="col-resize-handle absolute top-0 right-0 h-full w-1.5 cursor-col-resize z-10 hover:bg-primary/60" onclick={(e) => e.stopPropagation()} onmousedown={(e) => startColResize(e, colOid)}></span>
                 </th>
               {/each}
             </tr>
@@ -949,7 +949,7 @@
           <tbody>
             {#each visibleGridRows as row, i (row.instance_id)}
               <tr>
-                <td class="sticky left-0 z-10 bg-base-200 px-2 text-xs text-base-content/60 w-[40px] min-w-[40px] max-w-[40px]">{i + 1}</td>
+                <td class="sticky left-0 z-10 bg-base-200 px-2 text-xs text-base-content/60 w-10 min-w-10 max-w-10">{i + 1}</td>
                 {#if hasDecodedIndexes}
                   {#each row.index_values as val, i (i)}
                     <td class="sticky z-10 bg-base-200 px-2 font-mono text-[13px] truncate" style="left: {stickyLeft(i + 1)}px; {widthCss(`idx:${i}`, IDX_W)}" title={val === null ? "(implied)" : row.instance_id}>
@@ -1020,7 +1020,7 @@
           <!-- /60 (not /30): 3:1 AA for the UI boundary in the light theme. -->
           <div class="flex bg-base-200 border-b-2 border-base-content/60 sticky top-0 z-10 text-xs font-semibold uppercase tracking-wider">
             <div class="px-2 py-1.5 truncate select-none" style="width: 240px; min-width: 240px; max-width: 240px;">Name</div>
-            <div class="flex-1 min-w-[280px] px-2 py-1.5 truncate select-none">OID</div>
+            <div class="flex-1 min-w-70 px-2 py-1.5 truncate select-none">OID</div>
             <div class="px-2 py-1.5 truncate select-none" style="width: 140px; min-width: 140px; max-width: 140px;">Type</div>
           </div>
 
@@ -1036,7 +1036,7 @@
               <div class="px-2 py-1 truncate text-[13px]" style="width: 240px; min-width: 240px; max-width: 240px;" title="{node.name}">
                 {node.name}
               </div>
-              <div class="flex-1 min-w-[280px] px-2 py-1 font-mono text-[13px] truncate" title="{node.oid}">{node.oid}</div>
+              <div class="flex-1 min-w-70 px-2 py-1 font-mono text-[13px] truncate" title="{node.oid}">{node.oid}</div>
               <div class="px-2 py-1 font-mono text-[13px] text-base-content/60" style="width: 140px; min-width: 140px; max-width: 140px;">{node.syntaxType ?? ""}</div>
             </div>
           {/each}
@@ -1055,8 +1055,8 @@
            moves it with the rows. -->
       <div class="relative" style="cursor: {draggingDivider ? 'col-resize' : ''}{showRaw ? ` min-width: ${rawPaneMinWidth}px;` : ''}">
 
-        <div class="resize-divider absolute top-0 bottom-0 w-[5px] z-20 hover:bg-primary/50 transition-colors" style="left: {divider1Left}px;" onmousedown={onDivider1MouseDown}></div>
-        <div class="resize-divider absolute top-0 bottom-0 w-[5px] z-20 hover:bg-primary/50 transition-colors" style="left: {divider2Left};" onmousedown={onDivider2MouseDown}></div>
+        <div class="resize-divider absolute top-0 bottom-0 w-1.5 z-20 hover:bg-primary/50 transition-colors" style="left: {divider1Left}px;" onmousedown={onDivider1MouseDown}></div>
+        <div class="resize-divider absolute top-0 bottom-0 w-1.5 z-20 hover:bg-primary/50 transition-colors" style="left: {divider2Left};" onmousedown={onDivider2MouseDown}></div>
 
         <!-- /60 (not /30): 3:1 AA for the UI boundary in the light theme.
              In raw mode rows must expand to fit their hex dumps; in normal
@@ -1067,7 +1067,7 @@
             <span class="truncate">OID</span>
             {#if sortColumn === "oid"}{#if sortAsc}<ArrowUp class="w-3 h-3 shrink-0" />{:else}<ArrowDown class="w-3 h-3 shrink-0" />{/if}{:else}<ArrowUpDown class="w-3 h-3 shrink-0" />{/if}
           </div>
-          <div data-testid="sort-value" class="flex-1 min-w-[120px] cursor-pointer px-2 py-1.5 truncate select-none flex items-center gap-1" onclick={() => toggleSort("value")}>
+          <div data-testid="sort-value" class="flex-1 min-w-30 cursor-pointer px-2 py-1.5 truncate select-none flex items-center gap-1" onclick={() => toggleSort("value")}>
             <span class="truncate">Value</span>
             {#if sortColumn === "value"}{#if sortAsc}<ArrowUp class="w-3 h-3 shrink-0" />{:else}<ArrowDown class="w-3 h-3 shrink-0" />{/if}{:else}<ArrowUpDown class="w-3 h-3 shrink-0" />{/if}
           </div>
@@ -1106,7 +1106,7 @@
             <div class="px-2 py-1 truncate font-mono text-[13px] relative" style="width: {colOid}px; min-width: {COL_MIN_OID}px; max-width: {COL_MAX_OID}px;" title="{row.fullPath}\n{row.oid}">
               {showResolvedNames ? row.displayName : row.oid}
             </div>
-            <div class="flex-1 min-w-[120px] px-2 py-1 font-mono text-[13px] flex items-start gap-1" oncontextmenu={(e) => onValueContextMenu(e, row.fullPath, row.displayName, row.snmpValue)}>
+            <div class="flex-1 min-w-30 px-2 py-1 font-mono text-[13px] flex items-start gap-1" oncontextmenu={(e) => onValueContextMenu(e, row.fullPath, row.displayName, row.snmpValue)}>
               {#if showRaw && exportMod.isByteValue(row.snmpValue)}
                 {@const bytes = exportMod.byteData(row.snmpValue)}
                 {@const dumpBytes = bytes.slice(0, RAW_DUMP_MAX_ROWS * BYTES_PER_ROW)}

@@ -171,7 +171,7 @@
   {#if open}
     <div
       data-testid="inspector-resize"
-      class="resize-handle-v h-[6px] cursor-row-resize flex-shrink-0 bg-base-200 hover:bg-primary/30 transition-colors focus-visible:ring-2 focus-visible:ring-primary"
+      class="resize-handle-v h-1.5 cursor-row-resize flex-shrink-0 bg-base-200 hover:bg-primary/30 transition-colors focus-visible:ring-2 focus-visible:ring-primary"
       onmousedown={onResizeStart}
       onkeydown={onResizeKeydown}
       role="separator"

@@ -118,7 +118,7 @@
 
 <aside aria-label="System log" data-testid="syslog-pane" class="flex flex-col flex-shrink-0 border-t border-base-300 bg-base-100" style="height: {height}px">
   <div
-    class="resize-handle-v h-[6px] cursor-row-resize flex-shrink-0 bg-base-200 hover:bg-primary/30 transition-colors"
+    class="resize-handle-v h-1.5 cursor-row-resize flex-shrink-0 bg-base-200 hover:bg-primary/30 transition-colors"
     onmousedown={onResizeStart}
     role="separator"
     aria-orientation="horizontal"
@@ -168,7 +168,7 @@
     {#each filteredEntries as entry, i (i)}
       <div class="flex gap-2 px-4 py-1.5 hover:bg-base-200">
         <span class="text-base-content/60 shrink-0">{entry.timestamp}</span>
-        <span class="shrink-0 font-bold w-[46px]" class:text-error={entry.level === "ERROR"} class:text-warning={entry.level === "WARN"} class:text-info={entry.level === "INFO"} class:muted-level={entry.level === "DEBUG" || entry.level === "TRACE"}>
+        <span class="shrink-0 font-bold w-12" class:text-error={entry.level === "ERROR"} class:text-warning={entry.level === "WARN"} class:text-info={entry.level === "INFO"} class:muted-level={entry.level === "DEBUG" || entry.level === "TRACE"}>
           [{entry.level}]
         </span>
         <span class="text-base-content/60 shrink-0">({entry.target})</span>

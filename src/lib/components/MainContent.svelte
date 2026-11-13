@@ -48,7 +48,7 @@
     <MIBPanel />
     {#if S.mibPanelOpen}
     <div
-      class="resize-handle-h w-[6px] cursor-col-resize flex-shrink-0 bg-base-200 hover:bg-primary/30 transition-colors"
+      class="resize-handle-h w-1.5 cursor-col-resize flex-shrink-0 bg-base-200 hover:bg-primary/30 transition-colors"
       onmousedown={onResizeStart}
       role="separator"
       aria-orientation="vertical"

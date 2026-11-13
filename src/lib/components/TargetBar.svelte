@@ -574,7 +574,7 @@
       placeholder="Host or IP"
       value={cfg.host}
       oninput={onHostInput}
-      class="input input-bordered input-sm w-[160px] font-mono join-item"
+      class="input input-bordered input-sm w-40 font-mono join-item"
     />
 
     <!-- /60 (not /40): 4.5:1 AA on base-200 in the light theme. -->
@@ -587,7 +587,7 @@
       placeholder="Port"
       value={cfg.port}
       oninput={onPortInput}
-      class="input input-bordered input-sm w-[60px] font-mono join-item text-center"
+      class="input input-bordered input-sm w-16 font-mono join-item text-center"
     />
   </div>
 
@@ -618,7 +618,7 @@
   <select
     data-testid="op-select"
     aria-label="SNMP operation"
-    class="select select-bordered select-sm w-[90px]"
+    class="select select-bordered select-sm w-24"
     bind:value={S.snmpOperation}
   >
     {#each operations as op (op)}
@@ -646,7 +646,7 @@
   {/if}
 
   {#if results.length > 0}
-    <div data-testid="autocomplete-list" class="absolute top-full left-4 right-[200px] bg-base-100 border border-base-300 rounded-box max-h-[240px] overflow-y-auto z-[500] shadow-lg">
+    <div data-testid="autocomplete-list" class="absolute top-full left-4 right-50 bg-base-100 border border-base-300 rounded-box max-h-60 overflow-y-auto z-[500] shadow-lg">
       {#each results as item, i (item.oid)}
         <div
           class="px-3 py-2 text-sm cursor-pointer flex justify-between items-center hover:bg-base-200"
