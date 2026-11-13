@@ -70,10 +70,11 @@ describe("Results pane (result set manipulation)", () => {
       expect(desc[i - 1] >= desc[i]).toBe(true);
     }
 
-    // Clicking the OID header switches the sort column.
+    // Clicking the OID header switches the sort column; the now-inactive
+    // Value header drops its arrow entirely (I2: active column only).
     await (await oidHeader).click();
     expect((await oidHeader.$$("svg.lucide-arrow-up")).length).toBe(1);
-    expect((await valueHeader.$$("svg.lucide-arrow-up-down")).length).toBe(1);
+    expect((await valueHeader.$$("svg")).length).toBe(0);
   });
 
   it("MIB Names / Raw OIDs toggle", async () => {
