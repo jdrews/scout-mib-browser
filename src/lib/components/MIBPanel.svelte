@@ -301,7 +301,7 @@
         class="btn btn-sm btn-ghost flex-shrink-0"
         onclick={() => (S.fallbackBannerDismissed = true)}
       >
-        <X class="w-3.5 h-3.5" />
+        <X class="w-4 h-4" />
       </button>
     </div>
   {/if}

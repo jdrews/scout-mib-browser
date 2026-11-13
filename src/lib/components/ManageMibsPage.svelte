@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-svelte";
+  import { ArrowDown, ArrowUp } from "lucide-svelte";
   import { S } from "$lib/stores.svelte";
   import { mibLoadedList } from "$lib/tauriCommands";
   import { addMibDirectory, addMibFiles, unloadMibs } from "$lib/mibManager";
@@ -229,7 +229,7 @@
               >
                 <span class="flex items-center gap-1">
                   Name
-                  {#if sortColumn === "name"}{#if sortAsc}<ArrowUp class="w-3 h-3 shrink-0" />{:else}<ArrowDown class="w-3 h-3 shrink-0" />{/if}{:else}<ArrowUpDown class="w-3 h-3 shrink-0 opacity-40" />{/if}
+                  {#if sortColumn === "name"}{#if sortAsc}<ArrowUp class="w-4 h-4 shrink-0" />{:else}<ArrowDown class="w-4 h-4 shrink-0" />{/if}{/if}
                 </span>
               </th>
               <th
@@ -240,7 +240,7 @@
               >
                 <span class="flex items-center gap-1">
                   File Path
-                  {#if sortColumn === "path"}{#if sortAsc}<ArrowUp class="w-3 h-3 shrink-0" />{:else}<ArrowDown class="w-3 h-3 shrink-0" />{/if}{:else}<ArrowUpDown class="w-3 h-3 shrink-0 opacity-40" />{/if}
+                  {#if sortColumn === "path"}{#if sortAsc}<ArrowUp class="w-4 h-4 shrink-0" />{:else}<ArrowDown class="w-4 h-4 shrink-0" />{/if}{/if}
                 </span>
               </th>
               <th
@@ -251,7 +251,7 @@
               >
                 <span class="flex items-center gap-1 justify-end">
                   Nodes
-                  {#if sortColumn === "nodes"}{#if sortAsc}<ArrowUp class="w-3 h-3 shrink-0" />{:else}<ArrowDown class="w-3 h-3 shrink-0" />{/if}{:else}<ArrowUpDown class="w-3 h-3 shrink-0 opacity-40" />{/if}
+                  {#if sortColumn === "nodes"}{#if sortAsc}<ArrowUp class="w-4 h-4 shrink-0" />{:else}<ArrowDown class="w-4 h-4 shrink-0" />{/if}{/if}
                 </span>
               </th>
               <th>Status</th>
