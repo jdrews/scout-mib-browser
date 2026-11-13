@@ -1,7 +1,7 @@
 # UX Visual Polish — Scout MIB Browser
 
 **Date:** 2026-11-02 (baseline refreshed 2026-11-03)
-**Status:** Direction signed off 2026-11-03 (Phase 0 gate). Phase 1 (token foundation) implemented and verified on `feat/ux-visual-polish-tokens`, branched from `main` @ `cff02d4` — awaiting PR review/merge.
+**Status:** Direction signed off 2026-11-03 (Phase 0 gate). Phase 1 (token foundation) **merged** to `main` 2026-11-11 via PR #135 (`e63d85e`) — theme (both themes), IBM Plex pair, motion tokens, and the dead-CSS migration, verified against the 2026-11-03 baseline. Phase 2 (the nine passes) not started.
 **Method:** Unslop-style visual audit (see [Credit](#credit)) applied to the app's current UI, using this repo's UX assessment capability (`npm run ux:assess`, `docs/specs/2026-08-22-ux-assessment.md`) as the evidence and verification harness.
 **Evidence base:** `docs/ux/2026-11-03/` (fresh baseline, commit `7733df3`, 206 nodes, all 12 states × dark/light + JSON probes — supersedes the 2026-09-12 set, which predated the Manage MIBs page and Set features), current component sources under `src/lib/components/`, and the 2026-08-22 findings/remediation pair (all 18 prior usability findings are closed — this plan is about *visual character*, not usability gaps).
 
@@ -152,9 +152,11 @@ Work runs like a designer's redline pass: one layer at a time, across the whole 
 3. Score the current set with the August aesthetic rubric (0–4 per state) — this is the "before" number.
 4. **Gate:** present this plan's direction (above) for sign-off. Changing the direction later means redoing the token work, so everything after Phase 0 waits for the yes.
 
-### Phase 1 — Token foundation (1–2 days)
+### Phase 1 — Token foundation (1–2 days) — **DONE**
 
 Everything downstream reads these tokens, so they land first, in one PR.
+
+**DONE (2026-11-11, PR #135 / `e63d85e`):** items 1–3 landed as one PR — theme overrides in `src/app.css` (dark + light), `@fontsource` IBM Plex pair wired through `@theme` font tokens, motion curve + 140/180 ms in `@theme static`, and the dead `oklch(var(--p) / a)` CSS migrated to `color-mix`/`var(--color-*)` in the five components + the `app.css` scrollbar. Verification (item 4) recorded below.
 
 1. `src/app.css`: add a full `@plugin "daisyui"` custom theme (or `[data-theme]` overrides) with the palette from the direction — teal primary, neutral secondary, toned semantics, kept neutrals.
    - **Corrected 2026-11-03 (implementation finding):** daisyUI 5.7.47 theme files define only `--color-*` values — the `oklch(var(--p) ...)`, `oklch(var(--bc) ...)`, and `var(--fallback-pc, oklch(var(--pc)))` references in component `<style>` blocks (`TreeNode`, `InspectorPane`, `ResultsPane`, `SystemLogPane`, `MainContent`, plus the `app.css` scrollbar) are **dead CSS** and do *not* propagate from a theme swap. Phase 1 therefore migrates those to `var(--color-*)` / `color-mix(in oklab, ...)` forms (the pattern already used by `TreeNode`'s find-hit highlight) as part of the same PR.
@@ -192,7 +194,7 @@ Each pass: make the change → `cargo fmt` + `cargo test` + `npx tsc --noEmit` +
 
 - [x] Phase 0 baseline recorded in `docs/ux/2026-11-03/` (2026-11-03) — "before" aesthetic scores still pending (Phase 0.3).
 - [x] Direction signed off (Phase 0 gate) and written into this doc's status line (2026-11-03).
-- [ ] Token foundation merged: custom daisyUI theme (both themes), IBM Plex pair, motion tokens.
+- [x] Token foundation merged: custom daisyUI theme (both themes), IBM Plex pair, motion tokens (2026-11-11, PR #135 / `e63d85e`).
 - [ ] Nine passes merged, each with a before/after screenshot diff and green pre-commit checklist.
 - [ ] No violet, no magenta, no neon amber in any state screenshot; no uppercase tracked label; no `text-[10px]`/`text-[11px]` off-scale sizes; no `w-[..px]` one-offs left (resize handles exempted as `h-1.5`/`w-1.5`); op-select shows "Get Table" unclipped; `sysDescr` description left-aligned.
 - [ ] After-set `ux:assess` run: axe not regressed, timings within noise, feature suite green.
