@@ -144,7 +144,10 @@
   }
 </script>
 
-<section data-testid="inspector-pane" class="flex flex-col flex-shrink-0 bg-base-100">
+<!-- mt-auto pins the inspector to the sidebar's bottom edge: the tree block
+     is content-sized (so the fallback banner sits directly under the tree),
+     and the leftover space goes above the inspector instead of below it. -->
+<section data-testid="inspector-pane" class="mt-auto flex flex-col flex-shrink-0 bg-base-100">
   {#snippet indexColumnList(columns: TableIndexColumn[])}
     <ul class="mt-1 space-y-0.5">
       {#each columns as c (c.name)}
