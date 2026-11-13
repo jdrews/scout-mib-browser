@@ -308,18 +308,18 @@
     opacity: 0.55;
   }
 
-  /* Find-in-tree highlight. daisyUI 5 exposes theme colors as full values
-     (--color-warning), so alpha tints go through color-mix — the legacy
-     oklch(var(--w) / a) form references variables that no longer exist.
-     The current hit gets a primary-tinted row band (a different hue, so it
-     doesn't stack into a block with the mark); every match carries the
-     warning-yellow mark with its paired content color for contrast. */
+  /* Find-in-tree highlight. The current hit gets a primary-tinted row band
+     (a different hue, so it doesn't stack into a block with the mark); every
+     match carries the warning mark. The mark is a solid warning surface with
+     its paired content color (like the solid semantic badges) so the pairing
+     clears WCAG AA in both themes — the former 70% tint left the dark-theme
+     chip at 2.8:1. */
   .tree-row.find-hit {
     background-color: color-mix(in oklab, var(--color-primary) 25%, transparent);
   }
 
   mark.find-mark {
-    background-color: color-mix(in oklab, var(--color-warning) 70%, transparent);
+    background-color: var(--color-warning);
     color: var(--color-warning-content);
     border-radius: 2px;
     padding: 0 1px;

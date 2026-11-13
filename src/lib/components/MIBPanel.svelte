@@ -287,8 +287,10 @@
   </div>
 
   {#if showFallback}
-    <!-- mt-2 + the tree block's py-2 = 16 px rhythm under the tree. -->
-    <div data-testid="fallback-banner" role="alert" class="alert alert-warning mt-2 px-3 py-2 text-xs">
+    <!-- mt-2 + the tree block's py-2 = 16 px rhythm under the tree. Soft
+         variant: an 8% warning tint with warning-colored text — a strip, not
+         a light bulb (the solid amber was the launch screen's loudest element). -->
+    <div data-testid="fallback-banner" role="alert" class="alert alert-soft alert-warning mt-2 px-3 py-2 text-xs">
       <span class="flex-1 min-w-0">{fallbackCopy}</span>
       <button data-testid="fallback-syslog-btn" class="btn btn-sm btn-ghost whitespace-nowrap flex-shrink-0" onclick={toggleSystemLog}>
         System Log

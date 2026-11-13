@@ -963,7 +963,7 @@
                   {@const cell = row.cells[colOid]}
                   {@const key = gridCellKey(row.instance_id, colOid)}
                     <td
-                      class="px-2 font-mono text-[13px] cursor-pointer hover:bg-base-200/70 {cell.missing ? 'text-accent' : ''}"
+                      class="px-2 font-mono text-[13px] cursor-pointer hover:bg-base-200/70 {cell.missing ? 'text-warning' : ''}"
                       data-grid-col={colOid}
                       class:inspector-col-selected={colOid === S.inspectorOid}
                       style="{overrideCss(colOid)}"
@@ -1097,7 +1097,7 @@
           {#snippet children(row: ResultRow)}
           <div
             data-testid="result-row"
-            class="flex border-b border-base-300 cursor-pointer hover:bg-base-200/70 {row.warning ? 'text-accent' : ''}"
+            class="flex border-b border-base-300 cursor-pointer hover:bg-base-200/70 {row.warning ? 'text-warning' : ''}"
             class:inspector-selected={row.fullPath === S.inspectorOid}
             style="min-width: {showRaw ? 'max-content' : ''}"
             title="Click to inspect"
@@ -1147,7 +1147,7 @@
                   {showRaw ? exportMod.rawValueDisplay(row.snmpValue) : row.value}
                 </span>
               {/if}
-              {#if row.warning}<TriangleAlert class="w-3.5 h-3.5 shrink-0 mt-0.5 text-accent" />{/if}
+              {#if row.warning}<TriangleAlert class="w-3.5 h-3.5 shrink-0 mt-0.5 text-warning" />{/if}
               {#if writableStateFor(row.fullPath) === true}
                 <button
                   data-testid="set-pencil"
@@ -1171,7 +1171,7 @@
     <div data-testid="grid-footer" class="px-4 py-2 text-xs text-base-content/60 border-t border-base-300 bg-base-100 flex justify-between">
       <span>Showing {visibleGridRows.length} of {tableResult.total_rows} rows{gridFilterSuffix}</span>
       {#if gridMissingCells > 0}
-        <span class="text-accent">{gridMissingCells} missing cell(s)</span>
+        <span class="text-warning">{gridMissingCells} missing cell(s)</span>
       {/if}
     </div>
   {:else if bindings.length > 0 || isSubtreeView}

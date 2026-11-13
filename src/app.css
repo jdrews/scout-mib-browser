@@ -56,10 +56,11 @@
   --color-accent: oklch(70% 0.09 196);
   --color-accent-content: oklch(22% 0.05 200);
 
-  /* Semantics: neon stock toned down to sit inside the ramp. The stock
-     *-content pairings are kept — they are the validated text colors for
-     these chips. */
+  /* Semantics: neon stock toned down to sit inside the ramp. */
   --color-warning: oklch(80% 0.13 84);
+  /* warning-content darkened (stock L41 left the find-mark chip at 2.8:1);
+     L25 clears 8.5:1 on the solid warning chip and badge. */
+  --color-warning-content: oklch(25% 0.06 84);
   --color-error: oklch(68% 0.15 15);
   --color-success: oklch(74% 0.14 163);
   --color-info: oklch(72% 0.10 235);
@@ -84,10 +85,30 @@
   --color-accent: oklch(40% 0.10 196);
   --color-accent-content: oklch(98% 0.01 200);
 
-  --color-warning: oklch(82% 0.13 84);
-  --color-error: oklch(71% 0.14 13.428);
-  --color-success: oklch(76% 0.13 163.223);
-  --color-info: oklch(74% 0.11 232.661);
+  /* Semantics (color pass): the stock light values are too pale to read as
+     text on white (warning 1.75 / error 2.74 / success 2.02 / info 2.25 —
+     all below WCAG AA). Each is darkened so the text-on-white role clears
+     4.5:1 with margin, and paired with a near-white *-content so the solid
+     badge / button / alert surfaces (now darker) also clear 4.5:1. */
+  --color-warning: oklch(53% 0.12 84);
+  --color-warning-content: oklch(98% 0 0);
+  --color-error: oklch(54% 0.15 15);
+  --color-error-content: oklch(98% 0 0);
+  --color-success: oklch(45% 0.12 163);
+  --color-success-content: oklch(98% 0 0);
+  --color-info: oklch(46% 0.12 235);
+  --color-info-content: oklch(98% 0 0);
+}
+
+/* Dark theme: the primary action button is off-white from the ramp with dark
+   text — the deliberate-looking dark-theme primary. Teal (--color-primary) is
+   reserved for selection, focus, the live LED, and key figures, none of which
+   route through .btn-primary, so they keep the teal. Overriding daisyUI's
+   custom props (not the computed colors) keeps the derived hover, border, and
+   shadow states coherent. */
+[data-theme="dark"] .btn-primary {
+  --btn-color: var(--color-base-content);
+  --btn-fg: var(--color-base-100);
 }
 
 *, *::before, *::after {
