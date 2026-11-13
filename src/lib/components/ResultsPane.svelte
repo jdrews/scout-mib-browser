@@ -1009,18 +1009,18 @@
                 <td class="sticky left-0 z-10 bg-base-200 px-2 text-xs text-base-content/60 w-10 min-w-10 max-w-10">{i + 1}</td>
                 {#if hasDecodedIndexes}
                   {#each row.index_values as val, i (i)}
-                    <td class="sticky z-10 bg-base-200 px-2 font-mono text-15 truncate" style="left: {stickyLeft(i + 1)}px; {minWidthCss(`idx:${i}`, IDX_W)}" title={val === null ? "(implied)" : row.instance_id}>
+                    <td class="sticky z-10 bg-base-200 px-2 font-mono text-13 truncate" style="left: {stickyLeft(i + 1)}px; {minWidthCss(`idx:${i}`, IDX_W)}" title={val === null ? "(implied)" : row.instance_id}>
                       {#if val === null}<span class="text-base-content/40 italic">—</span>{:else}{val}{/if}
                     </td>
                   {/each}
                 {:else}
-                  <td class="sticky z-10 bg-base-200 px-2 font-semibold font-mono text-15 truncate" style="left: {HASH_W}px; {widthCss('instance', INST_W)}" title={row.instance_id}>{row.instance_id}</td>
+                  <td class="sticky z-10 bg-base-200 px-2 font-semibold font-mono text-13 truncate" style="left: {HASH_W}px; {widthCss('instance', INST_W)}" title={row.instance_id}>{row.instance_id}</td>
                 {/if}
                 {#each visibleGridColumns as colOid (colOid)}
                   {@const cell = row.cells[colOid]}
                   {@const key = gridCellKey(row.instance_id, colOid)}
                     <td
-                      class="px-2 font-mono text-15 cursor-pointer hover:bg-base-200/70 {cell.missing ? 'text-warning' : ''}"
+                      class="px-2 font-mono text-13 cursor-pointer hover:bg-base-200/70 {cell.missing ? 'text-warning' : ''}"
                       data-grid-col={colOid}
                       class:inspector-col-selected={colOid === S.inspectorOid}
                       style="{overrideCss(colOid)}"
@@ -1090,11 +1090,11 @@
               title="Click to inspect {node.name}"
               onclick={() => selectSubtreeNode(node.oid)}
             >
-              <div class="px-2 py-1 truncate text-15" style="width: 240px; min-width: 240px; max-width: 240px;" title="{node.name}">
+              <div class="px-2 py-1 truncate text-13" style="width: 240px; min-width: 240px; max-width: 240px;" title="{node.name}">
                 {node.name}
               </div>
-              <div class="flex-1 min-w-70 px-2 py-1 font-mono text-15 truncate" title="{node.oid}">{node.oid}</div>
-              <div class="px-2 py-1 font-mono text-15 text-base-content/60" style="width: 140px; min-width: 140px; max-width: 140px;">{node.syntaxType ?? ""}</div>
+              <div class="flex-1 min-w-70 px-2 py-1 font-mono text-13 truncate" title="{node.oid}">{node.oid}</div>
+              <div class="px-2 py-1 font-mono text-13 text-base-content/60" style="width: 140px; min-width: 140px; max-width: 140px;">{node.syntaxType ?? ""}</div>
             </div>
           {/each}
         </div>
@@ -1160,10 +1160,10 @@
             title="Click to inspect"
             onclick={() => selectResultRow(row)}
           >
-            <div class="px-2 py-1 truncate font-mono text-15 relative" style="width: {colOid}px; min-width: {COL_MIN_OID}px; max-width: {COL_MAX_OID}px;" title="{row.fullPath}\n{row.oid}">
+            <div class="px-2 py-1 truncate font-mono text-13 relative" style="width: {colOid}px; min-width: {COL_MIN_OID}px; max-width: {COL_MAX_OID}px;" title="{row.fullPath}\n{row.oid}">
               {showResolvedNames ? row.displayName : row.oid}
             </div>
-            <div class="flex-1 min-w-30 px-2 py-1 font-mono text-15 flex items-start gap-1" oncontextmenu={(e) => onValueContextMenu(e, row.fullPath, row.displayName, row.snmpValue)}>
+            <div class="flex-1 min-w-30 px-2 py-1 font-mono text-13 flex items-start gap-1" oncontextmenu={(e) => onValueContextMenu(e, row.fullPath, row.displayName, row.snmpValue)}>
               {#if showRaw && exportMod.isByteValue(row.snmpValue)}
                 {@const bytes = exportMod.byteData(row.snmpValue)}
                 {@const dumpBytes = bytes.slice(0, RAW_DUMP_MAX_ROWS * BYTES_PER_ROW)}
@@ -1216,7 +1216,7 @@
                 </button>
               {/if}
             </div>
-            <div class="px-2 py-1 font-mono text-15 text-base-content/60" style="width: {colType}px; min-width: {COL_MIN_TYPE}px; max-width: {COL_MAX_TYPE}px;">{row.type}</div>
+            <div class="px-2 py-1 font-mono text-13 text-base-content/60" style="width: {colType}px; min-width: {COL_MIN_TYPE}px; max-width: {COL_MAX_TYPE}px;">{row.type}</div>
           </div>
           {/snippet}
         </Virtualizer>
