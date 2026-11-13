@@ -128,7 +128,7 @@
   </div>
 
   <div class="flex items-center justify-between px-2 py-2 bg-base-200 border-b border-base-300">
-    <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">System Log</span>
+    <span class="text-xs font-medium text-base-content/60">System Log</span>
     <div class="flex items-center gap-2">
       <select
         aria-label="Minimum log level"
@@ -163,7 +163,7 @@
     tabindex="0"
     aria-label="System log entries"
     onscroll={updateStick}
-    class="flex-1 overflow-y-auto font-mono text-[13px] py-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+    class="flex-1 overflow-y-auto font-mono text-13 py-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
   >
     {#each filteredEntries as entry, i (i)}
       <div class="flex gap-2 px-4 py-1.5 hover:bg-base-200">

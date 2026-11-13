@@ -26,6 +26,12 @@
     "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas,
     monospace;
 
+  /* Type scale: 12 meta · 13 secondary · 14 body · 15 inputs and table
+     cells · 16 modal titles. 12/14/16 are Tailwind's xs/sm/base; 13 and
+     15 are the custom steps (the off-scale text-[10px]/[11px]/[13px]
+     one-offs are retired to these). */
+  --text-13: 13px;
+  --text-15: 15px;
 }
 
 /* Motion: one curve, a short duration set (quick = toggles/hover,

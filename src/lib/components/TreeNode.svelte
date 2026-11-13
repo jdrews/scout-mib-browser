@@ -280,9 +280,9 @@
       <span class="badge badge-outline badge-warning badge-xs">unresolved</span>
     {/if}
     {#if loading}
-      <span class="ml-auto pl-2 text-[11px] opacity-40">loading…</span>
+      <span class="ml-auto pl-2 text-xs opacity-40">loading…</span>
     {:else}
-      <span class="ml-auto pl-2 font-mono text-[10px] opacity-60">{truncatedOid}</span>
+      <span class="ml-auto pl-2 font-mono text-xs opacity-60">{truncatedOid}</span>
     {/if}
   </div>
   {#if hasChildren && expanded}

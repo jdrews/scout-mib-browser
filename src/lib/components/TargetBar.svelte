@@ -565,7 +565,7 @@
 </script>
 
 <div data-address-bar class="flex items-center gap-2 px-4 py-2 bg-base-200 border-b border-base-300 flex-shrink-0 relative">
-  <label for="target-host" class="text-xs font-semibold uppercase tracking-wide text-base-content/60 whitespace-nowrap">Target</label>
+  <label for="target-host" class="text-xs font-medium text-base-content/60 whitespace-nowrap">Target</label>
 
   <div class="join">
     <input

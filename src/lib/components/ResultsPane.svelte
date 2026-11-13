@@ -820,7 +820,7 @@
 </script>
 
 <div class="flex flex-col flex-1 overflow-hidden">
-  <div data-testid="results-header" class="px-4 py-3 text-sm font-semibold uppercase tracking-wide text-base-content/60 bg-base-100 border-b border-base-300 flex items-center justify-between gap-3" onclick={(e) => { if (e.target === e.currentTarget) hideExportOnOutsideClick(e); }}>
+  <div data-testid="results-header" class="px-4 py-3 text-sm font-medium text-base-content/60 bg-base-100 border-b border-base-300 flex items-center justify-between gap-3" onclick={(e) => { if (e.target === e.currentTarget) hideExportOnOutsideClick(e); }}>
     <span>Results</span>
     <div class="flex items-center gap-2">
       {#if progress}
@@ -956,18 +956,18 @@
                 <td class="sticky left-0 z-10 bg-base-200 px-2 text-xs text-base-content/60 w-10 min-w-10 max-w-10">{i + 1}</td>
                 {#if hasDecodedIndexes}
                   {#each row.index_values as val, i (i)}
-                    <td class="sticky z-10 bg-base-200 px-2 font-mono text-[13px] truncate" style="left: {stickyLeft(i + 1)}px; {widthCss(`idx:${i}`, IDX_W)}" title={val === null ? "(implied)" : row.instance_id}>
+                    <td class="sticky z-10 bg-base-200 px-2 font-mono text-15 truncate" style="left: {stickyLeft(i + 1)}px; {widthCss(`idx:${i}`, IDX_W)}" title={val === null ? "(implied)" : row.instance_id}>
                       {#if val === null}<span class="text-base-content/40 italic">—</span>{:else}{val}{/if}
                     </td>
                   {/each}
                 {:else}
-                  <td class="sticky z-10 bg-base-200 px-2 font-semibold font-mono text-[13px] truncate" style="left: {HASH_W}px; {widthCss('instance', INST_W)}" title={row.instance_id}>{row.instance_id}</td>
+                  <td class="sticky z-10 bg-base-200 px-2 font-semibold font-mono text-15 truncate" style="left: {HASH_W}px; {widthCss('instance', INST_W)}" title={row.instance_id}>{row.instance_id}</td>
                 {/if}
                 {#each visibleGridColumns as colOid (colOid)}
                   {@const cell = row.cells[colOid]}
                   {@const key = gridCellKey(row.instance_id, colOid)}
                     <td
-                      class="px-2 font-mono text-[13px] cursor-pointer hover:bg-base-200/70 {cell.missing ? 'text-warning' : ''}"
+                      class="px-2 font-mono text-15 cursor-pointer hover:bg-base-200/70 {cell.missing ? 'text-warning' : ''}"
                       data-grid-col={colOid}
                       class:inspector-col-selected={colOid === S.inspectorOid}
                       style="{overrideCss(colOid)}"
@@ -1022,7 +1022,7 @@
       {:else}
         <div class="relative" style="min-width: max-content;">
           <!-- /60 (not /30): 3:1 AA for the UI boundary in the light theme. -->
-          <div class="flex bg-base-200 border-b-2 border-base-content/60 sticky top-0 z-10 text-xs font-semibold uppercase tracking-wider">
+          <div class="flex bg-base-200 border-b-2 border-base-content/60 sticky top-0 z-10 text-xs font-medium">
             <div class="px-2 py-1.5 truncate select-none" style="width: 240px; min-width: 240px; max-width: 240px;">Name</div>
             <div class="flex-1 min-w-70 px-2 py-1.5 truncate select-none">OID</div>
             <div class="px-2 py-1.5 truncate select-none" style="width: 140px; min-width: 140px; max-width: 140px;">Type</div>
@@ -1037,11 +1037,11 @@
               title="Click to inspect {node.name}"
               onclick={() => selectSubtreeNode(node.oid)}
             >
-              <div class="px-2 py-1 truncate text-[13px]" style="width: 240px; min-width: 240px; max-width: 240px;" title="{node.name}">
+              <div class="px-2 py-1 truncate text-15" style="width: 240px; min-width: 240px; max-width: 240px;" title="{node.name}">
                 {node.name}
               </div>
-              <div class="flex-1 min-w-70 px-2 py-1 font-mono text-[13px] truncate" title="{node.oid}">{node.oid}</div>
-              <div class="px-2 py-1 font-mono text-[13px] text-base-content/60" style="width: 140px; min-width: 140px; max-width: 140px;">{node.syntaxType ?? ""}</div>
+              <div class="flex-1 min-w-70 px-2 py-1 font-mono text-15 truncate" title="{node.oid}">{node.oid}</div>
+              <div class="px-2 py-1 font-mono text-15 text-base-content/60" style="width: 140px; min-width: 140px; max-width: 140px;">{node.syntaxType ?? ""}</div>
             </div>
           {/each}
         </div>
@@ -1066,7 +1066,7 @@
              In raw mode rows must expand to fit their hex dumps; in normal
              mode values wrap, so rows stay at pane width (min-width:
              max-content would otherwise stretch a row to one full text line). -->
-        <div bind:this={flatHeaderEl} class="flex bg-base-200 border-b-2 border-base-content/60 sticky top-0 z-10 text-xs font-semibold uppercase tracking-wider" style="min-width: {showRaw ? 'max-content' : ''}">
+        <div bind:this={flatHeaderEl} class="flex bg-base-200 border-b-2 border-base-content/60 sticky top-0 z-10 text-xs font-medium" style="min-width: {showRaw ? 'max-content' : ''}">
           <div data-testid="sort-oid" class="cursor-pointer px-2 py-1.5 truncate select-none flex items-center gap-1" style="width: {colOid}px; min-width: {COL_MIN_OID}px; max-width: {COL_MAX_OID}px;" onclick={() => toggleSort("oid")}>
             <span class="truncate">OID</span>
             {#if sortColumn === "oid"}{#if sortAsc}<ArrowUp class="w-4 h-4 shrink-0" />{:else}<ArrowDown class="w-4 h-4 shrink-0" />{/if}{/if}
@@ -1107,10 +1107,10 @@
             title="Click to inspect"
             onclick={() => selectResultRow(row)}
           >
-            <div class="px-2 py-1 truncate font-mono text-[13px] relative" style="width: {colOid}px; min-width: {COL_MIN_OID}px; max-width: {COL_MAX_OID}px;" title="{row.fullPath}\n{row.oid}">
+            <div class="px-2 py-1 truncate font-mono text-15 relative" style="width: {colOid}px; min-width: {COL_MIN_OID}px; max-width: {COL_MAX_OID}px;" title="{row.fullPath}\n{row.oid}">
               {showResolvedNames ? row.displayName : row.oid}
             </div>
-            <div class="flex-1 min-w-30 px-2 py-1 font-mono text-[13px] flex items-start gap-1" oncontextmenu={(e) => onValueContextMenu(e, row.fullPath, row.displayName, row.snmpValue)}>
+            <div class="flex-1 min-w-30 px-2 py-1 font-mono text-15 flex items-start gap-1" oncontextmenu={(e) => onValueContextMenu(e, row.fullPath, row.displayName, row.snmpValue)}>
               {#if showRaw && exportMod.isByteValue(row.snmpValue)}
                 {@const bytes = exportMod.byteData(row.snmpValue)}
                 {@const dumpBytes = bytes.slice(0, RAW_DUMP_MAX_ROWS * BYTES_PER_ROW)}
@@ -1119,10 +1119,10 @@
                 {@const typeCode = exportMod.rawTypeCode(row.snmpValue)}
                 <div data-testid="raw-hexdump" class="my-0.5 flex-1 min-w-0">
                   {#if typeCode !== undefined}
-                    <p class="text-[11px] text-base-content/60 mb-0.5">type: {asn1TypeCodeText(typeCode)}</p>
+                    <p class="text-xs text-base-content/60 mb-0.5">type: {asn1TypeCodeText(typeCode)}</p>
                   {/if}
                   {#if interp && interp.kind !== "text"}
-                    <p class="text-[11px] text-base-content/60 mb-0.5">{interpretationLabel(interp.kind)}: {interp.text}</p>
+                    <p class="text-xs text-base-content/60 mb-0.5">{interpretationLabel(interp.kind)}: {interp.text}</p>
                   {/if}
                   {#each hexDumpLines(dumpBytes) as r (r.offset)}
                     <div class="flex gap-2 leading-tight">
@@ -1134,7 +1134,7 @@
                   {#if hiddenBytes > 0}
                     <button
                       data-testid="raw-more-bytes"
-                      class="text-[11px] text-primary hover:underline bg-transparent border-0 p-0 cursor-pointer"
+                      class="text-xs text-primary hover:underline bg-transparent border-0 p-0 cursor-pointer"
                       title="Open full hex view"
                       onclick={(e) => { e.stopPropagation(); openHexView(row.fullPath, row.displayName, row.snmpValue); }}
                     >… {hiddenBytes} more bytes</button>
@@ -1163,7 +1163,7 @@
                 </button>
               {/if}
             </div>
-            <div class="px-2 py-1 font-mono text-[13px] text-base-content/60" style="width: {colType}px; min-width: {COL_MIN_TYPE}px; max-width: {COL_MAX_TYPE}px;">{row.type}</div>
+            <div class="px-2 py-1 font-mono text-15 text-base-content/60" style="width: {colType}px; min-width: {COL_MIN_TYPE}px; max-width: {COL_MAX_TYPE}px;">{row.type}</div>
           </div>
           {/snippet}
         </Virtualizer>
@@ -1172,14 +1172,14 @@
   </div>
 
   {#if isGridView && tableResult}
-    <div data-testid="grid-footer" class="px-4 py-2 text-xs text-base-content/60 border-t border-base-300 bg-base-100 flex justify-between">
+    <div data-testid="grid-footer" class="px-4 py-2 text-xs tabular-nums text-base-content/60 border-t border-base-300 bg-base-100 flex justify-between">
       <span>Showing {visibleGridRows.length} of {pluralize(tableResult.total_rows, "row")}{gridFilterSuffix}</span>
       {#if gridMissingCells > 0}
         <span class="text-warning">{gridMissingCells} missing {gridMissingCells === 1 ? "cell" : "cells"}</span>
       {/if}
     </div>
   {:else if bindings.length > 0 || isSubtreeView}
-    <div data-testid="results-footer" class="px-4 py-2 text-xs text-base-content/60 border-t border-base-300 bg-base-100 flex justify-between">
+    <div data-testid="results-footer" class="px-4 py-2 text-xs tabular-nums text-base-content/60 border-t border-base-300 bg-base-100 flex justify-between">
       {#if isSubtreeView}
         <span>{filteredSubtreeNodes.length} of {pluralize((subtreeNodes ?? []).length, "node")}</span>
       {:else}

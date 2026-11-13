@@ -184,7 +184,7 @@
       <button data-testid="back-btn" aria-label="Back to MIB Browser" class="btn btn-sm btn-ghost" onclick={back}>
         ← Back
       </button>
-      <span class="text-sm font-semibold uppercase tracking-wide text-base-content/60">Manage MIBs</span>
+      <span class="text-sm font-medium text-base-content/60">Manage MIBs</span>
       <div class="flex items-center gap-2 ml-auto flex-wrap">
         <div data-add-menu class="dropdown dropdown-end relative">
           <button data-testid="add-menu-btn" class="btn btn-sm" onclick={() => (addMenuOpen = !addMenuOpen)}>Add…</button>
@@ -279,7 +279,7 @@
       {/if}
     </div>
 
-    <div data-testid="mibs-footer" class="px-4 py-2 border-t border-base-300 text-xs text-base-content/60">
+    <div data-testid="mibs-footer" class="px-4 py-2 border-t border-base-300 text-xs tabular-nums text-base-content/60">
       {selected.length} of {mibs.length} MIBs selected · {pluralize(S.nodeCount, "node")} loaded
     </div>
   </div>
