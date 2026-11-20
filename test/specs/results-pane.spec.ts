@@ -44,8 +44,11 @@ describe("Results pane (result set manipulation)", () => {
   });
 
   it("sorting by column header", async () => {
-    const valueHeader = $("[data-testid='sort-value']");
-    const oidHeader = $("[data-testid='sort-oid']");
+    // Re-query the header fresh for every operation: the sort click makes
+    // Svelte re-render the header (the arrow is a conditional child), and a
+    // reference taken before the re-render can go stale in the webview
+    // driver, where queries on the detached node keep seeing the old icon.
+    const header = (col: string) => $(`[data-testid='sort-${col}']`);
 
     // The header icons and the virtualized row list re-render on separate
     // frames, so every check below waits for the rendered state it asserts on
@@ -61,16 +64,16 @@ describe("Results pane (result set manipulation)", () => {
 
     // Default is OID ascending; switch to Value. Sort direction shows as a
     // Lucide arrow icon in the header.
-    await (await valueHeader).click();
-    await expect(await valueHeader.$("svg.lucide-arrow-up")).toBeExisting();
+    await (await header("value")).click();
+    await expect(await (await header("value")).$("svg.lucide-arrow-up")).toBeExisting();
     await browser.waitUntil(async () => isSorted(await rowValues(), true), {
       timeout: 5000,
       interval: 100,
     });
 
     // Click again — descending.
-    await (await valueHeader).click();
-    await expect(await valueHeader.$("svg.lucide-arrow-down")).toBeExisting();
+    await (await header("value")).click();
+    await expect(await (await header("value")).$("svg.lucide-arrow-down")).toBeExisting();
     await browser.waitUntil(async () => isSorted(await rowValues(), false), {
       timeout: 5000,
       interval: 100,
@@ -78,11 +81,11 @@ describe("Results pane (result set manipulation)", () => {
 
     // Clicking the OID header switches the sort column; the now-inactive
     // Value header drops its arrow entirely (I2: active column only).
-    await (await oidHeader).click();
-    await expect(await oidHeader.$("svg.lucide-arrow-up")).toBeExisting();
+    await (await header("oid")).click();
+    await expect(await (await header("oid")).$("svg.lucide-arrow-up")).toBeExisting();
     // The value header's icon lags the OID one by a frame — wait for it
     // explicitly; a bare length check raced the Svelte update in CI.
-    await (await valueHeader.$("svg")).waitForExist({ reverse: true, timeout: 5000 });
+    await (await (await header("value")).$("svg")).waitForExist({ reverse: true, timeout: 5000 });
   });
 
   it("MIB Names / Raw OIDs toggle", async () => {
