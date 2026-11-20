@@ -75,7 +75,7 @@ describe("Menus & settings (app-level settings)", () => {
     // the update flush and hang the page on "Loading...").
     expect(rows.filter((r) => r.name === "DUP-MIB").length).toBe(2);
 
-    // BROKEN-MIB carries the FALLBACK badge.
+    // BROKEN-MIB carries the fallback badge.
     let brokenRow: WebdriverIO.Element | null = null;
     for (const r of await $$("[data-testid='mib-row']")) {
       if (((await r.getText()) ?? "").includes("BROKEN-MIB")) brokenRow = r;

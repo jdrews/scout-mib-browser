@@ -269,7 +269,7 @@
                 <td class="text-right font-mono" data-testid="mib-node-count">{m.nodeCount.toLocaleString()}</td>
                 <td>
                   {#if m.isFallback}
-                    <span class="badge badge-warning badge-sm">FALLBACK</span>
+                    <span class="badge badge-ghost badge-sm">fallback</span>
                   {/if}
                 </td>
               </tr>
