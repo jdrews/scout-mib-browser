@@ -119,7 +119,7 @@
   <div class="relative" data-menu="file">
     <button data-testid="menu-file" aria-haspopup="menu" aria-expanded={S.fileMenuOpen} class="btn btn-ghost btn-sm" onclick={toggleFileMenu} onkeydown={(e) => onTriggerKeydown(e, "file")}>File</button>
     {#if S.fileMenuOpen}
-      <ul role="menu" aria-label="File" class="absolute top-full left-0 menu bg-base-100 rounded-box w-52 p-2 shadow-lg z-[1000] mt-1">
+      <ul role="menu" aria-label="File" class="menu-in absolute top-full left-0 menu bg-base-100 rounded-box w-52 p-2 shadow-lg z-[1000] mt-1">
         <li><a role="menuitem" tabindex="-1" data-testid="menu-add-mib-dir" onkeydown={(e) => onItemKeydown(e, "file")} onclick={() => handleAction("add-mib-directory")}>Add MIB Directory…</a></li>
         <li role="separator" aria-orientation="horizontal" aria-hidden="true" class="my-1 h-px bg-base-300"></li>
         <li><a role="menuitem" tabindex="-1" data-testid="menu-manage-mibs" onkeydown={(e) => onItemKeydown(e, "file")} onclick={() => handleAction("manage-mibs")}>Manage MIBs…</a></li>
@@ -130,7 +130,7 @@
   <div class="relative" data-menu="view">
     <button data-testid="menu-view" aria-haspopup="menu" aria-expanded={S.viewMenuOpen} class="btn btn-ghost btn-sm" onclick={toggleViewMenu} onkeydown={(e) => onTriggerKeydown(e, "view")}>View</button>
     {#if S.viewMenuOpen}
-      <ul role="menu" aria-label="View" class="absolute top-full left-0 menu bg-base-100 rounded-box w-52 p-2 shadow-lg z-[1000] mt-1">
+      <ul role="menu" aria-label="View" class="menu-in absolute top-full left-0 menu bg-base-100 rounded-box w-52 p-2 shadow-lg z-[1000] mt-1">
         <li>
           <a role="menuitem" tabindex="-1" data-testid="menu-mib-panel" onkeydown={(e) => onItemKeydown(e, "view")} onclick={(e) => { e.preventDefault(); e.stopPropagation(); S.mibPanelOpen = !S.mibPanelOpen; }}>
             <span class="flex items-center gap-2">
@@ -158,7 +158,7 @@
   <div class="relative" data-menu="settings">
     <button data-testid="menu-settings" aria-haspopup="menu" aria-expanded={S.settingsMenuOpen} class="btn btn-ghost btn-sm" onclick={toggleSettingsMenu} onkeydown={(e) => onTriggerKeydown(e, "settings")}>Settings</button>
     {#if S.settingsMenuOpen}
-      <ul role="menu" aria-label="Settings" class="absolute top-full left-0 menu bg-base-100 rounded-box w-52 p-2 shadow-lg z-[1000] mt-1">
+      <ul role="menu" aria-label="Settings" class="menu-in absolute top-full left-0 menu bg-base-100 rounded-box w-52 p-2 shadow-lg z-[1000] mt-1">
         <li><a role="menuitem" tabindex="-1" data-testid="menu-connection" onkeydown={(e) => onItemKeydown(e, "settings")} onclick={() => handleAction("connection")}>Connection…</a></li>
         <li role="separator" aria-orientation="horizontal" aria-hidden="true" class="my-1 h-px bg-base-300"></li>
         <li><span class="px-3 py-1 text-xs font-medium text-base-content/60">System Log Level</span></li>

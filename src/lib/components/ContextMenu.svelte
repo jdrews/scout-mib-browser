@@ -86,7 +86,7 @@
 
 {#if visible}
   <ul
-    class="fixed menu p-2 bg-base-100 rounded-box w-40 shadow-lg z-[2000]"
+    class="menu-in fixed menu p-2 bg-base-100 rounded-box w-40 shadow-lg z-[2000]"
     style="left: {posX}px; top: {posY}px;"
   >
     {#if target?.kind === "node"}
