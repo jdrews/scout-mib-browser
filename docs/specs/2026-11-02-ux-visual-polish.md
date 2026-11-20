@@ -1,7 +1,7 @@
 # UX Visual Polish — Scout MIB Browser
 
 **Date:** 2026-11-02 (baseline refreshed 2026-11-03)
-**Status:** Direction signed off 2026-11-03 (Phase 0 gate). Phase 1 (token foundation) **merged** to `main` 2026-11-11 via PR #135 (`e63d85e`) — theme (both themes), IBM Plex pair, motion tokens, and the dead-CSS migration, verified against the 2026-11-03 baseline. Phase 2 in progress: pass 1 (spacing) **merged** via PR #137 (2026-11-13); pass 2 (color) **merged** via PR #138 (2026-11-13); pass 3 (icons) done on `feat/ux-visual-polish-icons` (one 16 px Lucide size + 1.5 stroke app-wide via a single `.lucide` CSS rule, ghost sort arrows removed from inactive headers I2 — active column only; harness 6/6, axe at parity, timings within noise).
+**Status:** Direction signed off 2026-11-03 (Phase 0 gate). Phase 1 (token foundation) **merged** to `main` 2026-11-11 via PR #135 (`e63d85e`) — theme (both themes), IBM Plex pair, motion tokens, and the dead-CSS migration, verified against the 2026-11-03 baseline. Phase 2 in progress: pass 1 (spacing) **merged** via PR #137 (2026-11-13); pass 2 (color) **merged** via PR #138 (2026-11-13); pass 3 (icons) done on `feat/ux-visual-polish-icons` (one 16 px Lucide size + 1.5 stroke app-wide via a single `.lucide` CSS rule, ghost sort arrows removed from inactive headers I2 — active column only; harness 6/6, axe at parity, timings within noise). Passes 4–9 merged: copy #140, type #141, layout #142 (with the 13 px table-cell walk-back), details #148 (with the 60 % OID-suffix WCAG walk-back), motion #149 (2026-11-19). **Phase 3 verification & sign-off complete 2026-11-19** — after-set `ux:assess` green (axe 77→75, DOM stable, timings within noise, feature e2e 16/16), **template check passed**, August rubric ~3.6 → 4.0; findings in `docs/scratch/ux-findings-2026-11-19.md` (local, gitignored). Plan complete; the manual dev pass on a real display is the remaining user-side sign-off.
 **Method:** Unslop-style visual audit (see [Credit](#credit)) applied to the app's current UI, using this repo's UX assessment capability (`npm run ux:assess`, `docs/specs/2026-08-22-ux-assessment.md`) as the evidence and verification harness.
 **Evidence base:** `docs/ux/2026-11-03/` (fresh baseline, commit `7733df3`, 206 nodes, all 12 states × dark/light + JSON probes — supersedes the 2026-09-12 set, which predated the Manage MIBs page and Set features), current component sources under `src/lib/components/`, and the 2026-08-22 findings/remediation pair (all 18 prior usability findings are closed — this plan is about *visual character*, not usability gaps).
 
@@ -188,6 +188,8 @@ Each pass: make the change → `cargo fmt` + `cargo test` + `npx tsc --noEmit` +
 4. Regression gates: axe violations not up, DOM audit stable, timing medians within noise of the 2026-11-XX baseline (Xvfb-relative), feature e2e suite green (`npm run test:e2e`), pre-commit checklist green.
 5. Manual dev pass on a real display for the states the harness can't reach (raw view, hex modal, set dialog, column panel, Manage MIBs page).
 
+**DONE (2026-11-19):** Items 1–4 verified on `c56e7b6` (all nine passes merged) plus one a11y fix that the verification surfaced: the type/layout passes made inspector content overflow its scroll region where it previously fit, so axe newly flagged `scrollable-region-focusable` in three states (77 → 78 vs the 2026-11-03 baseline); the inspector details scroller is now focusable (`tabindex="0"` + `aria-label`, per the August UX-08 prescription), taking the after-set to **75 (−2)** — the other −2 being the pre-existing syslog contrast violations cleared by the teal accent. After-set `docs/ux/2026-11-19/`: axe 77→75, DOM audit stable (20 stops, identical sequence), `strings.json` diffs all intended copy-pass changes, timing medians within Xvfb noise (max |Δ| 19 ms), feature e2e **16/16 first run**, pre-commit checklist green. Template check **passed** and the August rubric re-scored **~3.6 → 4.0**; both recorded in the findings doc `docs/scratch/ux-findings-2026-11-19.md` (local, gitignored, with the per-state before/after table and screenshot refs). Item 5 (manual dev pass) remains the user-side sign-off: the agent sandbox has no display.
+
 ---
 
 ## Definition of done
@@ -195,11 +197,11 @@ Each pass: make the change → `cargo fmt` + `cargo test` + `npx tsc --noEmit` +
 - [x] Phase 0 baseline recorded in `docs/ux/2026-11-03/` (2026-11-03) — "before" aesthetic scores still pending (Phase 0.3).
 - [x] Direction signed off (Phase 0 gate) and written into this doc's status line (2026-11-03).
 - [x] Token foundation merged: custom daisyUI theme (both themes), IBM Plex pair, motion tokens (2026-11-11, PR #135 / `e63d85e`).
-- [ ] Nine passes merged, each with a before/after screenshot diff and green pre-commit checklist.
-- [ ] No violet, no magenta, no neon amber in any state screenshot; no uppercase tracked label; no `text-[10px]`/`text-[11px]` off-scale sizes; no `w-[..px]` one-offs left (resize handles exempted as `h-1.5`/`w-1.5`); op-select shows "Get Table" unclipped; `sysDescr` description left-aligned.
-- [ ] After-set `ux:assess` run: axe not regressed, timings within noise, feature suite green.
-- [ ] Template check passed and recorded in the findings table.
-- [ ] Findings written up in the `docs/scratch/` style of the 2026-08-22 doc (per-state table, screenshot refs, scores).
+- [x] Nine passes merged, each with a before/after screenshot diff and green pre-commit checklist (2026-11-19: PRs #135–#149).
+- [x] No violet, no magenta, no neon amber in any state screenshot; no uppercase tracked label; no `text-[10px]`/`text-[11px]` off-scale sizes; no `w-[..px]` one-offs left (resize handles exempted as `h-1.5`/`w-1.5`); op-select shows "Get Table" unclipped; `sysDescr` description left-aligned (2026-11-19: sweep verified, see findings doc).
+- [x] After-set `ux:assess` run: axe not regressed, timings within noise, feature suite green (2026-11-19: axe 77→75, max timing |Δ| 19 ms, e2e 16/16).
+- [x] Template check passed and recorded in the findings table (2026-11-19).
+- [x] Findings written up in the `docs/scratch/` style of the 2026-08-22 doc (per-state table, screenshot refs, scores) (2026-11-19: `docs/scratch/ux-findings-2026-11-19.md`, local).
 
 ## Ticketing
 

@@ -232,8 +232,10 @@
           <p data-testid="inspector-oid" class="font-mono text-xs break-all mt-1 text-base-content/80">{details.oid}</p>
         </div>
 
-        <!-- Everything else scrolls. -->
-        <div class="flex-1 overflow-y-auto">
+        <!-- Everything else scrolls. Focusable (tabindex) so the region is
+             keyboard-reachable when its content overflows (axe
+             scrollable-region-focusable; UX-08). -->
+        <div class="flex-1 overflow-y-auto" tabindex="0" aria-label="Node details">
           {#if liveValue}
             <div data-testid="inspector-live-value" class="px-4 py-2 border-b border-base-300 bg-base-200/60">
               <div class="flex items-center justify-between gap-2 mb-1">
