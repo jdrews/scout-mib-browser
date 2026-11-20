@@ -48,9 +48,10 @@ describe("Results pane (result set manipulation)", () => {
     const oidHeader = $("[data-testid='sort-oid']");
 
     // Default is OID ascending; switch to Value. Sort direction shows as a
-    // Lucide arrow icon in the header.
+    // Lucide arrow icon in the header. toBeExisting auto-waits for the
+    // header's re-render (a bare $$ length check raced the Svelte update).
     await (await valueHeader).click();
-    expect((await valueHeader.$$("svg.lucide-arrow-up")).length).toBe(1);
+    await expect(await valueHeader.$("svg.lucide-arrow-up")).toBeExisting();
 
     // Values are sorted ascending.
     let rows = await $$("[data-testid='result-row']");
@@ -62,7 +63,7 @@ describe("Results pane (result set manipulation)", () => {
 
     // Click again — descending.
     await (await valueHeader).click();
-    expect((await valueHeader.$$("svg.lucide-arrow-down")).length).toBe(1);
+    await expect(await valueHeader.$("svg.lucide-arrow-down")).toBeExisting();
     rows = await $$("[data-testid='result-row']");
     const desc: string[] = [];
     for (const r of rows) desc.push((await ((await r.$$("div"))[1]).getText()) ?? "");
@@ -72,8 +73,10 @@ describe("Results pane (result set manipulation)", () => {
 
     // Clicking the OID header switches the sort column; the now-inactive
     // Value header drops its arrow entirely (I2: active column only).
+    // Wait for the new icon first: both headers update in the same Svelte
+    // tick, so the negative check on valueHeader is safe once this passes.
     await (await oidHeader).click();
-    expect((await oidHeader.$$("svg.lucide-arrow-up")).length).toBe(1);
+    await expect(await oidHeader.$("svg.lucide-arrow-up")).toBeExisting();
     expect((await valueHeader.$$("svg")).length).toBe(0);
   });
 
