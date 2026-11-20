@@ -42,11 +42,16 @@
    components consume these as utilities (ease-smooth, duration-quick,
    duration-base) directly. `static` forces emission — no utility reads
    them until the motion pass lands, and Tailwind would otherwise
-   tree-shake unused theme vars. */
+   tree-shake unused theme vars. The --default-transition-* keys land the
+   curve on the app's own hover states (transition-colors utilities) at
+   the token level: 140 ms on the smooth curve instead of Tailwind's
+   150 ms / cubic-bezier(0.4, 0, 0.2, 1) default. */
 @theme static {
   --ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
   --duration-quick: 140ms;
   --duration-base: 180ms;
+  --default-transition-duration: 140ms;
+  --default-transition-timing-function: var(--ease-smooth);
 }
 
 /* Dark theme — instrument teal on the kept graphite ramp. */
@@ -134,6 +139,83 @@
 :focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
+}
+
+/* Motion (M1/M2): the Phase 1 tokens become the one standard — one curve
+   (ease-smooth), 140 ms for toggles/hover, 180 ms for modal/menu open.
+   Only opacity, translate, and color-family properties animate; nothing
+   touches layout (width/height/margin/padding/inset of cards, panels,
+   rows). Open motion is a CSS animation, not a transition: the modal and
+   menus mount fresh each time they open ({#if} blocks), and an animation
+   on insertion always plays, while a transition depends on the engine
+   comparing pre/post-insertion styles. Closing stays instant (the element
+   unmounts) — the spec asks for open motion only.
+
+   Modal: daisyUI 5.7's box scales in from .95 (300 ms ease-out) while its
+   opacity lags 50 ms behind for 200 ms, and the backdrop fades at 100 ms —
+   three motions that don't agree. Replace with the standard: box and
+   backdrop both fade + rise over 180 ms on the shared curve. scale: 1 and
+   transition: none on the box retire daisyUI's scale-in so the animation
+   owns the motion; the backdrop's animation overrides its 100 ms fade. */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+.modal-box {
+  scale: 1;
+  transition: none;
+  animation: rise-in var(--duration-base) var(--ease-smooth) both;
+}
+.modal.modal-open {
+  animation: fade-in var(--duration-base) var(--ease-smooth) both;
+}
+/* MenuBar dropdowns + the context menu: the same 180 ms fade + 6 px rise,
+   applied with a class so any future menu gets the standard for free. */
+.menu-in {
+  animation: rise-in var(--duration-base) var(--ease-smooth) both;
+}
+
+/* Toggles (M2): daisyUI hardcodes its own durations (100–300 ms) with no
+   curve — the track fill, knob, and text-color changes all land on the
+   quick curve. Unlayered, so it wins over daisyUI's layered component
+   rules. The knob's position change is a translate (transform, not
+   layout); the track fill keeps its inset transition because snapping it
+   while the knob slides would read as a glitch. */
+.toggle {
+  transition:
+    color var(--duration-quick) var(--ease-smooth),
+    grid-template-columns var(--duration-quick) var(--ease-smooth);
+}
+.toggle::before {
+  transition:
+    background-color var(--duration-quick) var(--ease-smooth),
+    translate var(--duration-quick) var(--ease-smooth),
+    inset-inline-start var(--duration-quick) var(--ease-smooth);
+}
+
+/* The status LED is the one allowed living element (the signature): a
+   single 2 s soft pulse while a connection attempt is in flight — one
+   iteration, opacity only, on the shared curve. The class is applied only
+   while `connecting`, so the pulse stops (and the dot rests at full
+   opacity) the moment the state resolves. */
+@keyframes led-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.led-pulse {
+  animation: led-pulse 2s var(--ease-smooth) 1;
 }
 
 /* Dark theme: the primary action button is off-white from the ramp with dark
