@@ -51,7 +51,7 @@ describe("MIB browser sidebar (collapse/expand)", () => {
       });
 
     // Close any menu a previous file may have left open.
-    await (await $("nav")).click();
+    await (await $('nav[aria-label="Application menu"]')).click();
     await (await $("[data-testid='menu-view']")).click();
     await expect(await $("[data-testid='menu-mib-panel']")).toBeExisting();
     // Checked while the panel is open.
@@ -65,6 +65,6 @@ describe("MIB browser sidebar (collapse/expand)", () => {
     // Reopen via the menu for the remaining spec files.
     await (await $("[data-testid='menu-mib-panel']")).click();
     await expect(await $("[data-testid='mib-panel-header']")).toBeExisting();
-    await (await $("nav")).click();
+    await (await $('nav[aria-label="Application menu"]')).click();
   });
 });

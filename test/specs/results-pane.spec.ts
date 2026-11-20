@@ -44,42 +44,59 @@ describe("Results pane (result set manipulation)", () => {
   });
 
   it("sorting by column header", async () => {
-    const valueHeader = $("[data-testid='sort-value']");
-    const oidHeader = $("[data-testid='sort-oid']");
+    // Re-query the header fresh for every operation: the sort click makes
+    // Svelte re-render the header (the arrow is a conditional child), and a
+    // reference taken before the re-render can go stale in the webview
+    // driver, where queries on the detached node keep seeing the old icon.
+    const header = (col: string) => $(`[data-testid='sort-${col}']`);
+
+    // The header icons and the virtualized row list re-render on separate
+    // frames, so every check below waits for the rendered state it asserts on
+    // instead of assuming the click's effect is already in the DOM.
+    const rowValues = async () => {
+      const rs = await $$("[data-testid='result-row']");
+      const out: string[] = [];
+      for (const r of rs) out.push((await ((await r.$$("div"))[1]).getText()) ?? "");
+      return out;
+    };
+    const isSorted = (v: string[], ascending: boolean) =>
+      v.every((x, i) => i === 0 || (ascending ? v[i - 1] <= x : v[i - 1] >= x));
 
     // Default is OID ascending; switch to Value. Sort direction shows as a
     // Lucide arrow icon in the header.
-    await (await valueHeader).click();
-    expect((await valueHeader.$$("svg.lucide-arrow-up")).length).toBe(1);
-
-    // Values are sorted ascending.
-    let rows = await $$("[data-testid='result-row']");
-    const values: string[] = [];
-    for (const r of rows) values.push((await ((await r.$$("div"))[1]).getText()) ?? "");
-    for (let i = 1; i < values.length; i++) {
-      expect(values[i - 1] <= values[i]).toBe(true);
-    }
+    await (await header("value")).click();
+    await expect(await (await header("value")).$("svg.lucide-arrow-up")).toBeExisting();
+    await browser.waitUntil(async () => isSorted(await rowValues(), true), {
+      timeout: 5000,
+      interval: 100,
+    });
 
     // Click again — descending.
-    await (await valueHeader).click();
-    expect((await valueHeader.$$("svg.lucide-arrow-down")).length).toBe(1);
-    rows = await $$("[data-testid='result-row']");
-    const desc: string[] = [];
-    for (const r of rows) desc.push((await ((await r.$$("div"))[1]).getText()) ?? "");
-    for (let i = 1; i < desc.length; i++) {
-      expect(desc[i - 1] >= desc[i]).toBe(true);
-    }
+    await (await header("value")).click();
+    await expect(await (await header("value")).$("svg.lucide-arrow-down")).toBeExisting();
+    await browser.waitUntil(async () => isSorted(await rowValues(), false), {
+      timeout: 5000,
+      interval: 100,
+    });
 
     // Clicking the OID header switches the sort column; the now-inactive
     // Value header drops its arrow entirely (I2: active column only).
-    await (await oidHeader).click();
-    expect((await oidHeader.$$("svg.lucide-arrow-up")).length).toBe(1);
-    expect((await valueHeader.$$("svg")).length).toBe(0);
+    await (await header("oid")).click();
+    await expect(await (await header("oid")).$("svg.lucide-arrow-up")).toBeExisting();
+    // The value header's icon lags the OID one by a frame — wait for it
+    // explicitly; a bare length check raced the Svelte update in CI.
+    await (await (await header("value")).$("svg")).waitForExist({ reverse: true, timeout: 5000 });
   });
 
   it("MIB Names / Raw OIDs toggle", async () => {
     // Default shows resolved names; first row (OID ascending) is sysDescr.0.
+    // The previous test ended on the OID header, but the virtualized list can
+    // re-sort a frame late, so wait for the expected order first.
     let rows = await $$("[data-testid='result-row']");
+    await browser.waitUntil(async () => {
+      rows = await $$("[data-testid='result-row']");
+      return ((await ((await rows[0].$$("div"))[0]).getText()) ?? "") === "sysDescr.0";
+    }, { timeout: 5000, interval: 100 });
     expect(((await ((await rows[0].$$("div"))[0]).getText()) ?? "")).toBe("sysDescr.0");
 
     // Raw OIDs — first column shows the instance OID.

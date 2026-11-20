@@ -130,7 +130,7 @@ describe("System log mouse scrolling", () => {
     }
     // The View menu stays open after the toggle (the item stops propagation),
     // and a previous file may have left another menu open — close everything.
-    await (await $("nav")).click();
+    await (await $('nav[aria-label="Application menu"]')).click();
 
     // Open the system log via the View menu.
     await (await $("[data-testid='menu-view']")).click();

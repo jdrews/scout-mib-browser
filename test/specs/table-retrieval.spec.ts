@@ -500,7 +500,7 @@ describe("Table retrieval (multi-component index, synthetic agent)", () => {
       );
 
     // The first row's note cell wraps and clamps at three lines.
-    const spanEl = await $(cellSel);
+    const spanEl = (await $$(cellSel))[0];
     const clamped = await heights(spanEl);
     expect(clamped.scroll).toBeGreaterThan(clamped.client);
 

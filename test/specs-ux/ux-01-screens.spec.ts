@@ -202,7 +202,7 @@ describe("UX A1 — state screenshot pass (both themes)", function () {
     await browser.pause(300);
     await shot("12b-syslog-pane-dark");
     await (await $("[data-testid='menu-view']")).click();
-    await (await $("nav")).click();
+    await (await $('nav[aria-label="Application menu"]')).click();
   }
 
   async function lightPass() {
@@ -290,7 +290,7 @@ describe("UX A1 — state screenshot pass (both themes)", function () {
     await browser.pause(300);
     await shot("12b-syslog-pane-light");
     await (await $("[data-testid='menu-view']")).click();
-    await (await $("nav")).click();
+    await (await $('nav[aria-label="Application menu"]')).click();
   }
 
   it("captures all key states in dark theme", async () => {

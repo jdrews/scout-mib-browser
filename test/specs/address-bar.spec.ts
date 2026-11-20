@@ -57,7 +57,7 @@ describe("Address bar (autocomplete)", () => {
     const before = await oidInputValue();
 
     // A click in a neutral spot (the menu bar) must close the dropdown.
-    await (await $("nav")).click();
+    await (await $('nav[aria-label="Application menu"]')).click();
     await expect(await $("[data-testid='autocomplete-list']")).not.toBeExisting();
     expect(await oidInputValue()).toBe(before);
 

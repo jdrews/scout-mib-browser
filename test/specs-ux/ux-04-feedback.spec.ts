@@ -45,7 +45,7 @@ describe("UX A4 — action → feedback map", function () {
     });
 
     await audit("Close File menu (click outside)", async () => {
-      await (await $("nav")).click();
+      await (await $('nav[aria-label="Application menu"]')).click();
       const gone = await browser.waitUntil(
         async () => !(await $("[data-testid='menu-add-mib-dir']").isExisting()),
         { timeout: 3000, interval: 100 },
@@ -243,7 +243,7 @@ describe("UX A4 — action → feedback map", function () {
     });
 
     await audit("Close View menu (click outside)", async () => {
-      await (await $("nav")).click();
+      await (await $('nav[aria-label="Application menu"]')).click();
       return "";
     });
 
