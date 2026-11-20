@@ -950,7 +950,7 @@
     bind:this={resultsBodyEl}
     tabindex="0"
     aria-label="Results"
-    class="flex-1 overflow-auto focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+    class="flex-1 overflow-auto"
   >
     {#if isGridView}
       {#if filteredGridRows.length === 0 && gridRows.length === 0}

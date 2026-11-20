@@ -163,7 +163,7 @@
     tabindex="0"
     aria-label="System log entries"
     onscroll={updateStick}
-    class="flex-1 overflow-y-auto font-mono text-13 py-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+    class="flex-1 overflow-y-auto font-mono text-13 py-2"
   >
     {#each filteredEntries as entry, i (i)}
       <div class="flex gap-2 px-4 py-1.5 hover:bg-base-200">

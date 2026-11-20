@@ -246,7 +246,7 @@
     tabindex={tabIndex}
     aria-selected={isSelected}
     aria-expanded={hasChildren ? expanded : undefined}
-    class="tree-row flex items-center gap-1.5 px-2 py-1 text-sm cursor-pointer select-none whitespace-nowrap rounded hover:bg-base-300/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+    class="tree-row flex items-center gap-1.5 px-2 py-1 text-sm cursor-pointer select-none whitespace-nowrap rounded hover:bg-base-300/60"
     class:selected={isSelected}
     class:fallback-node={isFallbackNode}
     class:find-hit={S.treeFindOid === node.oid}
@@ -277,7 +277,7 @@
       {/if}
     </span>
     {#if isFallbackNode}
-      <span class="badge badge-outline badge-warning badge-xs">unresolved</span>
+      <span class="badge badge-ghost badge-sm">unresolved</span>
     {/if}
     {#if loading}
       <span class="ml-auto pl-2 text-xs opacity-40">loading…</span>

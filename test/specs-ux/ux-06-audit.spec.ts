@@ -74,6 +74,10 @@ describe("UX A6/A7 — axe + DOM audit + terminology collection", function () {
     // ── State: connection modal v2c / v3 ─────────────────────────────────────
     await (await $("[data-testid='conn-gear']")).click();
     await (await $("[data-connection-panel]")).waitForExist({ timeout: 5000 });
+    // The modal box fades in over ~250 ms (50 ms delay + 200 ms opacity);
+    // axe measured mid-fade composites the panel over the backdrop and
+    // reports false color-contrast violations on every text node in it.
+    await browser.pause(400);
     nameAudit["conn-modal-v2c"] = await accessibleNameAudit();
     strings["conn-modal-v2c"] = await collectUserStrings();
     await axeState("conn-modal-v2c");

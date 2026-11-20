@@ -109,6 +109,33 @@
   --color-info-content: oklch(98% 0 0);
 }
 
+/* Radii by size (D4): daisyUI 5.7 derives every component corner from three
+   tokens — fields (inputs, buttons, segmented joins), boxes (modals, cards,
+   menus, and the app's rounded-box surfaces), selectors (badges, checkboxes,
+   toggles). The stock 4/8/8 mixes an 8 px radius everywhere and leaves badges
+   chunkier than the small tags they are, so set the scale: 8 fields, 12
+   boxes, 6 selectors. Joins read --radius-field for their outer corners, so
+   the segmented controls follow the buttons automatically; nested surfaces
+   each keep their own token. Unlayered like the theme overrides above, so it
+   wins over daisyUI's @layer base :root. */
+:root {
+  --radius-field: 0.5rem; /* inputs, buttons, joins: 8 px */
+  --radius-box: 0.75rem; /* modals, cards, menus: 12 px */
+  --radius-selector: 0.375rem; /* badges/tags, checkboxes: 6 px */
+}
+
+/* Focus ring: one standard app-wide — 2 px teal with a 2 px offset, visible
+   in both themes. daisyUI 5.7 already draws 2 px outlines at 2 px offset on
+   buttons, inputs, and selects, but each in its own color (base-content, or
+   btn-color — nearly invisible on a neutral dark button). This unlayered rule
+   unifies the color and extends the ring to the app's own focusable
+   surfaces (tree rows, panes, resize handles), which previously each
+   hand-rolled a box-shadow ring with no offset. */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
 /* Dark theme: the primary action button is off-white from the ramp with dark
    text — the deliberate-looking dark-theme primary. Teal (--color-primary) is
    reserved for selection, focus, the live LED, and key figures, none of which
