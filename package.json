@@ -61,6 +61,8 @@
     "virtua": "^0.55.0"
   },
   "overrides": {
-    "@wdio/native-utils": "$@wdio/native-utils"
+    "@wdio/native-utils": "$@wdio/native-utils",
+    "glob": "^14.0.2",
+    "minimatch": "^11.0.1"
   }
 }
