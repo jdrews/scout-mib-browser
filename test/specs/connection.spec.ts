@@ -182,4 +182,53 @@ describe("Connection (target configuration)", () => {
     await closeModal();
     await (await $("[data-testid='port-input']").setValue(String(AGENT_PORT)));
   });
+
+  it("Test Connection resolves a hostname Target", async () => {
+    // The UI accepts "Hostname or IP" (launch-beta/03): a DNS name must
+    // connect, not silently time out. "localhost" exercises the resolution
+    // path against the same snmpsim agent.
+    await (await $("[data-testid='host-input']").setValue("localhost"));
+    await openModal();
+    const btn = await $("[data-connection-panel] .btn-block");
+    await btn.click();
+
+    await browser.waitUntil(
+      async () => {
+        const t = (await btn.getText()) ?? "";
+        return t.includes("Connected") || t.includes("Failed");
+      },
+      { timeout: 45000, interval: 500, timeoutMsg: "Test Connection never finished" }
+    );
+    expect((await btn.getText()) ?? "").toContain("Connected");
+
+    // Restore the seeded host for later specs.
+    await closeModal();
+    await (await $("[data-testid='host-input']").setValue(AGENT_HOST));
+  });
+
+  it("Test Connection names an unresolvable host instead of a generic timeout", async () => {
+    // ".invalid" is reserved for NXDOMAIN (RFC 6761). The failure must be
+    // fast and say the host could not be resolved — not "no SNMP response",
+    // which points users at firewalls and agent services (launch-beta/03).
+    await (await $("[data-testid='host-input']").setValue("no-such-host.invalid"));
+    await openModal();
+    const btn = await $("[data-connection-panel] .btn-block");
+    await btn.click();
+
+    await browser.waitUntil(
+      async () => ((await btn.getText()) ?? "").includes("Failed"),
+      { timeout: 30000, interval: 500, timeoutMsg: "Test Connection did not fail" }
+    );
+
+    let errMsg = "";
+    for (const p of await $$("[data-connection-panel] p")) {
+      const t = (await p.getText()) ?? "";
+      if (t.includes("no-such-host.invalid")) errMsg = t;
+    }
+    expect(errMsg.toLowerCase()).toContain("could not resolve host");
+
+    // Restore the seeded host.
+    await closeModal();
+    await (await $("[data-testid='host-input']").setValue(AGENT_HOST));
+  });
 });

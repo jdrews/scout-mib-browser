@@ -95,6 +95,35 @@ describe("runTestConnection", () => {
     expect(S.statusText).toBe(result.errorMessage);
   });
 
+  it("surfaces a DNS resolution failure verbatim — the host never answered nothing, it was never found", async () => {
+    // The backend resolves hostnames at connect time (launch-beta/03) and
+    // returns an actionable message naming the host. The UI must not flatten
+    // it into "no SNMP response", which sends users to check firewalls and
+    // agent services for what is a typo'd hostname.
+    const dnsErr =
+      "Could not resolve host 'swich-sw-04.invalid' (Name or service not known). Check the hostname and network connection.";
+    mockedSnmpConnect.mockRejectedValue(dnsErr);
+
+    const result = await runTestConnection(makeConfig({ host: "swich-sw-04.invalid" }));
+
+    expect(result.result).toBe("error");
+    expect(result.errorMessage).toBe(dnsErr);
+    expect(S.statusText).toBe(dnsErr);
+    expect(result.errorMessage).not.toContain("no SNMP response");
+  });
+
+  it("keeps the generic copy for non-DNS failures", async () => {
+    // Timeouts and unreachable ports genuinely mean "no response" — the
+    // generic actionable copy stays.
+    mockedSnmpConnect.mockRejectedValue(
+      "No response received from Target (timeout or network error)",
+    );
+
+    const result = await runTestConnection(makeConfig());
+
+    expect(result.errorMessage).toBe(connectionFailureMessage(makeConfig()));
+  });
+
   it("preserves the raw error string in the System Log", async () => {
     const errorMsg = "IO error: connection refused";
     mockedSnmpConnect.mockRejectedValue(errorMsg);

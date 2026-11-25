@@ -95,6 +95,32 @@ fn engine_get_returns_value() {
 }
 
 #[test]
+fn engine_get_resolves_hostname_target() {
+    // The UI and docs accept "Hostname or IP" — DNS names must resolve at
+    // connect time, not just IP literals (launch-beta/03).
+    let rt = app_runtime();
+    let (_server, target) = start_server();
+    let target = Target::v2c("localhost", target.port, "public");
+
+    let rs = rt
+        .block_on(rt.spawn(async move {
+            let engine = SnmpEngine::new();
+            let oids = vec!["1.3.6.1.2.1.1.1.0".to_string()];
+            tokio::time::timeout(Duration::from_secs(5), engine.get(&target, &oids))
+                .await
+                .expect("get timed out")
+                .expect("get failed")
+        }))
+        .expect("get task panicked");
+
+    assert_eq!(rs.bindings.len(), 1);
+    assert_eq!(
+        rs.bindings[0].value,
+        SnmpValue::OctetString(b"Linux router".to_vec())
+    );
+}
+
+#[test]
 fn engine_get_next_from_bare_arc_returns_first_entry() {
     // GetNext from a single-subidentifier OID ("1", the iso node) is
     // normalized to "1.0" before parsing — a bare arc isn't BER-encodable —
@@ -396,6 +422,76 @@ fn engine_walk_binding_cap_truncates_with_warning() {
         complete.warnings
     );
     assert!(complete.partial, "a capped walk is partial");
+}
+
+#[test]
+fn engine_get_fails_fast_on_unresolvable_host() {
+    // A typo'd hostname must fail immediately with an actionable, named-host
+    // message — not four retry attempts ending in the string "Receive"
+    // (launch-beta/03). ".invalid" is reserved for NXDOMAIN (RFC 6761).
+    let rt = app_runtime();
+    let target = Target::v2c("no-such-host.invalid", 161, "public");
+
+    let result = rt
+        .block_on(rt.spawn(async move {
+            let engine = SnmpEngine::new();
+            let oids = vec!["1.3.6.1.2.1.1.1.0".to_string()];
+            tokio::time::timeout(Duration::from_secs(2), engine.get(&target, &oids))
+                .await
+                .expect("get must fail fast, not spin the retry loop")
+        }))
+        .expect("task panicked");
+
+    let err = result.expect_err("an unresolvable host must be an error");
+    assert!(
+        err.contains("no-such-host.invalid") && err.to_lowercase().contains("resolve"),
+        "error must name the host and say it could not resolve: {err}"
+    );
+}
+
+#[test]
+fn engine_network_failure_message_is_human_and_consistent() {
+    // A dead port (ICMP port-unreachable → no response) must surface the
+    // same actionable sentence in Get and GetNext — not `Debug` enum names
+    // like "Receive" (launch-beta/03).
+    let rt = app_runtime();
+    // Bind then drop a UDP socket to claim a port with no SNMP agent.
+    let dead_port = {
+        let s = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        s.local_addr().unwrap().port()
+    };
+    let target = Target::v2c("127.0.0.1", dead_port, "public");
+    let oids = vec!["1.3.6.1.2.1.1.1.0".to_string()];
+
+    let (get_err, getnext_rs) = rt
+        .block_on(rt.spawn(async move {
+            let engine = SnmpEngine::new();
+            let get_err = engine
+                .get(&target, &oids)
+                .await
+                .expect_err("get against a dead port must fail");
+            let getnext_rs = engine
+                .get_next(&target, &oids)
+                .await
+                .expect("get_next reports failure as warnings, not Err");
+            (get_err, getnext_rs)
+        }))
+        .expect("task panicked");
+
+    let expected = "No response received from Target (timeout or network error)";
+    assert_eq!(
+        get_err, expected,
+        "Get terminal failure must be the actionable message, not a Debug enum name"
+    );
+    assert!(
+        getnext_rs.partial,
+        "get_next against a dead port is partial"
+    );
+    assert!(
+        getnext_rs.warnings.iter().any(|w| w.message == expected),
+        "GetNext must carry the same message: {:?}",
+        getnext_rs.warnings
+    );
 }
 
 #[test]
