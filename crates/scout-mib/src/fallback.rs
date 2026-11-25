@@ -528,7 +528,13 @@ impl FallbackExtractor {
     /// Gets the text preceding a given token (for context analysis).
     fn text_before(content: &str, token: &str) -> String {
         if let Some(pos) = content.find(token) {
-            let start = pos.saturating_sub(200);
+            // `find` returns a byte offset; the 200-byte window start can land
+            // mid-character, which panics on slice. Walk back to a char
+            // boundary (at most 3 bytes).
+            let mut start = pos.saturating_sub(200);
+            while !content.is_char_boundary(start) {
+                start += 1;
+            }
             content[start..pos].to_lowercase()
         } else {
             String::new()
@@ -910,5 +916,27 @@ END
     fn resolve_oid_assignment_unknown_parent() {
         let oid = FallbackExtractor::resolve_oid_assignment("customParent", "5");
         assert!(oid.starts_with(".unknown.customParent."));
+    }
+
+    /// A malformed vendor MIB whose text contains multi-byte UTF-8 (accented
+    /// descriptions are common) must not panic when the OID-assignment context
+    /// scan slices 200 bytes before a name. `pos - 200` is a byte offset that
+    /// can land mid-character; under `panic = "abort"` this killed the app at
+    /// MIB-load time (launch-beta/01).
+    #[test]
+    fn extract_oid_assignments_survives_multibyte_utf8() {
+        // Put the name at byte offset 400 with an 'é' (2 bytes) straddling the
+        // 200-byte slice boundary: 199 × 'a' + 'é' + ' ' + 197 × 'a' + ' ' + name.
+        let mut content = "a".repeat(199);
+        content.push('é');
+        content.push(' ');
+        content.push_str(&"a".repeat(197));
+        content.push(' ');
+        content.push_str("vendorMib OBJECT IDENTIFIER ::= { enterprises 99997 }\n");
+
+        let nodes = FallbackExtractor::extract_oid_assignments(&content, "VENDOR-MIB");
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].name, "vendorMib");
+        assert_eq!(nodes[0].oid, "1.3.6.1.4.1.99997");
     }
 }
