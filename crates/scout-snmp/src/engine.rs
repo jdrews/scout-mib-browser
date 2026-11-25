@@ -791,11 +791,16 @@ impl SnmpEngine {
     /// Resolves the Target's host to a socket address. IP literals are used
     /// as-is; hostnames go through DNS (`lookup_host`). The message names
     /// the host so a typo is actionable (launch-beta/03).
+    ///
+    /// When DNS returns both families, IPv4 wins: SNMP agents overwhelmingly
+    /// listen on IPv4 (`0.0.0.0`), and a UDP session connected to `::1` with
+    /// no listener fails silently with a timeout — glibc prefers `::1` for
+    /// `localhost`, so first-result would pick the dead address.
     async fn resolve_target(target: &Target) -> Result<SocketAddr, String> {
         if let Ok(addr) = target.addr().parse::<SocketAddr>() {
             return Ok(addr);
         }
-        tokio::net::lookup_host((target.host.as_str(), target.port))
+        let addrs: Vec<SocketAddr> = tokio::net::lookup_host((target.host.as_str(), target.port))
             .await
             .map_err(|e| {
                 format!(
@@ -803,7 +808,12 @@ impl SnmpEngine {
                     target.host, e
                 )
             })?
-            .next()
+            .collect();
+        addrs
+            .iter()
+            .copied()
+            .find(|a| a.is_ipv4())
+            .or_else(|| addrs.first().copied())
             .ok_or_else(|| format!("No IP address found for host '{}'", target.host))
     }
 
