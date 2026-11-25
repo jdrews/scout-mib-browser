@@ -13,7 +13,7 @@ pub mod table;
 mod tolerant;
 pub mod types;
 
-pub use engine::{SnmpEngine, TableRowSender, WalkBatchSender};
+pub use engine::{SnmpEngine, TableRowSender, WalkBatchSender, MAX_WALK_BINDINGS};
 pub use mock::MockSnmpServer;
 pub use table::*;
 pub use types::*;

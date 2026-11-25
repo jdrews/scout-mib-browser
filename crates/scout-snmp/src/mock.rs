@@ -46,6 +46,11 @@ struct MockServerInner {
     /// value — simulates agents (e.g. some Cisco IOS) that signal end-of-walk
     /// with noSuchName rather than an endOfMibView varbind.
     walk_error: Option<(u32, u32)>,
+    /// When set, GetNext/GetBulk responses echo the *requested* OID with a
+    /// value instead of advancing — simulates the classic firmware bug of an
+    /// agent that answers GetNext with the OID it was asked about, which must
+    /// not spin a walk forever.
+    stuck_walk: bool,
     /// Total requests received (one per SNMP datagram).
     request_count: usize,
     /// Number of distinct walk chains observed. A chain starts at the first
@@ -74,6 +79,7 @@ impl MockSnmpServer {
             data: Self::default_mib_data(),
             set_error: None,
             walk_error: None,
+            stuck_walk: false,
             request_count: 0,
             walk_chains: 0,
             last_request_oid: None,
@@ -112,6 +118,12 @@ impl MockSnmpServer {
     /// `(status, index)` instead of an EndOfMibView value.
     pub fn set_canned_walk_error(&self, status: u32, index: u32) {
         self.inner.lock().unwrap().walk_error = Some((status, index));
+    }
+
+    /// When on, GetNext/GetBulk responses echo the requested OID with a value
+    /// instead of advancing — simulates a non-progressing agent.
+    pub fn set_stuck_walk(&self, on: bool) {
+        self.inner.lock().unwrap().stuck_walk = on;
     }
 
     /// Total number of request datagrams received.
@@ -228,9 +240,12 @@ impl MockSnmpServer {
 
             return match parsed.msg_type {
                 MessageType::Get => Self::build_get_response(&parsed, &state.data),
-                MessageType::GetNext | MessageType::GetBulk => {
-                    Self::build_getnext_response(&parsed, &state.data, &state.walk_error)
-                }
+                MessageType::GetNext | MessageType::GetBulk => Self::build_getnext_response(
+                    &parsed,
+                    &state.data,
+                    &state.walk_error,
+                    state.stuck_walk,
+                ),
                 MessageType::Set => match state.set_error {
                     Some((status, index)) => {
                         Self::build_response_pdu_with(&parsed, b"", status, index)
@@ -502,11 +517,24 @@ impl MockSnmpServer {
         parsed: &ParsedRequest,
         data: &HashMap<String, Vec<u8>>,
         walk_error: &Option<(u32, u32)>,
+        stuck: bool,
     ) -> Vec<u8> {
         let mut varbinds = Vec::new();
         let mut end_error: Option<(u32, u32)> = None;
 
         for (oid, _) in &parsed.oids {
+            if stuck {
+                // Non-progressing agent: echo the requested OID with its
+                // stored value (or a fixed value when unset).
+                let value = data
+                    .get(oid)
+                    .cloned()
+                    .unwrap_or_else(|| Self::ber_octet_string(b"stuck"));
+                let oid_ber = Self::ber_oid_from_string(oid);
+                let vb_data = [&oid_ber[..], value.as_slice()].concat();
+                varbinds.push(Self::tlv(0x30, &vb_data));
+                continue;
+            }
             match Self::find_next_oid(oid, data) {
                 Some((next_oid, value)) => {
                     let oid_ber = Self::ber_oid_from_string(&next_oid);
