@@ -228,6 +228,11 @@ fn main() {
             config::ensure_config_file().expect("failed to create config file");
 
             let path = config::config_path();
+            // Validate at startup: a corrupt config is quarantined to a
+            // timestamped backup and the app starts from defaults. The
+            // warning lands in the System Log via the UI log layer
+            // (launch-beta/05).
+            config::load_config_quarantining(&path);
             app.manage(config::ConfigHandle { path });
 
             app.manage(MibResolverState::new());
