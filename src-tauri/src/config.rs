@@ -402,8 +402,12 @@ pub struct UiConfig {
 
     /// Whether Target credentials (community string and V3 username/
     /// passphrases) are persisted to the config file. Host, port, version,
-    /// and protocol choices are always saved.
-    #[serde(default = "default_true", skip_serializing_if = "is_default_bool_true")]
+    /// and protocol choices are always saved. Off by default: plaintext
+    /// credentials on disk are opt-in (launch-beta/04).
+    #[serde(
+        default = "default_false",
+        skip_serializing_if = "is_default_bool_false"
+    )]
     pub save_credentials: bool,
 }
 
@@ -414,7 +418,7 @@ impl Default for UiConfig {
             results_pane_visible: default_true(),
             splitter_horizontal: default_splitter_horizontal(),
             splitter_vertical: default_splitter_vertical(),
-            save_credentials: default_true(),
+            save_credentials: default_false(),
         }
     }
 }
@@ -426,7 +430,7 @@ impl UiConfig {
             && self.results_pane_visible
             && (self.splitter_horizontal - 0.3).abs() < f64::EPSILON
             && (self.splitter_vertical - 0.5).abs() < f64::EPSILON
-            && self.save_credentials
+            && !self.save_credentials
     }
 }
 
@@ -459,6 +463,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_false() -> bool {
+    false
+}
+
 fn default_splitter_horizontal() -> f64 {
     0.3
 }
@@ -480,6 +488,11 @@ fn is_default_community(v: &str) -> bool {
 /// Returns `true` when the boolean is `true` (the default).
 fn is_default_bool_true(v: &bool) -> bool {
     *v
+}
+
+/// Returns `true` when the boolean is `false` (the default).
+fn is_default_bool_false(v: &bool) -> bool {
+    !*v
 }
 
 /// Returns `true` when the horizontal splitter is at its default position.
@@ -524,7 +537,7 @@ fn with_defaults(
         .unwrap()
         .set_default("ui.splitter_vertical", 0.5_f64)
         .unwrap()
-        .set_default("ui.save_credentials", true)
+        .set_default("ui.save_credentials", false)
         .unwrap()
 }
 
@@ -559,14 +572,20 @@ pub fn build_config() -> Result<AppConfig, config::ConfigError> {
 /// The file is intentionally empty — all defaults are applied by [`build_config`]
 /// at read time, so only non-default values need to be persisted.
 pub fn ensure_config_file() -> Result<PathBuf, std::io::Error> {
-    let path = config_path();
+    ensure_config_file_at(&config_path())
+}
+
+/// [`ensure_config_file`] at an explicit path (test seam). The file is
+/// created owner-only (0600, dir 0700 on unix) — the config can hold v3
+/// passphrases, so it must never be world-readable (launch-beta/04).
+pub fn ensure_config_file_at(path: &std::path::Path) -> Result<PathBuf, std::io::Error> {
     if !path.exists() {
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+            create_config_dir(parent)?;
         }
-        std::fs::write(&path, "")?;
+        write_private(path, "")?;
     }
-    Ok(path)
+    Ok(path.to_path_buf())
 }
 
 /// Persists the current `AppConfig` back to the TOML file.
@@ -575,12 +594,72 @@ pub fn ensure_config_file() -> Result<PathBuf, std::io::Error> {
 /// bypassing `skip_serializing_if` which would drop defaults and corrupt the
 /// config on round-trip (e.g., writing only `[mib]` loses `[target]`).
 pub fn save_config(cfg: &AppConfig) -> Result<(), std::io::Error> {
-    let path = config_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
+    save_config_to(&config_path(), cfg)
+}
+
+/// [`save_config`] to an explicit path (test seam).
+///
+/// Atomic and owner-only: the TOML is written to a sibling temp file with
+/// 0600 permissions, then renamed over the target. A crash mid-write can
+/// only leave a stray temp file — never a truncated config (the ticket-05
+/// brick) — and the rename guarantees the target is 0600 even when a prior
+/// version left it world-readable.
+pub fn save_config_to(path: &std::path::Path, cfg: &AppConfig) -> Result<(), std::io::Error> {
     let toml_str = toml::to_string_pretty(&cfg.to_toml_value()).expect("serialize config");
-    std::fs::write(&path, toml_str)
+    if let Some(parent) = path.parent() {
+        create_config_dir(parent)?;
+    }
+    let file_name = path
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| CONFIG_FILE.to_string());
+    let tmp = path.with_file_name(format!("{}.tmp.{}", file_name, std::process::id()));
+    write_private(&tmp, &toml_str)?;
+    std::fs::rename(&tmp, path)
+}
+
+/// Creates the config directory with owner-only permissions on unix
+/// (0700); existing directories are left as-is.
+#[cfg(unix)]
+fn create_config_dir(dir: &std::path::Path) -> Result<(), std::io::Error> {
+    use std::os::unix::fs::DirBuilderExt;
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(dir)
+}
+
+/// Writes `contents` to `path` with owner-only permissions (0600),
+/// creating or truncating the file. Permission is set explicitly after
+/// write so pre-existing files are tightened, not just new ones.
+#[cfg(unix)]
+fn write_private(path: &std::path::Path, contents: &str) -> Result<(), std::io::Error> {
+    use std::io::Write;
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)?;
+    file.write_all(contents.as_bytes())?;
+    // Durability before rename: the data must be on disk when the atomic
+    // swap makes the file visible.
+    file.sync_all()?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    Ok(())
+}
+
+/// Non-unix: plain write. Windows inherits the per-user `%APPDATA%` ACL
+/// (owner-only by default); see SECURITY.md.
+#[cfg(not(unix))]
+fn create_config_dir(dir: &std::path::Path) -> Result<(), std::io::Error> {
+    std::fs::create_dir_all(dir)
+}
+
+#[cfg(not(unix))]
+fn write_private(path: &std::path::Path, contents: &str) -> Result<(), std::io::Error> {
+    std::fs::write(path, contents)
 }
 
 // ── Tauri State wrapper ──────────────────────────────────────────────────────
@@ -879,7 +958,31 @@ mod tests {
         assert!(cfg.ui.results_pane_visible);
         assert!((cfg.ui.splitter_horizontal - 0.3).abs() < f64::EPSILON);
         assert!((cfg.ui.splitter_vertical - 0.5).abs() < f64::EPSILON);
-        assert!(cfg.ui.save_credentials);
+        // Fresh installs do NOT persist credentials (launch-beta/04): a
+        // multi-user jump box must not gain a plaintext passphrase file
+        // unless the user opts in.
+        assert!(!cfg.ui.save_credentials);
+    }
+
+    #[test]
+    fn builder_defaults_do_not_save_credentials() {
+        // The read cascade applies the same off-by-default (empty file =
+        // fresh install).
+        let tmp = std::env::temp_dir().join("scout_fresh_default_test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let path = test_config_path(&tmp);
+        std::fs::write(&path, "").unwrap();
+
+        let cfg: AppConfig = with_defaults(Config::builder())
+            .add_source(ConfigFile::from(path).required(false))
+            .build()
+            .unwrap()
+            .try_deserialize()
+            .unwrap();
+        assert!(!cfg.ui.save_credentials);
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
@@ -935,6 +1038,8 @@ mod tests {
         cfg.target.community = "s3cret-community".to_string();
         cfg.target.v3_username = "admin".to_string();
         cfg.target.v3_auth_passphrase = "auth-pass".to_string();
+        // Credentials persist only for users who opted in.
+        cfg.ui.save_credentials = true;
 
         let value = cfg.to_toml_value();
         let toml_str = toml::to_string_pretty(&value).unwrap();
@@ -1123,6 +1228,147 @@ mod tests {
             .unwrap();
 
         assert_eq!(reloaded.target.host, "new-host.example.com");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // ── Credential hardening: permissions & atomic writes (launch-beta/04) ──
+
+    #[cfg(unix)]
+    fn mode_of(path: &std::path::Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_config_writes_owner_only_file() {
+        // The config can hold v3 passphrases; on a multi-user jump box a
+        // 0644 file makes them world-readable.
+        let tmp = std::env::temp_dir().join("scout_perm_file_test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let path = test_config_path(&tmp);
+
+        save_config_to(&path, &AppConfig::default()).unwrap();
+
+        assert_eq!(mode_of(&path), 0o600, "config must be owner read/write");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_config_creates_owner_only_directory() {
+        let tmp = std::env::temp_dir().join("scout_perm_dir_test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        let path = tmp.join(CONFIG_DIR).join(CONFIG_FILE);
+
+        save_config_to(&path, &AppConfig::default()).unwrap();
+
+        assert_eq!(
+            mode_of(&tmp.join(CONFIG_DIR)),
+            0o700,
+            "config dir must be owner-only"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_config_tightens_preexisting_world_readable_file() {
+        // Upgrades from older versions leave a 0644 config; the first save
+        // after upgrade must tighten it.
+        let tmp = std::env::temp_dir().join("scout_perm_tighten_test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let path = test_config_path(&tmp);
+
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::write(&path, "[target]\nhost = \"old.example.com\"\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(mode_of(&path), 0o644);
+
+        save_config_to(&path, &AppConfig::default()).unwrap();
+
+        assert_eq!(mode_of(&path), 0o600);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn save_config_leaves_no_temp_file_on_success() {
+        // Atomic save: write a sibling temp file, then rename. A completed
+        // save must not litter the config directory.
+        let tmp = std::env::temp_dir().join("scout_atomic_success_test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let path = test_config_path(&tmp);
+
+        save_config_to(&path, &AppConfig::default()).unwrap();
+
+        let leftovers: Vec<_> = std::fs::read_dir(&tmp)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".tmp"))
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "temp files left behind: {leftovers:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_save_leaves_existing_config_untouched() {
+        // A crash/full-disk mid-write must never leave a truncated config
+        // (the ticket-05 brick). With the temp-file + rename scheme the
+        // write failure happens off the real path, so the previous file
+        // survives byte-identical.
+        let tmp = std::env::temp_dir().join("scout_atomic_fail_test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let path = test_config_path(&tmp);
+
+        save_config_to(&path, &AppConfig::default()).unwrap();
+        let before = std::fs::read(&path).unwrap();
+
+        // Simulate a mid-write failure: make the directory read-only so the
+        // temp file cannot be created.
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let result = save_config_to(&path, &AppConfig::default());
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+        assert!(result.is_err(), "saving into a read-only dir must fail");
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            before,
+            "existing config must be untouched"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ensure_config_file_creates_owner_only_file() {
+        let tmp = std::env::temp_dir().join("scout_ensure_perm_test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        let path = tmp.join(CONFIG_DIR).join(CONFIG_FILE);
+
+        ensure_config_file_at(&path).unwrap();
+
+        assert!(path.exists());
+        assert_eq!(mode_of(&path), 0o600);
+        assert_eq!(mode_of(&tmp.join(CONFIG_DIR)), 0o700);
+
+        // Idempotent: an existing file is left alone.
+        ensure_config_file_at(&path).unwrap();
+        assert_eq!(mode_of(&path), 0o600);
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
