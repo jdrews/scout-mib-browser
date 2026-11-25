@@ -114,11 +114,12 @@ impl SnmpEngine {
         // Inline retry loop to avoid large generic future types.
         let mut last_err = None;
         for attempt in 0..=MAX_RETRIES {
-            let t = target.clone();
             let oids: Vec<Arc<snmp2::Oid<'static>>> = snmp_oids.clone();
+            // A connect failure is deterministic (DNS, bad address) — retrying
+            // cannot change the outcome. Fail fast with the classified message
+            // (launch-beta/03).
+            let mut session = Self::connect(&target).await?;
             let result: Result<(Vec<VariableBinding>, Vec<SnmpWarning>), snmp2::Error> = (async {
-                let mut session = Self::connect(&t).await.map_err(|_| snmp2::Error::Receive)?;
-
                 let pdu = if oids.len() == 1 {
                     session.get(oids[0].as_ref()).await?
                 } else {
@@ -166,7 +167,9 @@ impl SnmpEngine {
 
         let e = last_err.unwrap_or(snmp2::Error::Receive);
         warn!("Get failed after {} retries: {:?}", MAX_RETRIES, e);
-        Err(format!("{:?}", e))
+        // Same human-readable text the warning path produces — the UI must
+        // read the same network failure identically everywhere (launch-beta/03).
+        Err(error_to_warning(&e, None).message)
     }
 
     /// Executes a GetNext operation for the given OIDs against the Target.
@@ -201,12 +204,11 @@ impl SnmpEngine {
             // Inline retry loop.
             let mut last_err = None;
             for attempt in 0..=MAX_RETRIES {
-                let t = target.clone();
                 let o = Arc::clone(&parsed);
+                // Connect failures are deterministic — fail fast (launch-beta/03).
+                let mut session = Self::connect(&target).await?;
                 let result: Result<(Vec<VariableBinding>, Vec<SnmpWarning>), snmp2::Error> =
                     (async {
-                        let mut session =
-                            Self::connect(&t).await.map_err(|_| snmp2::Error::Receive)?;
                         let pdu = session.getnext(o.as_ref()).await?;
                         Ok(Self::extract_bindings(pdu))
                     })
@@ -377,11 +379,11 @@ impl SnmpEngine {
         // Inline retry loop.
         let mut last_err = None;
         for attempt in 0..=MAX_RETRIES {
-            let t = target.clone();
             let o = Arc::clone(&parsed_oid);
             let v = value_owned.clone();
+            // Connect failures are deterministic — fail fast (launch-beta/03).
+            let mut session = Self::connect(&target).await?;
             let result: Result<(Vec<VariableBinding>, Vec<SnmpWarning>), snmp2::Error> = (async {
-                let mut session = Self::connect(&t).await.map_err(|_| snmp2::Error::Receive)?;
                 let snmp_value = Self::set_value_to_snmp(v);
                 let pdu = session.set(&[(&o, snmp_value)]).await?;
                 Ok(Self::extract_bindings(pdu))
@@ -786,12 +788,28 @@ impl SnmpEngine {
         }
     }
 
+    /// Resolves the Target's host to a socket address. IP literals are used
+    /// as-is; hostnames go through DNS (`lookup_host`). The message names
+    /// the host so a typo is actionable (launch-beta/03).
+    async fn resolve_target(target: &Target) -> Result<SocketAddr, String> {
+        if let Ok(addr) = target.addr().parse::<SocketAddr>() {
+            return Ok(addr);
+        }
+        tokio::net::lookup_host((target.host.as_str(), target.port))
+            .await
+            .map_err(|e| {
+                format!(
+                    "Could not resolve host '{}' ({}). Check the hostname and network connection.",
+                    target.host, e
+                )
+            })?
+            .next()
+            .ok_or_else(|| format!("No IP address found for host '{}'", target.host))
+    }
+
     /// Establishes a connection to the Target and returns an AsyncSession.
     async fn connect(target: &Target) -> Result<snmp2::AsyncSession, String> {
-        let addr: SocketAddr = target
-            .addr()
-            .parse()
-            .map_err(|e| format!("Invalid Target address {}: {}", target.addr(), e))?;
+        let addr = Self::resolve_target(target).await?;
 
         info!(
             "Connecting to Target {} (version={:?})",

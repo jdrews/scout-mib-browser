@@ -8,7 +8,7 @@ license = "MIT"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 snmp2 = { version = "0.5", features = ["v3", "heap_buffers"] }
-tokio = { version = "1", features = ["rt", "time"] }
+tokio = { version = "1", features = ["rt", "time", "net"] }
 tracing = "0.1"
 
 [dev-dependencies]

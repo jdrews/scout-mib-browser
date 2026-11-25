@@ -53,11 +53,18 @@ function scheduleReset(delay: number, cb: () => void) {
 }
 
 /**
- * Actionable failure message for a failed Test Connection: names the
- * host:port and suggests what to check. The raw transport error is kept in
- * the System Log separately (see runTestConnection's catch block).
+ * Actionable failure message for a failed Test Connection. DNS resolution
+ * failures pass through verbatim: the backend's "Could not resolve host 'X'"
+ * is already actionable and names the host, and flattening it into "no SNMP
+ * response" sends users to check firewalls for a typo'd hostname
+ * (launch-beta/03). Everything else — timeouts, unreachable ports — genuinely
+ * means "no response", so it gets the generic copy naming host:port and
+ * suggesting checks. The raw transport error is kept in the System Log
+ * separately (see runTestConnection's catch block).
  */
-export function connectionFailureMessage(cfg: TargetConfig): string {
+export function connectionFailureMessage(cfg: TargetConfig, rawError?: string): string {
+  const raw = rawError ?? "";
+  if (raw.toLowerCase().startsWith("could not resolve host")) return raw;
   return `Connection failed — no SNMP response from ${cfg.host}:${cfg.port}. Check the host/port and that the agent is listening.`;
 }
 
@@ -102,7 +109,7 @@ export async function runTestConnection(cfg: TargetConfig): Promise<ConnectionSt
     // Preserve the raw transport error in the System Log for debugging; the
     // UI shows one actionable message instead.
     logAppend("ERROR", "scout.connection", `Test connection to ${cfg.host}:${cfg.port} failed: ${raw}`).catch(() => {});
-    const msg = connectionFailureMessage(cfg);
+    const msg = connectionFailureMessage(cfg, raw);
     S.statusText = msg;
     result = "error";
     errorMessage = msg;

@@ -3,7 +3,9 @@ set -euo pipefail
 
 # E2E test harness (shared by the feature suite and the UX assessment suite).
 #
-# Usage: scripts/test-e2e.sh [wdio-config]   (default: wdio.conf.mjs)
+# Usage: scripts/test-e2e.sh [wdio-config] [extra wdio args...]
+#        (default config: wdio.conf.mjs; e.g. `--spec test/specs/foo.spec.ts`
+#         runs a single spec file)
 #
 # Lifecycle (everything torn down via trap on exit, success or failure):
 #   1. Prepare a temp XDG_CONFIG_HOME with a pre-seeded scout/config.toml
@@ -15,6 +17,8 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 WDIO_CONFIG="${1:-wdio.conf.mjs}"
+shift 2>/dev/null || true
+WDIO_EXTRA_ARGS=("$@")
 AGENT_PORT="${E2E_AGENT_PORT:-11611}"
 # Second agent: synthetic ifStackTable (multi-component index, 600 rows) for
 # the table-retrieval specs. The app config points at $AGENT_PORT; specs that
@@ -182,7 +186,7 @@ set +e
 # pointer-based input (e.g. mouse-wheel tests) is clamped to the screen edge
 # otherwise. The UX suite exports a larger value for unclipped screenshots.
 XVFB_ARGS=(--auto-servernum -s "-screen 0 ${E2E_XVFB_SCREEN:-1280x900}x24")
-xvfb-run "${XVFB_ARGS[@]}" npx wdio run "$WDIO_CONFIG"
+xvfb-run "${XVFB_ARGS[@]}" npx wdio run "$WDIO_CONFIG" "${WDIO_EXTRA_ARGS[@]}"
 RESULT=$?
 set -e
 
