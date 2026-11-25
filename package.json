@@ -15,11 +15,11 @@
     "sandcastle:build-image": "podman build --build-arg UID=$(id -u) --build-arg GID=$(id -g) -t sandcastle/scout-mib-browser:local .sandcastle/",
     "sandcastle:run": "tsx .sandcastle/main.mts",
     "sandcastle:ticket": "tsx .sandcastle/main.mts",
-    "test:e2e": "bash scripts/test-e2e.sh",
+    "test:e2e": "bash scripts/test-e2e.sh wdio.conf.mjs",
     "ux:assess": "bash scripts/ux-assess.sh",
     "test:e2e:agent": "python3 scripts/snmpsim-test.py --port 11611",
     "test:e2e:agent:v3": "echo 'SNMPv3 test agent starting on :11700 - Users and credentials in docs/testing/snmpv3-agent.md' && python3 scripts/snmpsim-v3-test.py --port 11700",
-    "test:e2e:build": "cargo build --workspace --features scout-mib-browser/wdio && bash scripts/test-e2e.sh",
+    "test:e2e:build": "cargo build --workspace --features scout-mib-browser/wdio && bash scripts/test-e2e.sh wdio.conf.mjs",
     "test:smoke:windows": "bash scripts/smoke-windows.sh"
   },
   "devDependencies": {

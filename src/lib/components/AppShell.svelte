@@ -39,7 +39,7 @@
         });
       }
 
-      S.saveCredentials = config.ui?.save_credentials ?? true;
+      S.saveCredentials = config.ui?.save_credentials ?? false;
 
       // Startup loads directories + explicit files (the full configured set).
       const dirs = config.mib?.directories || [];

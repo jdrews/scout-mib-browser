@@ -46,6 +46,11 @@ community = "public"
 host = "127.0.0.1"
 port = $AGENT_PORT
 version = "v2c"
+
+[ui]
+# The credential-persistence specs exercise the opted-in posture; the
+# product default is off (launch-beta/04).
+save_credentials = true
 EOF
 
 # test/mibs is committed; regenerate if the checkout is incomplete.
