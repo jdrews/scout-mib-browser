@@ -275,6 +275,130 @@ fn engine_walk_nosuchname_end_is_not_a_warning() {
 }
 
 #[test]
+fn engine_walk_stops_on_non_advancing_agent() {
+    // A buggy agent that answers GetNext with the *requested* OID (classic
+    // firmware bug) must not spin the walk forever: the engine stops at the
+    // first non-advancing response, marks the result partial, and warns.
+    let rt = app_runtime();
+    let server = MockSnmpServer::new(0);
+    let target = Target::v2c("127.0.0.1", server.addr.port(), "public");
+    server.set_stuck_walk(true);
+
+    let sender = Arc::new(TestSender::default());
+    let sender_for_task = sender.clone();
+    rt.block_on(rt.spawn(async move {
+        let engine = SnmpEngine::new();
+        let handle = tokio::runtime::Handle::current();
+        let join = engine.walk_streaming(&handle, &target, "1.3.6.1.2.1", sender_for_task, None);
+        tokio::time::timeout(Duration::from_secs(5), join)
+            .await
+            .expect("walk did not terminate against a non-advancing agent")
+            .expect("walk task panicked");
+    }))
+    .expect("test task panicked");
+
+    let complete = sender
+        .complete
+        .lock()
+        .unwrap()
+        .take()
+        .expect("complete result was not sent");
+    assert!(
+        complete.warnings.iter().any(|w| w.kind == "agent-stuck"),
+        "expected an agent-stuck warning, got: {:?}",
+        complete.warnings
+    );
+    assert!(complete.partial, "a non-advancing walk is partial");
+    assert!(
+        server.request_count() <= 4,
+        "engine must stop requesting, sent {} requests",
+        server.request_count()
+    );
+}
+
+#[test]
+fn engine_bulk_walk_stops_on_non_advancing_agent() {
+    // Same guard as Walk, exercised in GetBulk mode.
+    let rt = app_runtime();
+    let server = MockSnmpServer::new(0);
+    let target = Target::v2c("127.0.0.1", server.addr.port(), "public");
+    server.set_stuck_walk(true);
+
+    let sender = Arc::new(TestSender::default());
+    let sender_for_task = sender.clone();
+    rt.block_on(rt.spawn(async move {
+        let engine = SnmpEngine::new();
+        let handle = tokio::runtime::Handle::current();
+        let join =
+            engine.bulk_walk_streaming(&handle, &target, "1.3.6.1.2.1", sender_for_task, None);
+        tokio::time::timeout(Duration::from_secs(5), join)
+            .await
+            .expect("bulk walk did not terminate against a non-advancing agent")
+            .expect("bulk walk task panicked");
+    }))
+    .expect("test task panicked");
+
+    let complete = sender
+        .complete
+        .lock()
+        .unwrap()
+        .take()
+        .expect("complete result was not sent");
+    assert!(
+        complete.warnings.iter().any(|w| w.kind == "agent-stuck"),
+        "expected an agent-stuck warning, got: {:?}",
+        complete.warnings
+    );
+    assert!(complete.partial);
+    assert!(server.request_count() <= 4);
+}
+
+#[test]
+fn engine_walk_binding_cap_truncates_with_warning() {
+    // A walk that reaches the binding cap stops, marks the result partial,
+    // and warns — bounding memory against an agent that answers with an
+    // effectively unbounded subtree (launch-beta/02).
+    let rt = app_runtime();
+    let (_server, target) = start_server();
+
+    let sender = Arc::new(TestSender::default());
+    let sender_for_task = sender.clone();
+    rt.block_on(rt.spawn(async move {
+        let engine = SnmpEngine::new();
+        let handle = tokio::runtime::Handle::current();
+        // The mock MIB has 11 entries under 1.3.6.1.2.1; cap at 5.
+        let join = engine.walk_streaming_with_limit(
+            &handle,
+            &target,
+            "1.3.6.1.2.1",
+            sender_for_task,
+            None,
+            5,
+        );
+        tokio::time::timeout(Duration::from_secs(10), join)
+            .await
+            .expect("walk timed out")
+            .expect("walk task panicked");
+    }))
+    .expect("test task panicked");
+
+    let bindings = sender.bindings.lock().unwrap().clone();
+    assert_eq!(bindings.len(), 5, "cap must stop at exactly 5 bindings");
+    let complete = sender
+        .complete
+        .lock()
+        .unwrap()
+        .take()
+        .expect("complete result was not sent");
+    assert!(
+        complete.warnings.iter().any(|w| w.kind == "truncated"),
+        "expected a truncated warning, got: {:?}",
+        complete.warnings
+    );
+    assert!(complete.partial, "a capped walk is partial");
+}
+
+#[test]
 fn engine_walk_cancel_stops_early() {
     let rt = app_runtime();
     let (_server, target) = start_server();
@@ -317,6 +441,51 @@ fn engine_walk_cancel_stops_early() {
         complete.unwrap().partial,
         "cancelled walk must be marked partial"
     );
+}
+
+#[test]
+fn engine_get_table_stops_on_non_advancing_agent() {
+    // Get Table collects through the same walk loop; a non-advancing agent
+    // must stop the collection with the agent-stuck warning on the grid,
+    // not spin the backend collecting forever.
+    let rt = app_runtime();
+    let (server, target, table_oid, column_oids) = start_table_server();
+    server.set_stuck_walk(true);
+
+    let sender = Arc::new(TestTableSender::default());
+    let sender_for_task = sender.clone();
+    rt.block_on(rt.spawn(async move {
+        let engine = SnmpEngine::new();
+        let handle = tokio::runtime::Handle::current();
+        let join = engine.get_table_streaming(
+            &handle,
+            &target,
+            &table_oid,
+            column_oids,
+            vec![],
+            sender_for_task,
+            None,
+        );
+        tokio::time::timeout(Duration::from_secs(5), join)
+            .await
+            .expect("get table did not terminate against a non-advancing agent")
+            .expect("get table task panicked");
+    }))
+    .expect("test task panicked");
+
+    let grid = sender
+        .complete
+        .lock()
+        .unwrap()
+        .take()
+        .expect("complete result was not sent");
+    assert!(
+        grid.warnings.iter().any(|w| w.kind == "agent-stuck"),
+        "expected an agent-stuck warning, got: {:?}",
+        grid.warnings
+    );
+    assert!(grid.partial, "a non-advancing table walk is partial");
+    assert!(server.request_count() <= 4);
 }
 
 /// Collects progress updates and the final table grid.

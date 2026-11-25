@@ -66,6 +66,22 @@ enum WalkSink<'a> {
 /// Progress is reported every this many collected bindings.
 const TABLE_PROGRESS_STEP: usize = 10;
 
+/// Binding ceiling for streaming walks and Get Table collections. A Target
+/// with an effectively unbounded subtree (or a broken agent) cannot grow the
+/// result set past this; the walk stops with a `truncated` warning.
+pub const MAX_WALK_BINDINGS: usize = 100_000;
+
+/// SNMP OID ordering: lexicographic comparison over the sub-identifier arcs.
+/// asn1-rs's `Oid` implements no `Ord`, so the walk guard compares arcs.
+/// Relative (non-decodable) OIDs compare as "advanced" — the guard must never
+/// stop a walk on a comparison it cannot make.
+fn oid_less_or_eq(a: &snmp2::Oid, b: &snmp2::Oid) -> bool {
+    match (a.iter(), b.iter()) {
+        (Some(x), Some(y)) => x.collect::<Vec<_>>() <= y.collect::<Vec<_>>(),
+        _ => false,
+    }
+}
+
 /// Core SNMP engine that executes operations against a Target with error tolerance.
 ///
 /// The engine is stateless; the tokio runtime it runs on is owned by the app crate.
@@ -252,13 +268,36 @@ impl SnmpEngine {
         sender: Arc<dyn WalkBatchSender>,
         cancel_token: Option<Arc<AtomicBool>>,
     ) -> tokio::task::JoinHandle<()> {
-        self.spawn_walk(
+        Self::spawn_walk(
             runtime,
             WalkMode::GetNext,
             target,
             root_oid,
             sender,
             cancel_token,
+            MAX_WALK_BINDINGS,
+        )
+    }
+
+    /// [`Self::walk_streaming`] with an explicit binding cap (see
+    /// [`MAX_WALK_BINDINGS`]). Exposed for tests and future configuration.
+    pub fn walk_streaming_with_limit(
+        &self,
+        runtime: &tokio::runtime::Handle,
+        target: &Target,
+        root_oid: &str,
+        sender: Arc<dyn WalkBatchSender>,
+        cancel_token: Option<Arc<AtomicBool>>,
+        max_bindings: usize,
+    ) -> tokio::task::JoinHandle<()> {
+        Self::spawn_walk(
+            runtime,
+            WalkMode::GetNext,
+            target,
+            root_oid,
+            sender,
+            cancel_token,
+            max_bindings,
         )
     }
 
@@ -271,25 +310,26 @@ impl SnmpEngine {
         sender: Arc<dyn WalkBatchSender>,
         cancel_token: Option<Arc<AtomicBool>>,
     ) -> tokio::task::JoinHandle<()> {
-        self.spawn_walk(
+        Self::spawn_walk(
             runtime,
             WalkMode::GetBulk,
             target,
             root_oid,
             sender,
             cancel_token,
+            MAX_WALK_BINDINGS,
         )
     }
 
     /// Spawns a streaming walk of the given mode onto the provided runtime.
     fn spawn_walk(
-        &self,
         runtime: &tokio::runtime::Handle,
         mode: WalkMode,
         target: &Target,
         root_oid: &str,
         sender: Arc<dyn WalkBatchSender>,
         cancel_token: Option<Arc<AtomicBool>>,
+        max_bindings: usize,
     ) -> tokio::task::JoinHandle<()> {
         let op_name = mode.label();
         let target = target.clone();
@@ -303,6 +343,7 @@ impl SnmpEngine {
                 &root_oid,
                 Some(&mut sink),
                 cancel_token.as_deref(),
+                max_bindings,
             )
             .await;
             match result {
@@ -468,6 +509,7 @@ impl SnmpEngine {
             table_oid,
             Some(&mut sink),
             cancel_token,
+            MAX_WALK_BINDINGS,
         )
         .await?;
 
@@ -539,6 +581,7 @@ impl SnmpEngine {
         root_oid: &str,
         sink: Option<&mut WalkSink<'_>>,
         cancel_token: Option<&AtomicBool>,
+        max_bindings: usize,
     ) -> Result<ResultSet, String> {
         let op_name = mode.label();
         info!("{} started on {} from {}", op_name, target.addr(), root_oid);
@@ -551,6 +594,7 @@ impl SnmpEngine {
         let mut current_oid = root;
         let mut retry_count: u32 = 0;
         let mut client_gone = false;
+        let mut total_bindings: usize = 0;
 
         loop {
             if cancel_token.is_some_and(|t| t.load(Ordering::Acquire)) {
@@ -628,8 +672,49 @@ impl SnmpEngine {
                         }
                         received_varbinds = true;
 
+                        // Binding ceiling: an agent with an effectively
+                        // unbounded subtree must not grow the result set
+                        // without end (launch-beta/02).
+                        total_bindings += 1;
+                        if total_bindings >= max_bindings {
+                            warn!("{} stopped at binding cap {}", op_name, max_bindings);
+                            rs.partial = true;
+                            rs.warnings.push(SnmpWarning {
+                                kind: "truncated".to_string(),
+                                message: format!(
+                                    "Walk stopped after {} bindings (result cap); the Target likely has more data under {}",
+                                    max_bindings, root_oid
+                                ),
+                                oid: Some(root_oid.to_string()),
+                            });
+                            return Ok(rs);
+                        }
+
                         match snmp2::Oid::from_str(&oid_str) {
-                            Ok(new_oid) => current_oid = new_oid,
+                            Ok(new_oid) => {
+                                // A conforming agent returns strictly increasing
+                                // OIDs. An agent that echoes the requested OID
+                                // (or rewinds) — a classic firmware bug — would
+                                // spin this loop forever; stop with a warning
+                                // instead (launch-beta/02).
+                                if oid_less_or_eq(&new_oid, &current_oid) {
+                                    warn!(
+                                        "{} agent did not advance: requested {}, answered {}",
+                                        op_name, current_oid, oid_str
+                                    );
+                                    rs.partial = true;
+                                    rs.warnings.push(SnmpWarning {
+                                        kind: "agent-stuck".to_string(),
+                                        message: format!(
+                                            "Target answered with OID {}, which does not advance past {}; walk stopped to avoid an infinite loop",
+                                            oid_str, current_oid
+                                        ),
+                                        oid: Some(oid_str.clone()),
+                                    });
+                                    return Ok(rs);
+                                }
+                                current_oid = new_oid;
+                            }
                             Err(_) => break,
                         }
                     }
