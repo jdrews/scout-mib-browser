@@ -188,7 +188,9 @@ describe("Menus & settings (app-level settings)", () => {
     expect(await nodeCount()).toBeGreaterThan(0);
 
     await openManageMibsPage();
+    // Two-step confirm: the first click arms, the bar's button unloads.
     await (await $("[data-testid='unload-all-btn']")).click();
+    await (await $("[data-testid='unload-all-confirm-btn']")).click();
     expect(await waitForStatus(/^Unloaded all MIBs$/, 30000)).toBe("Unloaded all MIBs");
     await browser.waitUntil(
       async () => (await $$("[data-testid='mib-row']")).length === 0,
@@ -203,6 +205,19 @@ describe("Menus & settings (app-level settings)", () => {
     await openManageMibsPage();
     const rows = await readMibRows();
     expect(rows.some((r) => r.name === "EXTRA-MIB")).toBe(true);
+
+    // The confirmation is a real gate (launch-beta/11): Cancel is a no-op.
+    // The status bar is "Ready" after startup, and an unload would change it.
+    await (await $("[data-testid='unload-all-btn']")).click();
+    const bar = await $("[data-testid='unload-all-confirm-bar']");
+    await bar.waitForExist({ timeout: 5000 });
+    // The confirmation names the module count.
+    expect(await bar.getText()).toMatch(new RegExp(`Unload all ${rows.length} modules?\\?`));
+
+    await (await $("[data-testid='unload-all-cancel-btn']")).click();
+    await bar.waitForExist({ reverse: true, timeout: 5000 });
+    expect((await readMibRows()).length).toBe(rows.length);
+    expect((await (await $("[data-testid='status-text']")).getText()) ?? "").toBe("Ready");
   });
 
   it("Manage MIBs page Add dropdown", async () => {

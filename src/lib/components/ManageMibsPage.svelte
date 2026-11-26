@@ -21,6 +21,10 @@
   // delete() calls, so selection must be mutated by replacement.
   let selected = $state<string[]>([]);
   let addMenuOpen = $state(false);
+  // Two-step inline confirm for "Unload All" (launch-beta/11): one click
+  // must not destroy the whole tree. A native confirm() dialog is not an
+  // option — it is invisible to the e2e harness and unstyleable.
+  let confirmUnloadAll = $state(false);
   let selectAllInput: HTMLInputElement | null = $state(null);
 
   async function loadMibs() {
@@ -151,6 +155,7 @@
   }
 
   async function unloadAll() {
+    confirmUnloadAll = false;
     const paths = mibs.map((m) => m.filePath);
     if (paths.length === 0) return;
     try {
@@ -180,6 +185,20 @@
     if (addMenuOpen && !(e.target instanceof Element && e.target.closest("[data-add-menu]"))) {
       addMenuOpen = false;
     }
+    // Clicking away dismisses the unload-all confirmation like a menu:
+    // dismissal means "do nothing" (launch-beta/11). The trigger button is
+    // excluded because its own click bubbles here and must not dismiss the
+    // bar it just opened.
+    if (
+      confirmUnloadAll &&
+      !(
+        e.target instanceof Element &&
+        (e.target.closest("[data-testid='unload-all-confirm-bar']") ||
+          e.target.closest("[data-testid='unload-all-btn']"))
+      )
+    ) {
+      confirmUnloadAll = false;
+    }
   }
 </script>
 
@@ -201,7 +220,24 @@
           {/if}
         </div>
         <button data-testid="unload-selected-btn" class="btn btn-sm" disabled={selected.length === 0} onclick={unloadSelected}>Unload Selected</button>
-        <button data-testid="unload-all-btn" class="btn btn-sm btn-error" onclick={unloadAll}>Unload All</button>
+        {#if confirmUnloadAll}
+          <span
+            data-testid="unload-all-confirm-bar"
+            class="flex items-center gap-2 text-sm"
+            role="alertdialog"
+            aria-label="Confirm unload all"
+          >
+            Unload all {pluralize(mibs.length, "module")}?
+            <button data-testid="unload-all-confirm-btn" class="btn btn-sm btn-error" onclick={unloadAll}>
+              Unload all
+            </button>
+            <button data-testid="unload-all-cancel-btn" class="btn btn-sm btn-ghost" onclick={() => (confirmUnloadAll = false)}>
+              Cancel
+            </button>
+          </span>
+        {:else}
+          <button data-testid="unload-all-btn" class="btn btn-sm btn-error" onclick={() => (confirmUnloadAll = true)}>Unload All</button>
+        {/if}
         <input data-testid="mibs-filter-input" aria-label="Filter MIBs" type="text" placeholder="Filter" class="input input-bordered input-sm w-40 font-mono" bind:value={filterText} />
       </div>
     </div>
