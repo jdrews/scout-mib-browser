@@ -4,6 +4,7 @@
   import { S } from "$lib/stores.svelte";
   import { persistTargetConfig } from "$lib/tauriCommands";
   import { markConnected, markDisconnected, hasErrorWarning, streamingOutcome } from "$lib/connectionLogic";
+  import { RunGuard } from "$lib/runGuard";
   import { setGuard, effectiveSetOid, setDetailsFor } from "$lib/setLogic";
   import { pluralize } from "$lib/format";
   import type { MibSearchResult, TreeNode, SnmpOperation, VariableBinding, ResultSet, TableInfo, TableResult, MibNodeDetails } from "$lib/types";
@@ -39,6 +40,11 @@
   // appended to the Result Set instead of replacing it. Any other start (new
   // selection, typed OID, or a different operation) begins a fresh sequence.
   let getNextCursor = $state<string | null>(null);
+  // Drop outcomes of superseded or stopped runs (see $lib/runGuard): a
+  // cancelled GetNext resolves late by design, and applying its empty
+  // result wipes the sequence cursor and the Result Set of the run that
+  // replaced it.
+  const runGuard = new RunGuard();
 
   // Dropdown order is alphabetical by label.
   const operations: SnmpOperation[] = ["get", "getNext", "getSubtree", "getTable", "set", "walk", "bulkWalk"];
@@ -260,6 +266,9 @@
     isWalkActive = false;
     tableRunActive = false;
     cancellableRun = false;
+    // Retire the run: its late result/rejection must not touch state that
+    // now belongs to whatever the user starts next.
+    runGuard.retire();
 
     const cmds = await import("$lib/tauriCommands");
     await cmds.snmpCancelWalk();
@@ -279,6 +288,11 @@
       S.statusText = "No target configured";
       return;
     }
+
+    // This run owns the Result Set and status bar from here on; outcomes of
+    // any run it supersedes (or that Stop retires) are dropped as stale.
+    const myRun = runGuard.start();
+    const stale = () => !runGuard.isCurrent(myRun);
 
     S.isExecuting = true;
     // A Get Next run that starts where the last one ended continues the
@@ -306,6 +320,7 @@
       if (op === "get") {
         const cmds = await import("$lib/tauriCommands");
         const result = await cmds.snmpGet(cfg, [oid]);
+        if (stale()) return;
         S.executionBindings.length = 0;
         S.executionBindings.push(...result.bindings);
         S.executionResults = result;
@@ -314,6 +329,7 @@
       } else if (op === "getNext") {
         const cmds = await import("$lib/tauriCommands");
         const result = await cmds.snmpGetNext(cfg, [oid]);
+        if (stale()) return;
         // Append: the list was cleared above unless this run continued a
         // previous Get Next sequence.
         S.executionBindings.push(...result.bindings);
@@ -405,6 +421,7 @@
         );
       }
     } catch (err) {
+      if (stale()) return;
       console.error("SNMP operation failed:", err);
       isWalkActive = false;
       const msg = String(err);
@@ -422,8 +439,13 @@
         S.executionResults = { bindings: [], partial: true, warnings: [{ kind: "error", message: msg }] };
       }
     } finally {
-      S.isExecuting = false;
-      cancellableRun = false;
+      // Only the current run may release the run flags: a retired run's
+      // late rejection must not clear the flags of the run that replaced
+      // it (that hides the Stop button mid-run).
+      if (!stale()) {
+        S.isExecuting = false;
+        cancellableRun = false;
+      }
     }
   }
 
