@@ -263,6 +263,10 @@
     S.inspectorValue = null;
   }
 
+  /** Sparse-gap stand-in (launch-beta/06): the backend omits missing cells
+   * from a row's `cells` map, so absent keys render as missing. */
+  const MISSING_CELL: TableCell = { missing: true };
+
   function selectGridCell(colOid: string, cell: TableCell) {
     S.inspectorOid = colOid;
     S.inspectorValue = cell.value ? exportMod.inspectorValueOf(cell.value.value) : null;
@@ -1017,7 +1021,7 @@
                   <td class="sticky z-10 bg-base-200 px-2 font-semibold font-mono text-13 truncate" style="left: {HASH_W}px; {widthCss('instance', INST_W)}" title={row.instance_id}>{row.instance_id}</td>
                 {/if}
                 {#each visibleGridColumns as colOid (colOid)}
-                  {@const cell = row.cells[colOid]}
+                  {@const cell = row.cells[colOid] ?? MISSING_CELL}
                   {@const key = gridCellKey(row.instance_id, colOid)}
                     <td
                       class="px-2 font-mono text-13 cursor-pointer hover:bg-base-200/70 {cell.missing ? 'text-warning' : ''}"

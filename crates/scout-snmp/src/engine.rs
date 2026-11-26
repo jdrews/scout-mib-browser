@@ -37,18 +37,25 @@ pub trait WalkBatchSender: Send + Sync {
     fn send_complete(&self, result: &ResultSet);
 }
 
-/// Receives progress and the final grid from a streaming table retrieval.
+/// Receives streamed rows and the final grid meta from a streaming table
+/// retrieval.
 ///
 /// Implemented by the app crate to bridge to Tauri IPC channels, exactly like
-/// [`WalkBatchSender`].
+/// [`WalkBatchSender`]. Rows arrive in batches (launch-beta/06) so a large
+/// grid never serializes into one giant IPC message; [`Self::send_complete`]
+/// is the last message, always sent after every row batch.
 pub trait TableRowSender: Send + Sync {
     /// Sends a progress update with the current binding count. Returns `false`
     /// if the client is gone (channel closed or serialization failed), in which
     /// case the engine stops walking.
     fn send_progress(&self, count: usize) -> bool;
 
-    /// Sends the final pivoted grid (success or error summary).
-    fn send_complete(&self, result: &TableResult);
+    /// Sends one batch of assembled rows. Returns `false` if the client is
+    /// gone, in which case the engine stops sending.
+    fn send_rows(&self, rows: &[TableRow]) -> bool;
+
+    /// Sends the final grid metadata (success or error summary).
+    fn send_complete(&self, meta: &TableComplete);
 }
 
 /// How the walk loop consumes each binding it receives.
@@ -70,6 +77,11 @@ const TABLE_PROGRESS_STEP: usize = 10;
 /// with an effectively unbounded subtree (or a broken agent) cannot grow the
 /// result set past this; the walk stops with a `truncated` warning.
 pub const MAX_WALK_BINDINGS: usize = 100_000;
+
+/// Row batch size for streamed table delivery (launch-beta/06). One IPC
+/// message per batch keeps a 100k-binding grid from serializing into a
+/// single multi-hundred-MB payload that hangs the webview.
+pub const TABLE_ROW_BATCH: usize = 500;
 
 /// SNMP OID ordering: lexicographic comparison over the sub-identifier arcs.
 /// asn1-rs's `Oid` implements no `Ord`, so the walk guard compares arcs.
@@ -458,6 +470,32 @@ impl SnmpEngine {
         sender: Arc<dyn TableRowSender>,
         cancel_token: Option<Arc<AtomicBool>>,
     ) -> tokio::task::JoinHandle<()> {
+        self.get_table_streaming_with_limit(
+            runtime,
+            target,
+            table_oid,
+            column_oids,
+            index_columns,
+            sender,
+            cancel_token,
+            MAX_WALK_BINDINGS,
+        )
+    }
+
+    /// [`Self::get_table_streaming`] with an explicit binding cap (see
+    /// [`MAX_WALK_BINDINGS`]). Exposed for tests and future configuration.
+    #[allow(clippy::too_many_arguments)]
+    pub fn get_table_streaming_with_limit(
+        &self,
+        runtime: &tokio::runtime::Handle,
+        target: &Target,
+        table_oid: &str,
+        column_oids: Vec<String>,
+        index_columns: Vec<IndexColumnSpec>,
+        sender: Arc<dyn TableRowSender>,
+        cancel_token: Option<Arc<AtomicBool>>,
+        max_bindings: usize,
+    ) -> tokio::task::JoinHandle<()> {
         let target = target.clone();
         let table_oid = table_oid.to_string();
         runtime.spawn(async move {
@@ -468,13 +506,27 @@ impl SnmpEngine {
                 &index_columns,
                 sender.as_ref(),
                 cancel_token.as_deref(),
+                max_bindings,
             )
             .await;
             match result {
-                Ok(grid) => sender.send_complete(&grid),
+                Ok(grid) => {
+                    // Chunked delivery (launch-beta/06): rows stream in
+                    // batches, the meta closes the stream. A dead client
+                    // mid-stream stops the remaining batches.
+                    let meta = TableComplete::from_grid(&grid);
+                    for chunk in grid.rows.chunks(TABLE_ROW_BATCH) {
+                        if !sender.send_rows(chunk) {
+                            warn!("GetTable row stream closed early for {}", table_oid);
+                            return;
+                        }
+                    }
+                    sender.send_complete(&meta);
+                }
                 Err(e) => {
                     warn!("GetTable streaming error: {}", e);
-                    sender.send_complete(&Self::error_table_result(&table_oid, column_oids, e));
+                    let grid = Self::error_table_result(&table_oid, column_oids, e);
+                    sender.send_complete(&TableComplete::from_grid(&grid));
                 }
             }
         })
@@ -489,6 +541,7 @@ impl SnmpEngine {
         index_columns: &[IndexColumnSpec],
         sender: &dyn TableRowSender,
         cancel_token: Option<&AtomicBool>,
+        max_bindings: usize,
     ) -> Result<TableResult, String> {
         info!(
             "GetTable started on {} for {} ({} display columns)",
@@ -511,7 +564,7 @@ impl SnmpEngine {
             table_oid,
             Some(&mut sink),
             cancel_token,
-            MAX_WALK_BINDINGS,
+            max_bindings,
         )
         .await?;
 

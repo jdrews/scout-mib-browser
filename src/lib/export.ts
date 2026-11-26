@@ -252,8 +252,14 @@ export function gridToJson(
       columns: result.columns.map((oid) => ({ oid, name: nameOf(oid) })),
       rows: result.rows.map((r) => ({
         instance_id: r.instance_id,
+        // Iterate the column list, not the row's cells: cells are sparse
+        // (launch-beta/06), and the export contract keeps every column with
+        // gaps as null.
         cells: Object.fromEntries(
-          Object.entries(r.cells).map(([k, c]) => [k, c.value ? valueDisplay(c.value.value) : null]),
+          result.columns.map((colOid) => {
+            const c = r.cells[colOid];
+            return [colOid, c?.value ? valueDisplay(c.value.value) : null];
+          }),
         ),
       })),
     },

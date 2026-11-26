@@ -32,6 +32,11 @@ pub struct IndexColumnSpec {
 }
 
 /// A single cell in a table grid result.
+///
+/// With sparse gap representation (launch-beta/06) the pivot only emits
+/// cells that carry a value; a missing cell is the *absence* of the column
+/// key in the row's `cells` map. `missing: true` cells remain supported for
+/// consumers that construct grids by hand.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TableCell {
@@ -61,6 +66,9 @@ pub struct TableRow {
 }
 
 /// Result of a table retrieval operation — pivoted grid of rows and columns.
+///
+/// Row cells are sparse: only cells with data are present (see
+/// [`TableCell`]); `missing_cells` counts the gaps arithmetically.
 #[derive(Debug, Clone, Serialize)]
 pub struct TableResult {
     /// The table's root OID.
@@ -78,6 +86,59 @@ pub struct TableResult {
     pub warnings: Vec<SnmpWarning>,
     /// Whether the operation completed fully or returned partial results.
     pub partial: bool,
+}
+
+/// Grid metadata sent after the row batches on a streaming table delivery
+/// (launch-beta/06 — chunked IPC). Mirrors [`TableResult`] without `rows`,
+/// which arrive as [`TableStreamMsg::Rows`] batches beforehand.
+#[derive(Debug, Clone, Serialize)]
+pub struct TableComplete {
+    /// The table's root OID.
+    pub table_oid: String,
+    /// Column OIDs that were walked (in order).
+    pub columns: Vec<String>,
+    /// Total number of unique instances found across all columns.
+    pub total_rows: usize,
+    /// Number of cells that are missing due to inconsistent column data.
+    pub missing_cells: usize,
+    /// Non-fatal warnings collected during retrieval.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<SnmpWarning>,
+    /// Whether the operation completed fully or returned partial results.
+    pub partial: bool,
+}
+
+impl TableComplete {
+    /// Splits grid metadata off an assembled [`TableResult`].
+    pub fn from_grid(grid: &TableResult) -> Self {
+        Self {
+            table_oid: grid.table_oid.clone(),
+            columns: grid.columns.clone(),
+            total_rows: grid.total_rows,
+            missing_cells: grid.missing_cells,
+            warnings: grid.warnings.clone(),
+            partial: grid.partial,
+        }
+    }
+}
+
+/// One message on the table delivery channel: a batch of rows, then a final
+/// complete meta (launch-beta/06). Serialized with a `kind` tag so the
+/// frontend can discriminate.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum TableStreamMsg {
+    /// A batch of assembled rows, in walk order.
+    Rows {
+        /// Rows in this batch.
+        rows: Vec<TableRow>,
+    },
+    /// Final metadata — sent once, after every row batch.
+    Complete {
+        /// Grid metadata (row count, warnings, partial flag).
+        #[serde(flatten)]
+        meta: TableComplete,
+    },
 }
 
 /// Extracts the instance suffix from a variable binding OID given a column base OID.
@@ -172,7 +233,8 @@ pub fn decode_instance_suffix(
 /// encounter order — numeric index order, with no string sorting (G3). A
 /// binding is assigned to a row only if its OID starts with one of the
 /// requested column OIDs; anything else (e.g., nested sub-table data) is
-/// excluded from the grid (G4). Missing cells are marked `missing: true` and
+/// excluded from the grid (G4). Missing cells are represented sparsely —
+/// the row has no entry for that column — and counted in `missing_cells`;
 /// columns with fewer rows than the maximum produce an `inconsistent-rows`
 /// warning. When index metadata is provided, each row's suffix is decoded
 /// into per-component values; if any row fails to decode, all rows fall back
@@ -235,23 +297,16 @@ pub fn assemble_table_walk(
         );
     }
 
-    // Fill missing cells and count them.
+    // Missing cells are represented sparsely (launch-beta/06): a row simply
+    // has no entry for a column the agent did not return. Backfilling every
+    // gap costs rows × columns allocations and IPC bytes — 1.5M placeholder
+    // cells for a 50k-row × 30-column sparse table. The count is arithmetic:
+    // per column, rows without a value.
     let total_rows = rows.len();
-    let mut missing_cells = 0;
-    for row in &mut rows {
-        for col in &column_oids {
-            if !row.cells.contains_key(col) {
-                missing_cells += 1;
-                row.cells.insert(
-                    col.clone(),
-                    TableCell {
-                        value: None,
-                        missing: true,
-                    },
-                );
-            }
-        }
-    }
+    let missing_cells: usize = column_oids
+        .iter()
+        .map(|col| total_rows.saturating_sub(col_counts.get(col).copied().unwrap_or(0)))
+        .sum();
 
     // Warnings for columns with fewer rows than the maximum.
     let mut warnings: Vec<SnmpWarning> = Vec::new();
@@ -479,8 +534,41 @@ mod tests {
         assert_eq!(grid.missing_cells, 1);
         assert_eq!(grid.warnings.len(), 1);
         assert_eq!(grid.warnings[0].kind, "inconsistent-rows");
+        // Sparse gaps (launch-beta/06): a missing cell is the *absence* of an
+        // entry, not a backfilled placeholder.
         let row3 = &grid.rows[2];
-        assert!(row3.cells.get(&col4).unwrap().missing);
+        assert!(
+            !row3.cells.contains_key(&col4),
+            "missing cells must be represented sparsely"
+        );
+        assert_eq!(
+            grid.rows.iter().map(|r| r.cells.len()).sum::<usize>(),
+            5,
+            "cells must equal bindings — no placeholder backfill"
+        );
+    }
+
+    #[test]
+    fn assemble_walk_sparse_gaps_do_not_backfill() {
+        // 1000 rows × 20 columns with one populated column: the old pivot
+        // backfilled 19k placeholder cells (rows × columns allocations).
+        // Sparse gaps keep the pivot linear in the data that exists.
+        let table_oid = "1.3.6.1.4.1.99997.9".to_string();
+        let cols: Vec<String> = (1..=20u32).map(|c| format!("{table_oid}.1.{c}")).collect();
+        let col1 = cols[0].clone();
+        let bindings: Vec<VariableBinding> = (1..=1000u32)
+            .map(|i| binding_from_snmp(format!("{col1}.{i}"), snmp2::Value::Integer(i as i64)))
+            .collect();
+
+        let grid = assemble_table_walk(table_oid, cols, bindings, &[]);
+
+        assert_eq!(grid.total_rows, 1000);
+        assert_eq!(grid.missing_cells, 19000, "gaps counted arithmetically");
+        assert_eq!(
+            grid.rows.iter().map(|r| r.cells.len()).sum::<usize>(),
+            1000,
+            "cells == bindings, no quadratic backfill"
+        );
     }
 
     #[test]

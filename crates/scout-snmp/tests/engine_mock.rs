@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use scout_snmp::{
     IndexColumnSpec, IndexEncoding, MockSnmpServer, ResultSet, SetValue, SnmpEngine, SnmpValue,
-    TableResult, TableRowSender, Target, VariableBinding, WalkBatchSender,
+    TableComplete, TableResult, TableRow, TableRowSender, Target, VariableBinding, WalkBatchSender,
 };
 
 /// Builds a runtime shaped like the app's: 8MB worker stacks.
@@ -569,12 +569,7 @@ fn engine_get_table_stops_on_non_advancing_agent() {
     }))
     .expect("test task panicked");
 
-    let grid = sender
-        .complete
-        .lock()
-        .unwrap()
-        .take()
-        .expect("complete result was not sent");
+    let grid = sender.grid();
     assert!(
         grid.warnings.iter().any(|w| w.kind == "agent-stuck"),
         "expected an agent-stuck warning, got: {:?}",
@@ -584,11 +579,12 @@ fn engine_get_table_stops_on_non_advancing_agent() {
     assert!(server.request_count() <= 4);
 }
 
-/// Collects progress updates and the final table grid.
+/// Collects streamed row batches, progress updates, and the final grid meta.
 #[derive(Default)]
 struct TestTableSender {
     progress: Mutex<Vec<usize>>,
-    complete: Mutex<Option<TableResult>>,
+    batches: Mutex<Vec<Vec<TableRow>>>,
+    complete: Mutex<Option<TableComplete>>,
 }
 
 impl TableRowSender for TestTableSender {
@@ -597,8 +593,52 @@ impl TableRowSender for TestTableSender {
         true
     }
 
-    fn send_complete(&self, result: &TableResult) {
-        *self.complete.lock().unwrap() = Some(result.clone());
+    fn send_rows(&self, rows: &[TableRow]) -> bool {
+        self.batches.lock().unwrap().push(rows.to_vec());
+        true
+    }
+
+    fn send_complete(&self, meta: &TableComplete) {
+        *self.complete.lock().unwrap() = Some(meta.clone());
+    }
+}
+
+impl TestTableSender {
+    /// Reconstructs the grid the client would assemble from the stream:
+    /// all row batches in order plus the complete meta.
+    fn grid(&self) -> TableResult {
+        let rows: Vec<TableRow> = self
+            .batches
+            .lock()
+            .unwrap()
+            .iter()
+            .flatten()
+            .cloned()
+            .collect();
+        let meta = self
+            .complete
+            .lock()
+            .unwrap()
+            .take()
+            .expect("complete meta was not sent");
+        TableResult {
+            table_oid: meta.table_oid,
+            columns: meta.columns,
+            rows,
+            total_rows: meta.total_rows,
+            missing_cells: meta.missing_cells,
+            warnings: meta.warnings,
+            partial: meta.partial,
+        }
+    }
+
+    fn batch_sizes(&self) -> Vec<usize> {
+        self.batches
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|b| b.len())
+            .collect()
     }
 }
 
@@ -615,8 +655,12 @@ impl TableRowSender for GoneAtTableSender {
         count < self.gone_at
     }
 
-    fn send_complete(&self, result: &TableResult) {
-        self.inner.send_complete(result);
+    fn send_rows(&self, rows: &[TableRow]) -> bool {
+        self.inner.send_rows(rows)
+    }
+
+    fn send_complete(&self, meta: &TableComplete) {
+        self.inner.send_complete(meta);
     }
 }
 
@@ -684,12 +728,7 @@ fn engine_get_table_single_pass_grid() {
     }))
     .expect("test task panicked");
 
-    let grid = sender
-        .complete
-        .lock()
-        .unwrap()
-        .take()
-        .expect("complete result was not sent");
+    let grid = sender.grid();
 
     // G3 regression: rows in walk order — 2 before 10, no string sorting.
     assert_eq!(grid.total_rows, 12);
@@ -770,17 +809,132 @@ fn engine_get_table_client_gone_stops_early() {
     }))
     .expect("test task panicked");
 
-    let grid = inner
-        .complete
-        .lock()
-        .unwrap()
-        .take()
-        .expect("complete result was not sent");
+    let grid = inner.grid();
     assert!(grid.partial, "client-gone stop must be marked partial");
     assert!(
         grid.total_rows < 12,
         "walk should have stopped before all rows arrived"
     );
+}
+
+#[test]
+fn engine_get_table_binding_cap_returns_partial() {
+    // The collection cap (ticket 02) applied to Get Table must produce
+    // partial results with a truncated warning — never a hard failure
+    // (launch-beta/06).
+    let rt = app_runtime();
+    let (_server, target, table_oid, column_oids) = start_table_server(); // 62 bindings
+
+    let sender = Arc::new(TestTableSender::default());
+    let sender_for_task = sender.clone();
+    rt.block_on(rt.spawn(async move {
+        let engine = SnmpEngine::new();
+        let handle = tokio::runtime::Handle::current();
+        let join = engine.get_table_streaming_with_limit(
+            &handle,
+            &target,
+            &table_oid,
+            column_oids,
+            vec![],
+            sender_for_task,
+            None,
+            25,
+        );
+        tokio::time::timeout(Duration::from_secs(15), join)
+            .await
+            .expect("capped get table did not terminate")
+            .expect("get table task panicked");
+    }))
+    .expect("test task panicked");
+
+    let grid = sender.grid();
+    assert!(
+        grid.warnings.iter().any(|w| w.kind == "truncated"),
+        "expected a truncated warning, got: {:?}",
+        grid.warnings
+    );
+    assert!(grid.partial, "a capped collection is partial");
+    // Column-major walk: the cap lands mid-table, so the grid is non-empty
+    // but incomplete (60 data bindings existed).
+    assert!(grid.total_rows > 0, "partial results must be delivered");
+    let cells: usize = grid.rows.iter().map(|r| r.cells.len()).sum();
+    assert!(cells < 60, "cap must stop before all bindings arrive");
+}
+
+#[test]
+fn engine_get_table_huge_sparse_table_is_bounded() {
+    // 1200 rows × 3 columns, column 2 populated only for row 1. The pivot
+    // must stay linear (cells == bindings, no rows×columns backfill) and
+    // rows must stream in bounded batches — no single multi-MB IPC message
+    // (launch-beta/06).
+    let rt = app_runtime();
+    let (server, target) = start_server();
+    let table_oid = "1.3.6.1.4.1.99997.6".to_string();
+    let column_oids: Vec<String> = (1..=3u32).map(|c| format!("{table_oid}.1.{c}")).collect();
+    for row in 1..=1200u32 {
+        server.set_value(
+            &format!("{table_oid}.1.1.{row}"),
+            MockSnmpServer::ber_integer(row as i32),
+        );
+        if row == 1 {
+            server.set_value(
+                &format!("{table_oid}.1.2.{row}"),
+                MockSnmpServer::ber_integer(7),
+            );
+        }
+        server.set_value(
+            &format!("{table_oid}.1.3.{row}"),
+            MockSnmpServer::ber_integer(row as i32 * 3),
+        );
+    }
+
+    let sender = Arc::new(TestTableSender::default());
+    let sender_for_task = sender.clone();
+    rt.block_on(rt.spawn(async move {
+        let engine = SnmpEngine::new();
+        let handle = tokio::runtime::Handle::current();
+        let join = engine.get_table_streaming(
+            &handle,
+            &target,
+            &table_oid,
+            column_oids,
+            vec![],
+            sender_for_task,
+            None,
+        );
+        tokio::time::timeout(Duration::from_secs(60), join)
+            .await
+            .expect("huge table did not terminate")
+            .expect("get table task panicked");
+    }))
+    .expect("test task panicked");
+
+    let grid = sender.grid();
+    assert_eq!(grid.total_rows, 1200);
+    assert_eq!(grid.rows.len(), 1200);
+    assert_eq!(
+        grid.rows.iter().map(|r| r.cells.len()).sum::<usize>(),
+        2401,
+        "cells == bindings: sparse gaps, no 1199-cell backfill"
+    );
+    assert_eq!(grid.missing_cells, 1199, "gaps counted arithmetically");
+
+    let batches = sender.batch_sizes();
+    assert!(
+        batches.len() >= 3,
+        "rows must stream in multiple batches, got {batches:?}"
+    );
+    assert!(
+        batches.iter().all(|n| *n <= scout_snmp::TABLE_ROW_BATCH),
+        "batch {batches:?} exceeds TABLE_ROW_BATCH",
+    );
+
+    assert!(
+        grid.warnings.iter().any(|w| w.kind == "inconsistent-rows"),
+        "sparse column must warn, got: {:?}",
+        grid.warnings
+    );
+    assert!(grid.partial, "a table with gaps is partial");
 }
 
 #[test]

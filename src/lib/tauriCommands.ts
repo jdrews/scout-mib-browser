@@ -19,6 +19,8 @@ import type {
   TargetConfig,
   TableInfo,
   TableResult,
+  TableStreamMsg,
+  TableRowData,
   LogEntry,
   MibNodeDetails,
 } from "./types";
@@ -218,7 +220,9 @@ export async function snmpSet(
 /** Retrieves a table as a pivoted grid (streaming via channels).
  * `columnOids` is the display selection only — the backend walks the whole
  * subtree in one pass. Returns immediately; progress and the final grid
- * stream via callbacks. */
+ * stream via callbacks. The grid arrives as row batches followed by a
+ * complete meta (launch-beta/06 — chunked IPC); this assembles them into
+ * one TableResult before invoking `onComplete`. */
 export async function snmpGetTable(
   targetConfig: TargetConfig,
   tableOid: string,
@@ -230,7 +234,15 @@ export async function snmpGetTable(
 
   // Tauri channels auto-deserialize JSON — callbacks receive objects, not strings.
   const progressChannel = new Channel<number>((count) => onProgress(count));
-  const completeChannel = new Channel<TableResult>((result) => onComplete(result));
+  const rows: TableRowData[] = [];
+  const completeChannel = new Channel<TableStreamMsg>((msg) => {
+    if (msg.kind === "rows") {
+      rows.push(...msg.rows);
+      return;
+    }
+    const { kind: _kind, ...meta } = msg;
+    onComplete({ ...meta, rows });
+  });
 
   await invoke("snmp_get_table", {
     params,
