@@ -326,7 +326,6 @@ fn main() {
             snmp_cancel_walk,
             snmp_set,
             snmp_get_table,
-            fs_write_file,
             dialog_open_directory,
             dialog_open_files,
             dialog_save_file,
@@ -829,11 +828,59 @@ async fn snmp_get_table(
 
 // ── File System Commands ─────────────────────────────────────────────────────
 
-/// Writes a string to the given file path.
+/// Fallback suggested filename when nothing usable survives sanitization.
+const DEFAULT_EXPORT_FILENAME: &str = "scout-export";
+
+/// Reduces a caller-supplied export name to a bare, safe filename for the
+/// native save dialog (launch-beta/09).
+///
+/// Export names are built from MIB node names — attacker-controlled text from
+/// user-loaded MIB files — so every path component, control character and
+/// leading dot is stripped: the dialog must never be prefilled with a target
+/// outside the directory the user picks.
+fn sanitize_filename(name: &str) -> String {
+    let base = name
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or_default()
+        .chars()
+        .filter(|c| !c.is_control())
+        .collect::<String>();
+    let trimmed = base.trim().trim_start_matches('.').trim().to_string();
+    if trimmed.is_empty() {
+        DEFAULT_EXPORT_FILENAME.to_string()
+    } else {
+        trimmed.chars().take(100).collect()
+    }
+}
+
+/// Saves `content` to a path the **user** chooses: the native save dialog
+/// picks the destination and the write is scoped to exactly that path
+/// (launch-beta/09).
+///
+/// This replaces the old `fs_write_file(path, content)` command, which wrote
+/// to any path the webview asked for — turning any frontend XSS into a local
+/// file write as the user (e.g. `~/.bashrc`). The webview no longer names a
+/// path at all; it passes content and a suggested filename, and the dialog is
+/// the only source of the destination. Returns the saved path, or `None` when
+/// the user cancels.
 #[tauri::command]
-fn fs_write_file(path: String, content: String) -> Result<(), String> {
-    std::fs::write(&path, content).map_err(|e| format!("Failed to write {}: {}", path, e))?;
-    Ok(())
+fn dialog_save_file(
+    app: tauri::AppHandle,
+    default_filename: String,
+    content: String,
+) -> Result<Option<String>, String> {
+    let window = app
+        .get_webview_window("main")
+        .expect("main window not found");
+    let path = rfd::FileDialog::new()
+        .set_parent(&window)
+        .set_file_name(sanitize_filename(&default_filename))
+        .save_file();
+    let Some(path) = path else { return Ok(None) };
+    std::fs::write(&path, content)
+        .map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
+    Ok(Some(path.to_string_lossy().to_string()))
 }
 
 /// Opens a native directory picker dialog.
@@ -858,19 +905,6 @@ fn dialog_open_files(app: tauri::AppHandle) -> Result<Option<Vec<String>>, Strin
             .map(|p| p.to_string_lossy().to_string())
             .collect()
     }))
-}
-
-/// Opens a native save file dialog.
-#[tauri::command]
-fn dialog_save_file(
-    app: tauri::AppHandle,
-    _default_path: String,
-) -> Result<Option<String>, String> {
-    let window = app
-        .get_webview_window("main")
-        .expect("main window not found");
-    let path = rfd::FileDialog::new().set_parent(&window).save_file();
-    Ok(path.map(|p| p.to_string_lossy().to_string()))
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -1079,5 +1113,51 @@ mod tests {
         std::fs::write(tmp.join("x.txt"), "x").expect("write file");
         assert!(dir_has_entries(&tmp.display().to_string()));
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // ── Save-dialog filename sanitization (launch-beta/09) ────────────────
+    //
+    // Export filenames are built from MIB node names, which come from
+    // user-loaded (attacker-controlled) MIB files. The name is only a dialog
+    // *suggestion*, so it must never carry a path: a node named
+    // "../../../../.bashrc" must not prefill the save dialog with a target
+    // outside the user's chosen directory.
+
+    #[test]
+    fn sanitize_filename_strips_path_components() {
+        assert_eq!(sanitize_filename("../../../../etc/passwd"), "passwd");
+        assert_eq!(sanitize_filename(r"..\..\windows\x.bat"), "x.bat");
+        assert_eq!(
+            sanitize_filename("/absolute/path/sysDescr.json"),
+            "sysDescr.json"
+        );
+    }
+
+    #[test]
+    fn sanitize_filename_strips_hidden_and_empty_names() {
+        assert_eq!(sanitize_filename(".bashrc"), "bashrc");
+        assert_eq!(sanitize_filename("...//.."), "scout-export");
+        assert_eq!(sanitize_filename(""), "scout-export");
+        assert_eq!(sanitize_filename("   "), "scout-export");
+    }
+
+    #[test]
+    fn sanitize_filename_removes_control_chars() {
+        assert_eq!(sanitize_filename("a\0b.txt"), "ab.txt");
+        assert_eq!(sanitize_filename("line1\nline2.csv"), "line1line2.csv");
+    }
+
+    #[test]
+    fn sanitize_filename_caps_length_and_keeps_normal_names() {
+        assert_eq!(sanitize_filename("sysDescr.tsv"), "sysDescr.tsv");
+        assert_eq!(sanitize_filename("ōsçråñ-mïb.tsv"), "ōsçråñ-mïb.tsv");
+        let long = "a".repeat(400);
+        let out = sanitize_filename(&long);
+        assert!(
+            out.chars().count() <= 100,
+            "too long: {}",
+            out.chars().count()
+        );
+        assert!(out.starts_with('a'));
     }
 }

@@ -8,12 +8,14 @@
 //! - Unexpected ASN.1 types displayed as raw value + type code
 
 mod engine;
+#[cfg(feature = "mock")]
 pub mod mock;
 pub mod table;
 mod tolerant;
 pub mod types;
 
 pub use engine::{SnmpEngine, TableRowSender, WalkBatchSender, MAX_WALK_BINDINGS, TABLE_ROW_BATCH};
+#[cfg(feature = "mock")]
 pub use mock::MockSnmpServer;
 pub use table::*;
 pub use types::*;
