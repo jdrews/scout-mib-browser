@@ -9,11 +9,13 @@ use std::sync::{Arc, RwLock};
 use tauri::Manager;
 use tracing::{info, warn};
 
-/// Shared cancellation token for in-progress walks.
+/// Shared cancellation token for in-progress SNMP operations. One token is
+/// used by every cancellable command — the three streaming ones (Walk, Bulk
+/// Walk, Get Table) and, since launch-beta/08, Get / GetNext / Set.
 #[derive(Clone)]
 pub struct WalkCancelToken {
     inner: Arc<AtomicBool>,
-    handle: Arc<std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    handle: Arc<std::sync::Mutex<Option<tokio::task::AbortHandle>>>,
 }
 
 impl Default for WalkCancelToken {
@@ -54,8 +56,8 @@ impl WalkCancelToken {
         self.inner.clone()
     }
 
-    /// Stores the JoinHandle so it can be aborted on cancel.
-    pub fn set_handle(&self, handle: tokio::task::JoinHandle<()>) {
+    /// Stores the task's abort handle so cancel() can stop it immediately.
+    pub fn set_handle(&self, handle: tokio::task::AbortHandle) {
         *self.handle.lock().unwrap() = Some(handle);
     }
 }
@@ -133,16 +135,31 @@ impl SnmpEngineState {
         self.runtime.handle().clone()
     }
 
-    /// Spawns an engine operation onto the app-owned 8MB-stack runtime and awaits its result.
-    pub async fn run<T, F>(&self, label: &str, op: F) -> Result<T, String>
+    /// Spawns an engine operation on the app-owned runtime, registers its
+    /// abort handle with the shared cancel token, and awaits the result
+    /// (launch-beta/08). Stop/Escape aborts the task at once; the aborted
+    /// join maps to `Cancelled by user` so the UI reads the same text the
+    /// engine's token checks produce.
+    pub async fn run_cancellable<T, F>(
+        &self,
+        label: &str,
+        cancel_token: &WalkCancelToken,
+        op: F,
+    ) -> Result<T, String>
     where
         F: std::future::Future<Output = T> + Send + 'static,
         T: Send + 'static,
     {
-        self.runtime
-            .spawn(op)
-            .await
-            .map_err(|e| format!("{} task failed: {}", label, e))
+        cancel_token.reset();
+        let join = self.runtime.spawn(op);
+        cancel_token.set_handle(join.abort_handle());
+        join.await.map_err(|e| {
+            if e.is_cancelled() {
+                "Cancelled by user".to_string()
+            } else {
+                format!("{} task failed: {}", label, e)
+            }
+        })
     }
 }
 
@@ -570,20 +587,31 @@ async fn snmp_connect(
     let join_handle = engine_state
         .runtime_handle()
         .spawn(async move { engine.get(&target, &oids).await });
+    let abort_on_timeout = join_handle.abort_handle();
 
-    // Await completion with a timeout.
-    match tokio::time::timeout(std::time::Duration::from_secs(10), join_handle).await {
+    // Await completion with a timeout. On timeout the task is aborted —
+    // dropping the JoinHandle alone left it running for the full retry
+    // ladder (launch-beta/08).
+    let joined = tokio::time::timeout(std::time::Duration::from_secs(10), join_handle).await;
+    match joined {
         Ok(Ok(rs)) => rs,
         Ok(Err(join_err)) => Err(format!("Task panicked: {}", join_err)),
-        Err(_timeout) => Err("Connection timed out (10s)".to_string()),
+        Err(_timeout) => {
+            abort_on_timeout.abort();
+            Err("Connection timed out (10s)".to_string())
+        }
     }
 }
 
 /// Executes a Get operation for the given OIDs.
+///
+/// Cancellable (launch-beta/08): Stop/Escape aborts the task and the engine
+/// checks the shared token at every retry boundary.
 #[tauri::command]
 async fn snmp_get(
     engine_state: tauri::State<'_, SnmpEngineState>,
     resolver: tauri::State<'_, MibResolverState>,
+    cancel_token: tauri::State<'_, WalkCancelToken>,
     params: SnmpCommandParams,
     oids: Vec<String>,
 ) -> Result<snmp::ResultSet, String> {
@@ -595,8 +623,13 @@ async fn snmp_get(
         .map(|o| scalar_instance_oid(&resolver.inner, o))
         .collect();
     let engine = engine_state.engine.clone();
+    let cancel = (*cancel_token).inner();
     engine_state
-        .run("Get", async move { engine.get(&target, &oids).await })
+        .run_cancellable("Get", &cancel_token, async move {
+            engine
+                .get_with_cancel(&target, &oids, Some(cancel.as_ref()))
+                .await
+        })
         .await?
 }
 
@@ -622,19 +655,26 @@ fn scalar_instance_oid(resolver: &RwLock<mib::Resolver>, oid: &str) -> String {
 }
 
 /// Executes a GetNext operation for the given OIDs.
+///
+/// Cancellable (launch-beta/08): the engine checks the shared token between
+/// the sequential OIDs and during retries, returning the bindings collected
+/// so far with a `cancelled` warning.
 #[tauri::command]
 async fn snmp_get_next(
     engine_state: tauri::State<'_, SnmpEngineState>,
+    cancel_token: tauri::State<'_, WalkCancelToken>,
     params: SnmpCommandParams,
     oids: Vec<String>,
 ) -> Result<snmp::ResultSet, String> {
     let target = build_target(&params)?;
     let engine = engine_state.engine.clone();
+    let cancel = (*cancel_token).inner();
     engine_state
-        .run(
-            "GetNext",
-            async move { engine.get_next(&target, &oids).await },
-        )
+        .run_cancellable("GetNext", &cancel_token, async move {
+            engine
+                .get_next_with_cancel(&target, &oids, Some(cancel.as_ref()))
+                .await
+        })
         .await?
 }
 
@@ -663,7 +703,7 @@ async fn snmp_walk_streaming(
         sender,
         Some(cancel),
     );
-    cancel_token.set_handle(handle);
+    cancel_token.set_handle(handle.abort_handle());
     Ok(())
 }
 
@@ -695,7 +735,7 @@ async fn snmp_bulk_walk_streaming(
         sender,
         Some(cancel),
     );
-    cancel_token.set_handle(handle);
+    cancel_token.set_handle(handle.abort_handle());
     Ok(())
 }
 
@@ -706,10 +746,15 @@ fn snmp_cancel_walk(cancel_token: tauri::State<'_, WalkCancelToken>) {
 }
 
 /// Executes a Set operation to write a value at the given OID.
+///
+/// Cancellable (launch-beta/08): Stop/Escape aborts the task and the engine
+/// checks the shared token at every retry boundary — before the request is
+/// ever sent on the first attempt.
 #[tauri::command]
 async fn snmp_set(
     engine_state: tauri::State<'_, SnmpEngineState>,
     resolver: tauri::State<'_, MibResolverState>,
+    cancel_token: tauri::State<'_, WalkCancelToken>,
     params: SnmpCommandParams,
     oid: String,
     value_type: String,
@@ -721,11 +766,13 @@ async fn snmp_set(
     // the same fixup, this is defense in depth (G7).
     let oid = scalar_instance_oid(&resolver.inner, &oid);
     let engine = engine_state.engine.clone();
+    let cancel = (*cancel_token).inner();
     engine_state
-        .run(
-            "Set",
-            async move { engine.set(&target, &oid, set_value).await },
-        )
+        .run_cancellable("Set", &cancel_token, async move {
+            engine
+                .set_with_cancel(&target, &oid, set_value, Some(cancel.as_ref()))
+                .await
+        })
         .await?
 }
 
@@ -776,7 +823,7 @@ async fn snmp_get_table(
         sender,
         Some(cancel),
     );
-    cancel_token.set_handle(handle);
+    cancel_token.set_handle(handle.abort_handle());
     Ok(())
 }
 

@@ -108,7 +108,26 @@ impl SnmpEngine {
 
     /// Executes a Get operation for the given OIDs against the Target.
     pub async fn get(&self, target: &Target, oids: &[String]) -> Result<ResultSet, String> {
+        self.get_with_cancel(target, oids, None).await
+    }
+
+    /// Get with a cancellation token (launch-beta/08). Checked at every
+    /// attempt boundary — before connect/send and after each backoff sleep —
+    /// so Stop/Escape cuts the retry ladder (worst case ~15 s per OID) at the
+    /// next boundary. A cancel is a user action, not an agent verdict: it
+    /// surfaces as `Err("Cancelled by user")`, the same text the streaming
+    /// commands produce.
+    pub async fn get_with_cancel(
+        &self,
+        target: &Target,
+        oids: &[String],
+        cancel_token: Option<&AtomicBool>,
+    ) -> Result<ResultSet, String> {
+        let cancelled = || cancel_token.is_some_and(|t| t.load(Ordering::Acquire));
         info!("Get started on {} for {} OID(s)", target.addr(), oids.len());
+        if cancelled() {
+            return Err("Cancelled by user".to_string());
+        }
         let target = target.clone();
         let oids_owned = oids.to_vec();
 
@@ -126,6 +145,9 @@ impl SnmpEngine {
         // Inline retry loop to avoid large generic future types.
         let mut last_err = None;
         for attempt in 0..=MAX_RETRIES {
+            if cancelled() {
+                return Err("Cancelled by user".to_string());
+            }
             let oids: Vec<Arc<snmp2::Oid<'static>>> = snmp_oids.clone();
             // A connect failure is deterministic (DNS, bad address) — retrying
             // cannot change the outcome. Fail fast with the classified message
@@ -169,6 +191,9 @@ impl SnmpEngine {
                             delay
                         );
                         tokio::time::sleep(delay).await;
+                        if cancelled() {
+                            return Err("Cancelled by user".to_string());
+                        }
                     } else {
                         last_err = Some(e);
                         break;
@@ -186,6 +211,21 @@ impl SnmpEngine {
 
     /// Executes a GetNext operation for the given OIDs against the Target.
     pub async fn get_next(&self, target: &Target, oids: &[String]) -> Result<ResultSet, String> {
+        self.get_next_with_cancel(target, oids, None).await
+    }
+
+    /// GetNext with a cancellation token (launch-beta/08). Checked between
+    /// the sequential OIDs and after each backoff sleep. GetNext reports
+    /// failure as warnings, not `Err`, so a cancel does too: the call returns
+    /// `Ok(rs)` with the bindings collected so far plus a `cancelled`
+    /// warning, keeping a partial sequence usable.
+    pub async fn get_next_with_cancel(
+        &self,
+        target: &Target,
+        oids: &[String],
+        cancel_token: Option<&AtomicBool>,
+    ) -> Result<ResultSet, String> {
+        let cancelled = || cancel_token.is_some_and(|t| t.load(Ordering::Acquire));
         info!(
             "GetNext started on {} for {} OID(s)",
             target.addr(),
@@ -211,6 +251,21 @@ impl SnmpEngine {
         let mut rs = ResultSet::new();
 
         for (oid_str, parsed) in parsed_oids {
+            // Checked between the sequential OIDs (ticket 08): a 10-OID
+            // GetNext against a dead host runs for minutes otherwise.
+            if cancelled() {
+                info!(
+                    "GetNext cancelled by user after {} binding(s)",
+                    rs.bindings.len()
+                );
+                rs.partial = true;
+                rs.warnings.push(SnmpWarning {
+                    kind: "cancelled".to_string(),
+                    message: "Cancelled by user".to_string(),
+                    oid: Some(oid_str),
+                });
+                return Ok(rs);
+            }
             let target = target.clone();
 
             // Inline retry loop.
@@ -246,6 +301,19 @@ impl SnmpEngine {
                                 delay
                             );
                             tokio::time::sleep(delay).await;
+                            if cancelled() {
+                                info!(
+                                    "GetNext cancelled by user after {} binding(s)",
+                                    rs.bindings.len()
+                                );
+                                rs.partial = true;
+                                rs.warnings.push(SnmpWarning {
+                                    kind: "cancelled".to_string(),
+                                    message: "Cancelled by user".to_string(),
+                                    oid: Some(oid_str.clone()),
+                                });
+                                return Ok(rs);
+                            }
                         } else {
                             last_err = Some(e);
                             break;
@@ -377,10 +445,28 @@ impl SnmpEngine {
         oid: &str,
         value: SetValue,
     ) -> Result<ResultSet, String> {
+        self.set_with_cancel(target, oid, value, None).await
+    }
+
+    /// Set with a cancellation token (launch-beta/08). Checked at every
+    /// attempt boundary. Like Get, a cancel surfaces as
+    /// `Err("Cancelled by user")` — the write is never confirmed, so there
+    /// is no partial result to keep.
+    pub async fn set_with_cancel(
+        &self,
+        target: &Target,
+        oid: &str,
+        value: SetValue,
+        cancel_token: Option<&AtomicBool>,
+    ) -> Result<ResultSet, String> {
+        let cancelled = || cancel_token.is_some_and(|t| t.load(Ordering::Acquire));
         let target = target.clone();
         let oid = oid.to_string();
         let value_owned = value;
         info!("Set started on {} for {}", target.addr(), oid);
+        if cancelled() {
+            return Err("Cancelled by user".to_string());
+        }
 
         // Parse OID once.
         let parsed_oid: Arc<snmp2::Oid<'static>> = Arc::new(
@@ -391,6 +477,9 @@ impl SnmpEngine {
         // Inline retry loop.
         let mut last_err = None;
         for attempt in 0..=MAX_RETRIES {
+            if cancelled() {
+                return Err("Cancelled by user".to_string());
+            }
             let o = Arc::clone(&parsed_oid);
             let v = value_owned.clone();
             // Connect failures are deterministic — fail fast (launch-beta/03).
@@ -436,6 +525,9 @@ impl SnmpEngine {
                             delay
                         );
                         tokio::time::sleep(delay).await;
+                        if cancelled() {
+                            return Err("Cancelled by user".to_string());
+                        }
                     } else {
                         last_err = Some(e);
                         break;

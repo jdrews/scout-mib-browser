@@ -1017,3 +1017,242 @@ fn engine_set_roundtrip() {
         SnmpValue::OctetString(b"renamed".to_vec())
     );
 }
+
+// ── Cancellation (launch-beta/08) ───────────────────────────────────────────
+
+/// An ephemeral port nobody listens on: UDP to it fails fast with an ICMP
+/// refusal (a retryable network error), so the engine climbs the backoff
+/// ladder (1+2+4 s sleeps) — the mid-flight cancel tests cancel inside a
+/// sleep. A bound, silent socket would give a true timeout, but snmp2's
+/// session timeout is far too long for a test to reach a check point.
+fn start_dead_port() -> u16 {
+    let socket = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind ephemeral port");
+    socket.local_addr().unwrap().port()
+}
+
+#[test]
+fn engine_get_cancelled_before_send() {
+    let rt = app_runtime();
+    let (server, target) = start_server();
+    let cancel = Arc::new(AtomicBool::new(true));
+
+    let err = rt
+        .block_on(rt.spawn(async move {
+            let engine = SnmpEngine::new();
+            let oids = vec!["1.3.6.1.2.1.1.1.0".to_string()];
+            engine
+                .get_with_cancel(&target, &oids, Some(cancel.as_ref()))
+                .await
+                .expect_err("a pre-cancelled Get must not run")
+        }))
+        .expect("task panicked");
+
+    assert_eq!(err, "Cancelled by user");
+    assert_eq!(
+        server.request_count(),
+        0,
+        "a cancelled Get must send no requests"
+    );
+}
+
+#[test]
+fn engine_get_cancelled_mid_retry_reports_cancel() {
+    // Against an unresponsive target the engine climbs the retry ladder for
+    // ~15 s; cancelling during a backoff sleep must surface the cancel at the
+    // sleep boundary, not the eventual terminal error.
+    let rt = app_runtime();
+    let target = Target::v2c("127.0.0.1", start_dead_port(), "public");
+    let cancel = Arc::new(AtomicBool::new(false));
+
+    let (err, elapsed) = rt
+        .block_on(rt.spawn(async move {
+            let engine = SnmpEngine::new();
+            let oids = vec!["1.3.6.1.2.1.1.1.0".to_string()];
+            let token = cancel.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(150)).await;
+                token.store(true, Ordering::Release);
+            });
+            let started = std::time::Instant::now();
+            let err = engine
+                .get_with_cancel(&target, &oids, Some(cancel.as_ref()))
+                .await
+                .expect_err("a cancelled Get must not report success");
+            (err, started.elapsed())
+        }))
+        .expect("task panicked");
+
+    assert_eq!(err, "Cancelled by user");
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "cancel must cut the retry ladder short, took {elapsed:?}"
+    );
+}
+
+#[test]
+fn engine_get_next_cancelled_before_first_oid() {
+    // GetNext reports failure as warnings, not Err — a cancel does too, and
+    // the collected (empty) bindings survive.
+    let rt = app_runtime();
+    let (server, target) = start_server();
+    let cancel = Arc::new(AtomicBool::new(true));
+
+    let rs = rt
+        .block_on(rt.spawn(async move {
+            let engine = SnmpEngine::new();
+            let oids = vec!["1.3.6.1.2.1.1.1.0".to_string()];
+            engine
+                .get_next_with_cancel(&target, &oids, Some(cancel.as_ref()))
+                .await
+                .expect("get_next reports cancellation as a warning, not Err")
+        }))
+        .expect("task panicked");
+
+    assert!(rs.partial, "a cancelled GetNext is partial");
+    assert!(
+        rs.warnings.iter().any(|w| w.kind == "cancelled"),
+        "must carry a cancelled warning: {:?}",
+        rs.warnings
+    );
+    assert_eq!(rs.bindings.len(), 0);
+    assert_eq!(
+        server.request_count(),
+        0,
+        "a cancelled GetNext must send no requests"
+    );
+}
+
+#[test]
+fn engine_get_next_cancelled_mid_sequence_keeps_partial_results() {
+    // The cancelled blackhole call must cut its ladder short, and a sequence
+    // over [live, dead] must retain the binding collected before the cancel.
+    let rt = app_runtime();
+    let dead = Target::v2c("127.0.0.1", start_dead_port(), "public");
+    let cancel = Arc::new(AtomicBool::new(false));
+
+    let rs = rt
+        .block_on(rt.spawn(async move {
+            let engine = SnmpEngine::new();
+            let token = cancel.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(250)).await;
+                token.store(true, Ordering::Release);
+            });
+            let started = std::time::Instant::now();
+            let rs = engine
+                .get_next_with_cancel(
+                    &dead,
+                    &["1.3.6.1.2.1.1.3.0".to_string()],
+                    Some(cancel.as_ref()),
+                )
+                .await
+                .expect("get_next reports cancellation as a warning, not Err");
+            assert!(
+                started.elapsed() < Duration::from_secs(5),
+                "cancel must cut the per-OID ladder short, took {:?}",
+                started.elapsed()
+            );
+            rs
+        }))
+        .expect("task panicked");
+
+    assert_eq!(
+        rs.bindings.len(),
+        0,
+        "the cancelled blackhole OID contributes no bindings"
+    );
+    assert!(rs.partial);
+    assert!(
+        rs.warnings.iter().any(|w| w.kind == "cancelled"),
+        "must carry a cancelled warning: {:?}",
+        rs.warnings
+    );
+
+    // The kept-results half: the frontend runs one OID per GetNext call with
+    // a cursor, so the user-visible guarantee is that cancelling the second
+    // call leaves the first call's binding in the composed result — the
+    // cancelled call returns Ok, never discards, and carries the warning.
+    let rt2 = app_runtime();
+    let (server2, live) = start_server();
+    let dead = Target::v2c("127.0.0.1", start_dead_port(), "public");
+    let cancel = Arc::new(AtomicBool::new(false));
+    let rs = rt2
+        .block_on(rt2.spawn(async move {
+            let engine = SnmpEngine::new();
+            let token = cancel.clone();
+            tokio::spawn(async move {
+                // Fires during the dead call's first backoff sleep.
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                token.store(true, Ordering::Release);
+            });
+            let mut rs = engine
+                .get_next_with_cancel(
+                    &live,
+                    &["1.3.6.1.2.1.1.1.0".to_string()],
+                    Some(cancel.as_ref()),
+                )
+                .await
+                .expect("first get_next failed");
+            let rs2 = engine
+                .get_next_with_cancel(
+                    &dead,
+                    &["1.3.6.1.2.1.1.3.0".to_string()],
+                    Some(cancel.as_ref()),
+                )
+                .await
+                .expect("get_next reports cancellation as a warning, not Err");
+            rs.bindings.extend(rs2.bindings);
+            rs.warnings.extend(rs2.warnings);
+            rs.partial |= rs2.partial;
+            rs
+        }))
+        .expect("task panicked");
+    assert_eq!(
+        rs.bindings.len(),
+        1,
+        "bindings collected before the cancel must survive: {:?}",
+        rs.bindings
+    );
+    // GetNext answers with the *next* OID in the chain, not the requested one.
+    assert_eq!(rs.bindings[0].oid, "1.3.6.1.2.1.1.2.0");
+    assert!(rs.partial);
+    assert!(
+        rs.warnings.iter().any(|w| w.kind == "cancelled"),
+        "must carry a cancelled warning: {:?}",
+        rs.warnings
+    );
+    assert!(
+        server2.request_count() <= 1,
+        "the cancel must stop later attempts: {} requests",
+        server2.request_count()
+    );
+}
+
+#[test]
+fn engine_set_cancelled_before_send() {
+    let rt = app_runtime();
+    let (server, target) = start_server();
+    let cancel = Arc::new(AtomicBool::new(true));
+
+    let err = rt
+        .block_on(rt.spawn(async move {
+            let engine = SnmpEngine::new();
+            engine
+                .set_with_cancel(
+                    &target,
+                    "1.3.6.1.2.1.1.5.0",
+                    SetValue::OctetString(b"renamed".to_vec()),
+                    Some(cancel.as_ref()),
+                )
+                .await
+                .expect_err("a pre-cancelled Set must not run")
+        }))
+        .expect("task panicked");
+
+    assert_eq!(err, "Cancelled by user");
+    assert_eq!(
+        server.request_count(),
+        0,
+        "a cancelled Set must send no requests"
+    );
+}

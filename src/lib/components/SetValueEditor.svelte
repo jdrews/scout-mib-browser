@@ -297,6 +297,7 @@
     }
 
     submitting = true;
+    S.setInFlight = true;
     errorText = null;
     S.isExecuting = true;
     S.statusText = `Setting ${target.oid}...`;
@@ -325,11 +326,19 @@
       onClose();
     } catch (err) {
       console.error("SNMP Set failed:", err);
-      markDisconnected();
-      errorText = String(err);
-      S.statusText = `Set failed: ${err}`;
+      const msg = String(err);
+      // A cancelled Set (Stop/Escape, launch-beta/08) is a user action, not
+      // a communication failure — no disconnect mark, no "failed" framing.
+      if (msg.includes("Cancelled by user")) {
+        S.statusText = "Set cancelled";
+      } else {
+        markDisconnected();
+        errorText = msg;
+        S.statusText = `Set failed: ${msg}`;
+      }
     } finally {
       S.isExecuting = false;
+      S.setInFlight = false;
       submitting = false;
     }
   }

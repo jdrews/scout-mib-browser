@@ -3,6 +3,7 @@
   import { tick } from "svelte";
   import { S } from "$lib/stores.svelte";
   import { trapFocus } from "$lib/focusTrap";
+  import { snmpCancelWalk } from "$lib/tauriCommands";
   import SetValueEditor from "./SetValueEditor.svelte";
 
   let target = $derived(S.setValueTarget);
@@ -24,6 +25,9 @@
   });
 
   function close() {
+    // Closing while a Set is in flight cancels the write (launch-beta/08):
+    // Escape, backdrop, X and the Cancel button all route here.
+    if (S.setInFlight) void snmpCancelWalk();
     S.setValueTarget = null;
   }
 </script>
