@@ -129,7 +129,7 @@ impl V3SecurityLevel {
 // ── Config Schema ────────────────────────────────────────────────────────────
 
 /// Top-level application configuration.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
     /// MIB-related settings.
     #[serde(default, skip_serializing_if = "MibConfig::is_default")]
@@ -266,7 +266,7 @@ impl AppConfig {
 }
 
 /// Configuration for MIB file discovery.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MibConfig {
     /// Directories to search for MIB files (live sources).
     #[serde(default = "default_mib_directories")]
@@ -295,7 +295,7 @@ impl MibConfig {
 }
 
 /// Last-used Target connection settings.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TargetConfig {
     /// Hostname or IP address of the last-queried Target.
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -376,7 +376,7 @@ impl TargetConfig {
 }
 
 /// UI layout and visibility state.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UiConfig {
     /// Whether the MIB tree pane is visible.
     #[serde(default = "default_true", skip_serializing_if = "is_default_bool_true")]
@@ -543,15 +543,14 @@ fn with_defaults(
 
 // ── Builder ──────────────────────────────────────────────────────────────────
 
-/// Builds an `AppConfig` from defaults, environment overrides, and the TOML file.
+/// Builds an `AppConfig` from defaults, environment overrides, and the TOML
+/// file at an explicit path.
 ///
 /// Cascade order (highest priority last):
 /// 1. Struct defaults (`Default` trait / serde default functions)
 /// 2. Environment variables prefixed with `SCOUT_`
-/// 3. Values in `~/.config/scout/config.toml` (if it exists)
-pub fn build_config() -> Result<AppConfig, config::ConfigError> {
-    let path = config_path();
-
+/// 3. Values in the TOML file at `path` (if it exists)
+fn build_config_at(path: &std::path::Path) -> Result<AppConfig, config::ConfigError> {
     let mut builder = with_defaults(Config::builder()).add_source(
         Environment::with_prefix(ENV_PREFIX)
             .prefix_separator("_")
@@ -567,10 +566,82 @@ pub fn build_config() -> Result<AppConfig, config::ConfigError> {
     config.try_deserialize()
 }
 
+/// Loads the config, quarantining a corrupt file (launch-beta/05).
+///
+/// When the file at `path` cannot be parsed or deserialized — power-loss
+/// truncation, hand-edit damage — it is renamed to
+/// `config.toml.bak-<timestamp>` so the bad bytes survive for manual
+/// recovery, and the app starts from defaults (plus env overrides). A
+/// warning is logged, which lands in the System Log via the UI log layer.
+///
+/// Returns the config and, when a quarantine happened, the backup path.
+/// Defaults are returned even if the quarantine rename fails, so read (and
+/// therefore every write path built on it) is never permanently poisoned.
+pub fn load_config_quarantining(path: &std::path::Path) -> (AppConfig, Option<PathBuf>) {
+    match build_config_at(path) {
+        Ok(cfg) => (cfg, None),
+        Err(e) => {
+            let backup = quarantine_file(path);
+            match &backup {
+                Some(b) => {
+                    tracing::warn!(
+                        "Config file {} is corrupt ({}) — moved it to {} and starting from \
+                         defaults. Re-apply your settings; the old file is preserved for \
+                         manual recovery.",
+                        path.display(),
+                        e,
+                        b.display()
+                    );
+                    // The file source is gone now; rebuild so defaults and
+                    // env overrides still apply.
+                    let cfg = build_config_at(path).unwrap_or_default();
+                    (cfg, backup)
+                }
+                None => {
+                    tracing::warn!(
+                        "Config file {} is corrupt ({}) — starting from defaults, but the \
+                         corrupt file could not be moved aside for backup.",
+                        path.display(),
+                        e
+                    );
+                    (AppConfig::default(), None)
+                }
+            }
+        }
+    }
+}
+
+/// Renames `path` to a timestamped sibling (`config.toml.bak-<stamp>`),
+/// preserving the corrupt bytes. Returns the backup path, or `None` when
+/// the rename failed.
+fn quarantine_file(path: &std::path::Path) -> Option<PathBuf> {
+    let file_name = path.file_name()?.to_string_lossy().to_string();
+    let stamp = chrono::Local::now().format("%Y%m%dT%H%M%S");
+    // Second-resolution stamps can collide (two corrupt loads within one
+    // second); suffix with a sequence until the name is free.
+    for seq in 0..1000u32 {
+        let name = if seq == 0 {
+            format!("{file_name}.bak-{stamp}")
+        } else {
+            format!("{file_name}.bak-{stamp}-{seq}")
+        };
+        let candidate = path.with_file_name(name);
+        if candidate.exists() {
+            continue;
+        }
+        return match std::fs::rename(path, &candidate) {
+            Ok(()) => Some(candidate),
+            Err(_) => None,
+        };
+    }
+    None
+}
+
 /// Creates the config directory and writes an empty TOML file if it does not exist.
 ///
-/// The file is intentionally empty — all defaults are applied by [`build_config`]
-/// at read time, so only non-default values need to be persisted.
+/// The file is intentionally empty — all defaults are applied by
+/// [`build_config_at`] at read time, so only non-default values need to be
+/// persisted.
 pub fn ensure_config_file() -> Result<PathBuf, std::io::Error> {
     ensure_config_file_at(&config_path())
 }
@@ -588,22 +659,18 @@ pub fn ensure_config_file_at(path: &std::path::Path) -> Result<PathBuf, std::io:
     Ok(path.to_path_buf())
 }
 
-/// Persists the current `AppConfig` back to the TOML file.
-///
-/// Uses a dedicated serializable wrapper that forces all fields to be written,
-/// bypassing `skip_serializing_if` which would drop defaults and corrupt the
-/// config on round-trip (e.g., writing only `[mib]` loses `[target]`).
-pub fn save_config(cfg: &AppConfig) -> Result<(), std::io::Error> {
-    save_config_to(&config_path(), cfg)
-}
-
-/// [`save_config`] to an explicit path (test seam).
+/// Persists the current `AppConfig` back to the TOML file at `path`.
 ///
 /// Atomic and owner-only: the TOML is written to a sibling temp file with
 /// 0600 permissions, then renamed over the target. A crash mid-write can
 /// only leave a stray temp file — never a truncated config (the ticket-05
 /// brick) — and the rename guarantees the target is 0600 even when a prior
 /// version left it world-readable.
+///
+/// Uses a dedicated serializable wrapper that forces all fields to be
+/// written, bypassing `skip_serializing_if` which would drop defaults and
+/// corrupt the config on round-trip (e.g., writing only `[mib]` loses
+/// `[target]`).
 pub fn save_config_to(path: &std::path::Path, cfg: &AppConfig) -> Result<(), std::io::Error> {
     let toml_str = toml::to_string_pretty(&cfg.to_toml_value()).expect("serialize config");
     if let Some(parent) = path.parent() {
@@ -673,13 +740,18 @@ pub struct ConfigHandle {
 
 impl ConfigHandle {
     /// Reads the current configuration from disk (with defaults and env cascade).
+    ///
+    /// Never fails on a corrupt file: the bad config is quarantined to a
+    /// timestamped backup and defaults are returned (launch-beta/05), so
+    /// every settings write built on this read keeps working.
     pub fn read(&self) -> Result<AppConfig, String> {
-        build_config().map_err(|e| e.to_string())
+        let (cfg, _) = load_config_quarantining(&self.path);
+        Ok(cfg)
     }
 
     /// Writes a new configuration to disk.
     pub fn write(&self, cfg: AppConfig) -> Result<(), String> {
-        save_config(&cfg).map_err(|e| e.to_string())
+        save_config_to(&self.path, &cfg).map_err(|e| e.to_string())
     }
 }
 
@@ -1121,7 +1193,7 @@ mod tests {
         cfg.target.port = 1161;
         cfg.ui.splitter_horizontal = 0.45;
 
-        // Write using toml directly (simulating save_config).
+        // Write using toml directly (simulating save_config_to).
         let toml_str = toml::to_string_pretty(&cfg).unwrap();
         std::fs::write(&path, &toml_str).unwrap();
 
@@ -1144,29 +1216,29 @@ mod tests {
 
     #[test]
     fn env_var_override_cascade() {
-        // Hermetic (Linux): point the config dir at an empty temp location so a
-        // real ~/.config/scout/config.toml cannot shadow the env vars.
+        // Hermetic (Linux): point the file source at an empty temp location
+        // so a real ~/.config/scout/config.toml cannot shadow the env vars,
+        // and no process-wide env is touched (parallel-test safe).
         let tmp = std::env::temp_dir().join("scout_env_override_test");
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
-        env::set_var("XDG_CONFIG_HOME", &tmp);
 
         // Set env vars that override defaults.
         env::set_var("SCOUT_TARGET__HOST", "10.0.0.1");
         env::set_var("SCOUT_TARGET__PORT", "2161");
         env::set_var("SCOUT_UI__SPLITTER_HORIZONTAL", "0.75");
 
-        let cfg = build_config().unwrap();
+        let cfg = build_config_at(&test_config_path(&tmp)).unwrap();
 
         assert_eq!(cfg.target.host, "10.0.0.1");
         assert_eq!(cfg.target.port, 2161);
         assert!((cfg.ui.splitter_horizontal - 0.75).abs() < f64::EPSILON);
 
         // Unset to avoid polluting other tests.
-        env::remove_var("XDG_CONFIG_HOME");
         env::remove_var("SCOUT_TARGET__HOST");
         env::remove_var("SCOUT_TARGET__PORT");
         env::remove_var("SCOUT_UI__SPLITTER_HORIZONTAL");
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
@@ -1369,6 +1441,130 @@ mod tests {
         // Idempotent: an existing file is left alone.
         ensure_config_file_at(&path).unwrap();
         assert_eq!(mode_of(&path), 0o600);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // ── Corrupt-config recovery (launch-beta/05) ───────────────────────────
+
+    #[test]
+    fn valid_config_is_not_quarantined() {
+        let tmp = std::env::temp_dir().join("scout_recover_valid_test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let path = test_config_path(&tmp);
+
+        let mut cfg = AppConfig::default();
+        cfg.target.host = "agent.example.com".to_string();
+        save_config_to(&path, &cfg).unwrap();
+
+        let (loaded, quarantined) = load_config_quarantining(&path);
+        assert!(
+            quarantined.is_none(),
+            "valid config must not be quarantined"
+        );
+        assert_eq!(loaded.target.host, "agent.example.com");
+        assert!(path.exists());
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn corrupt_config_is_quarantined_and_defaults_returned() {
+        // A truncated/corrupt config (power loss, hand-edit) must not brick
+        // the app: the bad file is preserved as a timestamped backup and the
+        // app starts from defaults.
+        let tmp = std::env::temp_dir().join("scout_recover_corrupt_test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let path = test_config_path(&tmp);
+
+        let corrupt = "[target]\nhost = \"10.0.0.5\"\nport = 1161\nbroken = [[\n";
+        std::fs::write(&path, corrupt).unwrap();
+
+        let (loaded, quarantined) = load_config_quarantining(&path);
+
+        // Startup proceeds from defaults.
+        assert_eq!(loaded, AppConfig::default());
+
+        // The corrupt bytes are preserved in a timestamped backup.
+        let backup = quarantined.expect("corrupt config must be quarantined");
+        assert!(backup.exists(), "backup must exist at {}", backup.display());
+        assert_eq!(
+            std::fs::read_to_string(&backup).unwrap(),
+            corrupt,
+            "backup must preserve the corrupt bytes verbatim"
+        );
+        let backup_name = backup.file_name().unwrap().to_string_lossy().to_string();
+        assert!(
+            backup_name.starts_with("config.toml.bak-"),
+            "backup name must be config.toml.bak-<timestamp>, got {backup_name}"
+        );
+
+        // The bad file is gone from the real path so writes can proceed.
+        assert!(!path.exists());
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn type_error_config_is_quarantined_too() {
+        // Valid TOML with the wrong types (e.g. port = "not-a-number")
+        // deserializes to a ConfigError and bricks writes just like a parse
+        // error — same recovery.
+        let tmp = std::env::temp_dir().join("scout_recover_type_test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let path = test_config_path(&tmp);
+
+        std::fs::write(&path, "[target]\nport = \"not-a-number\"\n").unwrap();
+
+        let (loaded, quarantined) = load_config_quarantining(&path);
+        assert_eq!(loaded, AppConfig::default());
+        assert!(quarantined.is_some());
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn settings_writes_recover_after_corrupt_config() {
+        // The ticket's core scenario: corrupt TOML, app (re)starts, every
+        // settings write works again — the read path is never permanently
+        // poisoned.
+        let tmp = std::env::temp_dir().join("scout_recover_write_test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let path = test_config_path(&tmp);
+
+        std::fs::write(&path, "this is not = valid toml [[[").unwrap();
+
+        let handle = ConfigHandle { path: path.clone() };
+
+        // Read recovers: defaults, no error.
+        let cfg = handle
+            .read()
+            .expect("read must recover from corrupt config");
+        assert_eq!(cfg, AppConfig::default());
+
+        // Write works and round-trips.
+        let mut cfg = cfg;
+        cfg.target.host = "recovered.example.com".to_string();
+        handle.write(cfg).expect("write must work after recovery");
+
+        let reloaded = handle.read().unwrap();
+        assert_eq!(reloaded.target.host, "recovered.example.com");
+
+        // The corrupt bytes are still preserved next to the new config.
+        let backups: Vec<_> = std::fs::read_dir(&tmp)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("config.toml.bak-")
+            })
+            .collect();
+        assert_eq!(backups.len(), 1, "exactly one timestamped backup");
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
