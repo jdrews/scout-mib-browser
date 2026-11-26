@@ -64,6 +64,9 @@ const raw = $state({
   connectionState: "unknown" as ConnectionState,
   snmpOperation: "get" as SnmpOperation,
   isExecuting: false,
+  // True while a Set invoke is in flight (launch-beta/08): closing the Set
+  // dialog cancels the write through the shared cancel token.
+  setInFlight: false,
   executionBindings: [] as VariableBinding[],
   executionResults: null as ResultSet | null,
   // Get Subtree result — all MIB nodes under the queried OID. Null means no

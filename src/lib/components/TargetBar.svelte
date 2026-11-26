@@ -29,6 +29,9 @@
 
   // Track active walk state for Go/Stop toggle and Esc key cancellation
   let isWalkActive = $state(false);
+  // True while a Get / GetNext / Set run is in flight (launch-beta/08):
+  // Stop and Escape cancel it via the same shared token as walks.
+  let cancellableRun = $state(false);
   // True while a Get Table run is in flight (drives the Stop status message).
   let tableRunActive = $state(false);
   // Get Next stepping cursor: the OID the last Get Next run returned. A new
@@ -100,8 +103,8 @@
   }
 
   function onKeyDown(e: KeyboardEvent) {
-    // Cancel active walk with Escape
-    if (e.key === "Escape" && isWalkActive) {
+    // Cancel an active walk or Get/GetNext/Set run with Escape
+    if (e.key === "Escape" && (isWalkActive || cancellableRun)) {
       e.preventDefault();
       handleStop();
       return;
@@ -251,17 +254,23 @@
   }
 
   async function handleStop() {
-    if (!isWalkActive) return;
+    if (!isWalkActive && !cancellableRun) return;
     const wasTableRun = tableRunActive;
+    const wasSimpleRun = cancellableRun && !isWalkActive;
     isWalkActive = false;
     tableRunActive = false;
+    cancellableRun = false;
 
     const cmds = await import("$lib/tauriCommands");
     await cmds.snmpCancelWalk();
 
     S.isExecuting = false;
     S.walkProgress = "";
-    S.statusText = wasTableRun ? "Table retrieval cancelled" : "Walk cancelled";
+    S.statusText = wasTableRun
+      ? "Table retrieval cancelled"
+      : wasSimpleRun
+        ? "Cancelled…"
+        : "Walk cancelled";
   }
 
   async function executeOperation(op: SnmpOperation, oid: string) {
@@ -285,6 +294,9 @@
     S.walkProgress = "";
     S.queryRootOid = oid;
     isWalkActive = false;
+    // Get/GetNext are cancellable through the shared token (08); Set goes
+    // through the SetValueEditor dialog, which cancels on close.
+    cancellableRun = op === "get" || op === "getNext";
 
     // Walk/Bulk Walk on a table node behaves like anywhere else — a flat
     // subtree walk. Get Table (executeGetTable) is the only grid path.
@@ -318,7 +330,12 @@
           getNextCursor = null;
         }
         markConnected();
-        S.statusText = `Get Next complete: ${pluralize(result.bindings.length, "binding")}`;
+        // A cancelled GetNext returns Ok with the bindings kept so far plus a
+        // cancelled warning (08) — report the cancel, not a plain completion.
+        const nextCancelled = result.warnings?.some((w) => w.kind === "cancelled");
+        S.statusText = nextCancelled
+          ? `Get Next cancelled: ${pluralize(S.executionBindings.length, "binding")} kept`
+          : `Get Next complete: ${pluralize(result.bindings.length, "binding")}`;
       } else if (op === "walk" || op === "bulkWalk") {
         const cmds = await import("$lib/tauriCommands");
         let count = 0;
@@ -390,15 +407,23 @@
     } catch (err) {
       console.error("SNMP operation failed:", err);
       isWalkActive = false;
-      // Get/GetNext reject only when the backend operation fails — a
-      // communication problem. Walk/BulkWalk report failures via their
-      // complete channel instead, so an invoke rejection there is a local
-      // validation error (e.g. BulkWalk on v1) and leaves state untouched.
-      if (op === "get" || op === "getNext") markDisconnected();
-      S.statusText = `Error: ${err}`;
-      S.executionResults = { bindings: [], partial: true, warnings: [{ kind: "error", message: String(err) }] };
+      const msg = String(err);
+      // A cancelled Get/Set arrives as a rejection (task abort or engine
+      // token check, 08) — a user action, not a communication failure.
+      if (msg.includes("Cancelled by user")) {
+        S.statusText = `${operationLabels[op]} cancelled`;
+      } else {
+        // Get/GetNext reject only when the backend operation fails — a
+        // communication problem. Walk/BulkWalk report failures via their
+        // complete channel instead, so an invoke rejection there is a local
+        // validation error (e.g. BulkWalk on v1) and leaves state untouched.
+        if (op === "get" || op === "getNext") markDisconnected();
+        S.statusText = `Error: ${msg}`;
+        S.executionResults = { bindings: [], partial: true, warnings: [{ kind: "error", message: msg }] };
+      }
     } finally {
       S.isExecuting = false;
+      cancellableRun = false;
     }
   }
 
@@ -627,7 +652,7 @@
     {/each}
   </select>
 
-  {#if isWalkActive}
+  {#if isWalkActive || cancellableRun}
     <button
       data-testid="stop-btn"
       class="btn btn-error btn-sm"
