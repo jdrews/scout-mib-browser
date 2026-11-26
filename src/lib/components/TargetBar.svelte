@@ -300,11 +300,22 @@
     // A Get Next run that starts where the last one ended continues the
     // sequence (appends); every other start replaces the Result Set.
     const isNextContinuation = op === "getNext" && getNextCursor === oid;
-    if (!isNextContinuation) {
+    // Get/GetNext never touch the Result Set at run start: the previous
+    // result stays on screen while the run is in flight, and a cancelled
+    // or retired run — whose outcome is dropped — discards nothing. Only
+    // a real outcome commits (replace for fresh runs, append for a
+    // continuation). A cancelled GetNext's kept bindings replace the
+    // whole set: the engine's sequence is authoritative.
+    const commitFresh = (bindings: VariableBinding[]) => {
+      if (op === "getNext" && !isNextContinuation) getNextCursor = null;
+      if (op === "get" || (op === "getNext" && !isNextContinuation)) {
+        S.executionBindings.length = 0;
+      }
+      S.executionBindings.push(...bindings);
+    };
+    if (op === "walk" || op === "bulkWalk") {
       S.executionBindings.length = 0;
-      getNextCursor = null;
     }
-    S.executionResults = null;
     S.tableResult = null;
     S.subtreeNodes = null;
     S.walkProgress = "";
@@ -323,8 +334,9 @@
         const cmds = await import("$lib/tauriCommands");
         const result = await cmds.snmpGet(cfg, [oid]);
         if (stale()) return;
-        S.executionBindings.length = 0;
-        S.executionBindings.push(...result.bindings);
+        // An empty answer (cancel semantics — the real cancel rejects, 08)
+        // must not wipe the pane: keep what is on screen.
+        if (result.bindings.length > 0) commitFresh(result.bindings);
         S.executionResults = result;
         markConnected();
         S.statusText = `Get complete: ${pluralize(result.bindings.length, "binding")}`;
@@ -332,10 +344,29 @@
         const cmds = await import("$lib/tauriCommands");
         const result = await cmds.snmpGetNext(cfg, [oid]);
         if (stale()) return;
-        // Append: the list was cleared above unless this run continued a
-        // previous Get Next sequence.
-        S.executionBindings.push(...result.bindings);
-        S.executionResults = result;
+        // A cancelled GetNext returns Ok with the bindings kept so far plus a
+        // cancelled warning (08) — report the cancel, not a plain completion.
+        const nextCancelled = result.warnings?.some((w) => w.kind === "cancelled");
+        if (nextCancelled) {
+          // Cancel never discards data (08): append the engine's kept
+          // bindings to what is on screen, deduped by OID. For a
+          // continuation the UI's set is the sequence so far and the kept
+          // bindings are this run's steps; for a fresh run the kept
+          // bindings belong to the same cursor the UI already rendered,
+          // so dedup keeps the screen intact.
+          const kept = [
+            ...S.executionBindings,
+            ...result.bindings.filter((b) => !S.executionBindings.some((p) => p.oid === b.oid)),
+          ];
+          S.executionBindings.length = 0;
+          S.executionBindings.push(...kept);
+          S.executionResults = { ...result, bindings: [...kept] };
+        } else {
+          // Real answer: replace (fresh) or append (continuation).
+          if (isNextContinuation) S.executionBindings.push(...result.bindings);
+          else commitFresh(result.bindings);
+          S.executionResults = result;
+        }
         // Advance the address bar and cursor to the returned OID: a subsequent
         // Go with Get Next then starts from here, appending the following OID
         // as another row. A fresh selection (tree click, autocomplete pick, or
@@ -348,9 +379,6 @@
           getNextCursor = null;
         }
         markConnected();
-        // A cancelled GetNext returns Ok with the bindings kept so far plus a
-        // cancelled warning (08) — report the cancel, not a plain completion.
-        const nextCancelled = result.warnings?.some((w) => w.kind === "cancelled");
         S.statusText = nextCancelled
           ? `Get Next cancelled: ${pluralize(S.executionBindings.length, "binding")} kept`
           : `Get Next complete: ${pluralize(result.bindings.length, "binding")}`;
@@ -413,7 +441,9 @@
               flushTimer = null;
             }
             isWalkActive = false;
-            S.executionResults = result;
+            // A retired walk's late completion must not touch the Result
+            // Set the user has moved on to.
+            if (!stale()) S.executionResults = result;
             S.walkProgress = "";
             const outcome = streamingOutcome(count, result.partial, hasErrorWarning(result.warnings));
             if (outcome === "connected") markConnected();
@@ -438,7 +468,12 @@
         // validation error (e.g. BulkWalk on v1) and leaves state untouched.
         if (op === "get" || op === "getNext") markDisconnected();
         S.statusText = `Error: ${msg}`;
-        S.executionResults = { bindings: [], partial: true, warnings: [{ kind: "error", message: msg }] };
+        // The failed run's answer is the empty set — commit it as a replace
+        // (fresh) instead of clearing the Result Set at run start.
+        if (op === "get" || (op === "getNext" && !isNextContinuation)) {
+          commitFresh([]);
+          S.executionResults = { bindings: [], partial: true, warnings: [{ kind: "error", message: msg }] };
+        }
       }
     } finally {
       // Only the current run may release the run flags: a retired run's

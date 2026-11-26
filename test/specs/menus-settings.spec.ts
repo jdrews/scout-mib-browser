@@ -1,8 +1,24 @@
-import { CHAIN_TO_MIB2, expandTo, nodeCount, waitForAppReady, waitForStatus } from "../support/helpers";
+import { CHAIN_TO_MIB2, expandTo, nodeCount, readAppLog, waitForAppReady, waitForStatus } from "../support/helpers";
 
 describe("Menus & settings (app-level settings)", () => {
   before(async () => {
     await waitForAppReady();
+  });
+
+  it("footer shows the app version (beta triage)", async () => {
+    // launch-beta/12: every bug report needs a build to point at.
+    const el = await $("[data-testid='app-version']");
+    await el.waitForExist({ timeout: 10000 });
+    expect(await el.getText()).toMatch(/v\d+\.\d+\.\d+/);
+  });
+
+  it("startup logged the version and platform", async () => {
+    // The backend startup banner lands in the System Log (and the app log
+    // file): version + platform, for triaging beta reports.
+    await browser.waitUntil(
+      () => /Scout MIB Browser \d+\.\d+\.\d+ on \w+-\w+/.test(readAppLog()),
+      { timeout: 10000, interval: 500, timeoutMsg: "startup banner never reached the app log" },
+    );
   });
 
   it("File menu lists MIB actions", async () => {

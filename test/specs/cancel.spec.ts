@@ -70,6 +70,11 @@ describe("Cancellation (launch-beta/08)", () => {
 
     // The cancel discarded nothing: the binding from the first run is still
     // rendered in the Result Set (a cancelled continuation never replaces it).
+    // Load-dependent timing: the engine's cancelled Ok can land before Stop's
+    // handler retires the run (retire drops it) — both paths must keep the row.
+    // The PR #167 CI flake was the Ok landing first with a typed-OID fresh
+    // start, whose run-start clear wiped the row; the UI now restores the
+    // pre-run Result Set on a cancel that kept nothing (TargetBar).
     const kept = await browser.execute(() => {
       const body = document.querySelector("[data-testid='results-body']");
       return body ? body.textContent ?? "" : "";

@@ -263,9 +263,22 @@ fn mib_index_specs(
         .unwrap_or_default()
 }
 
+/// Startup banner for the System Log (launch-beta/12): beta bug reports
+/// need a build and a platform to point at. The version is the crate
+/// version — `tauri_build` syncs it from `tauri.conf.json`, which the
+/// release pipeline stamps with the tag.
+fn startup_banner() -> String {
+    format!(
+        "Scout MIB Browser {} on {}-{}",
+        env!("CARGO_PKG_VERSION"),
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+    )
+}
+
 fn main() {
     let log_buffer = log::init_logging().expect("failed to initialize logging");
-    tracing::info!("Scout MIB Browser started");
+    tracing::info!("{}", startup_banner());
     let snmp_state = SnmpEngineState::new().expect("failed to create SNMP engine");
 
     let builder = tauri::Builder::default();
@@ -1070,6 +1083,19 @@ fn mib_status_of(res: &mib::Resolver) -> MibLoadStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_banner_names_version_and_platform() {
+        let line = startup_banner();
+        assert!(
+            line.contains(env!("CARGO_PKG_VERSION")),
+            "banner must carry the build version: {line}"
+        );
+        assert!(
+            line.contains(std::env::consts::OS),
+            "banner must carry the platform: {line}"
+        );
+    }
 
     #[test]
     fn bundled_mibs_dir_falls_back_to_checkout() {
