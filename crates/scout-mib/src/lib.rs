@@ -3,7 +3,7 @@ mod loader;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
 use tracing::{error, info, warn};
 
 pub use fallback::FallbackExtractor;
@@ -342,11 +342,94 @@ pub struct LoadedMibInfo {
 /// stamp is unchanged since the last load is served from the parse cache
 /// without being re-read or re-parsed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct FileStamp {
+pub struct FileStamp {
     /// (seconds since UNIX epoch, sub-second nanos) of the last modification.
-    mtime: (u64, u32),
+    pub mtime: (u64, u32),
     /// File size in bytes.
-    size: u64,
+    pub size: u64,
+}
+
+/// Tree and lookup indexes derived from `oid_index`, built lazily on the
+/// first tree/resolve operation (launch-beta/07). The snapshot records the
+/// node count it was built from and is rebuilt whenever the index size
+/// changes; production mutators (`rebuild_indexes`, `unload_mib`) invalidate
+/// it explicitly so same-size replacements are caught too.
+#[derive(Default, Clone)]
+struct Derived {
+    /// Indexed-OID count the snapshot was built from (staleness check).
+    node_count: usize,
+    /// Parent OID -> direct child OIDs.
+    children: HashMap<String, Vec<String>>,
+    /// Indexed OIDs with at least one proper indexed descendant.
+    has_descendants: HashSet<String>,
+    /// Indexed ancestor OID -> descendants under it whose own parent is not
+    /// indexed (the tree renders these under the ancestor when it has no
+    /// direct children). Each orphan is listed under every indexed ancestor.
+    orphan_children: HashMap<String, Vec<String>>,
+    /// Root-level orphans: non-empty parent, no indexed ancestor at all.
+    orphan_roots: Vec<String>,
+    /// Numeric-arc prefix trie for O(depth) longest-prefix `resolve`.
+    trie: OidTrie,
+    /// Indexed OIDs with non-numeric arcs. `resolve` matches these with
+    /// string-prefix semantics (rare — vendor odds and ends).
+    prefix_fallback: Vec<String>,
+}
+
+/// Prefix trie over numeric OID arcs; terminal nodes carry the indexed OID.
+/// Arc-prefix equality is exactly the old `oid.starts_with(format!("{prefix}."))`
+/// dot-boundary semantics.
+#[derive(Default, Clone)]
+struct OidTrie {
+    nodes: Vec<TrieNode>,
+}
+
+#[derive(Default, Clone)]
+struct TrieNode {
+    children: HashMap<u64, usize>,
+    terminal: Option<String>,
+}
+
+impl OidTrie {
+    fn insert(&mut self, oid: &str, arcs: &[u64]) {
+        if self.nodes.is_empty() {
+            self.nodes.push(TrieNode::default());
+        }
+        let mut cur = 0usize;
+        for &arc in arcs {
+            let next = match self.nodes[cur].children.get(&arc) {
+                Some(&n) => n,
+                None => {
+                    self.nodes.push(TrieNode::default());
+                    let n = self.nodes.len() - 1;
+                    self.nodes[cur].children.insert(arc, n);
+                    n
+                }
+            };
+            cur = next;
+        }
+        self.nodes[cur].terminal = Some(oid.to_string());
+    }
+
+    /// The indexed OID whose arcs form the longest prefix of `arcs`.
+    fn longest_prefix(&self, arcs: &[u64]) -> Option<&str> {
+        if self.nodes.is_empty() {
+            return None;
+        }
+        let mut cur = 0usize;
+        let mut best: Option<&str> = None;
+        for &arc in arcs {
+            match self.nodes[cur].children.get(&arc) {
+                Some(&next) => {
+                    cur = next;
+                    if let Some(oid) = self.nodes[cur].terminal.as_deref() {
+                        best = Some(oid);
+                    }
+                }
+                None => break,
+            }
+        }
+        best
+    }
 }
 
 /// Cached parse result for one MIB file. Kept per file so that unchanged
@@ -373,12 +456,25 @@ pub struct LoadStats {
     pub cached: usize,
 }
 
+/// Scan+parse results for one load pass, computed outside the resolver lock
+/// by [`Resolver::scan_and_parse`]; apply with [`Resolver::apply_load`]
+/// (launch-beta/07 — no full-resolver clone under the lock).
+pub struct LoadPlan {
+    /// Files (re)parsed and files served from cache.
+    pub stats: LoadStats,
+    /// Freshly parsed entries for new/changed files.
+    entries: BTreeMap<String, FileEntry>,
+    /// Every file present on disk with its stamp — cache entries for
+    /// vanished files are dropped on apply.
+    present: BTreeMap<String, FileStamp>,
+}
+
 /// Unified MIB resolver that loads files from directories using mib-rs as the
 /// primary parser and a regex-based fallback for malformed vendor MIBs.
 ///
 /// Parser errors are logged but never block loading other MIBs. Partially
 /// parsed MIBs contribute whatever data was extracted.
-#[derive(Default, Clone)]
+#[derive(Default)]
 pub struct Resolver {
     /// OID -> MibNode (mib-rs results take precedence).
     oid_index: HashMap<String, MibNode>,
@@ -394,6 +490,25 @@ pub struct Resolver {
     table_mibs: HashMap<String, String>,
     /// File path -> cached parse result (change detection across loads).
     file_cache: BTreeMap<String, FileEntry>,
+    /// Lazy tree/lookup indexes derived from `oid_index` (see [`Derived`]).
+    derived: Mutex<Option<Arc<Derived>>>,
+}
+
+impl Clone for Resolver {
+    /// Copies the indexes; the derived cache starts cold on the clone (std
+    /// `Mutex` is not `Clone`, and a cold cache is always correct).
+    fn clone(&self) -> Self {
+        Self {
+            oid_index: self.oid_index.clone(),
+            name_index: self.name_index.clone(),
+            fallback_mibs: self.fallback_mibs.clone(),
+            loaded_files: self.loaded_files.clone(),
+            table_index: self.table_index.clone(),
+            table_mibs: self.table_mibs.clone(),
+            file_cache: self.file_cache.clone(),
+            derived: Mutex::new(None),
+        }
+    }
 }
 
 impl Resolver {
@@ -414,6 +529,41 @@ impl Resolver {
     /// that also lives in a configured directory is the same file (deduped by
     /// path); a deleted explicit file drops out on the next load.
     pub fn load(&mut self, directories: &[String], files: &[String]) -> LoadStats {
+        let stamps = self.file_stamps();
+        let plan = Self::scan_and_parse(&stamps, directories, files);
+        let stats = self.apply_load(plan);
+
+        info!(
+            "Resolver loaded {} nodes ({} tables, {} fallback MIBs, {} tracked files; {} parsed, {} cached)",
+            self.oid_index.len(),
+            self.table_index.len(),
+            self.fallback_mibs.len(),
+            self.loaded_files.len(),
+            stats.parsed,
+            stats.cached
+        );
+
+        stats
+    }
+
+    /// Snapshot of the parse-cache stamps — cheap, safe to take under a
+    /// short read lock. Feed to [`Self::scan_and_parse`].
+    pub fn file_stamps(&self) -> BTreeMap<String, FileStamp> {
+        self.file_cache
+            .iter()
+            .map(|(path, entry)| (path.clone(), entry.stamp))
+            .collect()
+    }
+
+    /// Scans the directories/files and parses everything new or changed,
+    /// **without touching resolver state** — the expensive part of a load,
+    /// designed to run on a blocking pool outside the resolver lock (see
+    /// launch-beta/07). Apply the result with [`Self::apply_load`].
+    pub fn scan_and_parse(
+        stamps: &BTreeMap<String, FileStamp>,
+        directories: &[String],
+        files: &[String],
+    ) -> LoadPlan {
         // Collect candidate files across all directories, deduped by path.
         let mut present: BTreeMap<String, (PathBuf, FileStamp)> = BTreeMap::new();
         for dir_str in directories {
@@ -459,18 +609,34 @@ impl Resolver {
 
         // Parse only new or changed files; unchanged ones keep their cache entry.
         let mut stats = LoadStats::default();
+        let mut entries: BTreeMap<String, FileEntry> = BTreeMap::new();
         for (path_str, (path, stamp)) in &present {
-            if self
-                .file_cache
-                .get(path_str)
-                .is_some_and(|e| e.stamp == *stamp)
-            {
+            if stamps.get(path_str).is_some_and(|s| *s == *stamp) {
                 stats.cached += 1;
                 continue;
             }
             stats.parsed += 1;
-            let entry = Self::parse_file(path, *stamp);
-            self.file_cache.insert(path_str.clone(), entry);
+            entries.insert(path_str.clone(), Self::parse_file(path, *stamp));
+        }
+
+        LoadPlan {
+            stats,
+            entries,
+            present: present.into_iter().map(|(p, (_, s))| (p, s)).collect(),
+        }
+    }
+
+    /// Applies a scan+parse plan: merges freshly parsed entries into the
+    /// parse cache, drops entries for vanished files, and rebuilds the
+    /// merged indexes. Takes only the final (write-locked) step of `load`.
+    pub fn apply_load(&mut self, plan: LoadPlan) -> LoadStats {
+        let LoadPlan {
+            stats,
+            entries,
+            present,
+        } = plan;
+        for (path, entry) in entries {
+            self.file_cache.insert(path, entry);
         }
 
         // Drop cache entries for files that no longer exist.
@@ -479,16 +645,6 @@ impl Resolver {
 
         // Rebuild the merged indexes from the per-file cache.
         self.rebuild_indexes();
-
-        info!(
-            "Resolver loaded {} nodes ({} tables, {} fallback MIBs, {} tracked files; {} parsed, {} cached)",
-            self.oid_index.len(),
-            self.table_index.len(),
-            self.fallback_mibs.len(),
-            self.loaded_files.len(),
-            stats.parsed,
-            stats.cached
-        );
 
         stats
     }
@@ -651,6 +807,91 @@ impl Resolver {
         self.table_index = table_index;
         self.table_mibs = table_mibs;
         self.fallback_mibs = fallback_mibs;
+        self.invalidate_derived();
+    }
+
+    /// Drops the derived indexes so the next tree/resolve op rebuilds them
+    /// from `oid_index`. Call after any mutation the node-count staleness
+    /// check cannot detect (e.g., a same-size index replacement).
+    fn invalidate_derived(&self) {
+        *self.derived.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
+    /// Derived tree/lookup indexes: built lazily from `oid_index` on first
+    /// use, rebuilt whenever the indexed node count changes. The returned
+    /// `Arc` detaches from the lock — concurrent readers share one snapshot.
+    fn derived(&self) -> Arc<Derived> {
+        let mut guard = self.derived.lock().unwrap_or_else(|e| e.into_inner());
+        let stale = guard
+            .as_ref()
+            .is_none_or(|d| d.node_count != self.oid_index.len());
+        if stale {
+            *guard = Some(Arc::new(self.build_derived()));
+        }
+        guard
+            .as_ref()
+            .expect("derived index is ensured above")
+            .clone()
+    }
+
+    /// Rebuilds the derived indexes from the current `oid_index`.
+    fn build_derived(&self) -> Derived {
+        let mut d = Derived {
+            node_count: self.oid_index.len(),
+            ..Default::default()
+        };
+        for oid in self.oid_index.keys() {
+            // Direct children: parent -> child.
+            let parent = Self::parent_oid(oid);
+            d.children.entry(parent).or_default().push(oid.clone());
+
+            // Descendant marks: every indexed proper prefix has descendants.
+            let mut prefix = oid.as_str();
+            while let Some(dot) = prefix.rfind('.') {
+                prefix = &prefix[..dot];
+                if self.oid_index.contains_key(prefix) {
+                    d.has_descendants.insert(prefix.to_string());
+                }
+            }
+
+            // Numeric arcs go into the resolve trie; anything else keeps the
+            // string-prefix fallback.
+            let arcs: Option<Vec<u64>> = oid.split('.').map(|p| p.parse().ok()).collect();
+            match arcs {
+                Some(arcs) if !arcs.is_empty() => d.trie.insert(oid, &arcs),
+                _ => d.prefix_fallback.push(oid.clone()),
+            }
+        }
+
+        // Orphaned nodes (parent not indexed) render under every indexed
+        // ancestor above them; only with no indexed ancestor at all do they
+        // become roots (the old pass rooted them alongside the ancestor
+        // listing, duplicating each orphan in the tree).
+        for oid in self.oid_index.keys() {
+            let parent = Self::parent_oid(oid);
+            if parent.is_empty() || self.oid_index.contains_key(&parent) {
+                continue;
+            }
+            let mut attached = false;
+            let mut ancestor: &str = parent.as_str();
+            loop {
+                if ancestor.is_empty() {
+                    if !attached {
+                        d.orphan_roots.push(oid.clone());
+                    }
+                    break;
+                }
+                if self.oid_index.contains_key(ancestor) {
+                    d.orphan_children
+                        .entry(ancestor.to_string())
+                        .or_default()
+                        .push(oid.clone());
+                    attached = true;
+                }
+                ancestor = Self::parent_prefix(ancestor);
+            }
+        }
+        d
     }
 
     /// Returns table metadata for the given table OID, if known.
@@ -764,6 +1005,7 @@ impl Resolver {
             mib_name,
             oids_to_remove.len()
         );
+        self.invalidate_derived();
     }
 
     /// Unloads the modules that the given file paths resolve to, reusing the
@@ -789,46 +1031,27 @@ impl Resolver {
         names.len()
     }
 
-    /// Root-level nodes (direct roots + orphans) with the grouping context they
-    /// need to render — shared by `build_tree` and `get_children("__other__")`.
-    fn root_nodes<'a>(
-        &'a self,
-    ) -> (
-        HashMap<String, Vec<&'a MibNode>>,
-        HashSet<String>,
-        Vec<&'a MibNode>,
-    ) {
-        // Group nodes by parent OID.
-        let mut children_map: HashMap<String, Vec<&'a MibNode>> = HashMap::new();
-        for node in self.oid_index.values() {
-            let parent_oid = Self::parent_oid(&node.oid);
-            children_map.entry(parent_oid).or_default().push(node);
-        }
-
-        // Set of all indexed OIDs for orphan detection.
-        let indexed_oids: HashSet<_> = self.oid_index.keys().cloned().collect();
-
-        // Collect all root-level nodes (direct roots + orphans).
+    /// Root-level nodes (direct roots + orphaned nodes whose parent is not
+    /// indexed) — shared by `build_tree` and `get_children("__other__")`.
+    /// Direct roots sort first; orphan order is irrelevant (both callers
+    /// sort their rendered entries by name).
+    fn roots(&self) -> Vec<&MibNode> {
+        let derived = self.derived();
         let mut roots: Vec<&MibNode> = Vec::new();
-        if let Some(root_children) = children_map.get("") {
-            for node in self.sort_nodes(root_children) {
-                roots.push(node);
-            }
+        if let Some(direct) = derived.children.get("") {
+            let nodes: Vec<&MibNode> = direct
+                .iter()
+                .filter_map(|oid| self.oid_index.get(oid))
+                .collect();
+            roots.extend(self.sort_nodes(&nodes));
         }
-
-        // Add orphaned nodes whose parent OID is not in our index.
-        let root_oids: HashSet<_> = roots.iter().map(|r| r.oid.clone()).collect();
-        for node in self.oid_index.values() {
-            let parent_oid = Self::parent_oid(&node.oid);
-            if !parent_oid.is_empty()
-                && !indexed_oids.contains(&parent_oid)
-                && !root_oids.contains(&node.oid)
-            {
-                roots.push(node);
-            }
-        }
-
-        (children_map, indexed_oids, roots)
+        roots.extend(
+            derived
+                .orphan_roots
+                .iter()
+                .filter_map(|oid| self.oid_index.get(oid)),
+        );
+        roots
     }
 
     /// Builds a hierarchical tree of all loaded MIB nodes (shallow — no children).
@@ -848,7 +1071,7 @@ impl Resolver {
             return Vec::new();
         }
 
-        let (children_map, indexed_oids, roots) = self.root_nodes();
+        let roots = self.roots();
 
         // Split into subtrees (have children/descendants) and leaves. Each root
         // renders through empty-folder collapse, which may contribute several
@@ -856,7 +1079,7 @@ impl Resolver {
         let mut subtrees: Vec<TreeNode> = Vec::new();
         let mut leaves: Vec<TreeNode> = Vec::new();
         for node in &roots {
-            for entry in self.render_entries(node, "", &children_map, &indexed_oids) {
+            for entry in self.render_entries(node, "") {
                 if entry.has_children {
                     subtrees.push(entry);
                 } else {
@@ -932,6 +1155,14 @@ impl Resolver {
         }
     }
 
+    /// Parent OID as a slice of `oid` (empty when there is no dot).
+    fn parent_prefix(oid: &str) -> &str {
+        match oid.rfind('.') {
+            Some(dot) => &oid[..dot],
+            None => "",
+        }
+    }
+
     /// Builds a shallow TreeNode (no children populated) for lazy loading.
     fn build_tree_node_shallow(&self, node: &MibNode, has_children: bool) -> TreeNode {
         let syntax_label = if node.syntax_type != SyntaxType::ObjectIdentifier {
@@ -956,14 +1187,14 @@ impl Resolver {
     /// parent is `oid` (excluding self-references), or — when there are none —
     /// orphaned descendants (indexed nodes under `oid` whose own parent is not
     /// indexed). Mirrors how `get_children` populates a level.
-    fn effective_children<'a>(
-        &'a self,
-        oid: &'a str,
-        children_map: &HashMap<String, Vec<&'a MibNode>>,
-        indexed_oids: &HashSet<String>,
-    ) -> Vec<&'a MibNode> {
-        if let Some(children) = children_map.get(oid) {
-            let direct: Vec<&MibNode> = children.iter().copied().filter(|c| c.oid != oid).collect();
+    fn effective_children(&self, oid: &str) -> Vec<&MibNode> {
+        let derived = self.derived();
+        if let Some(children) = derived.children.get(oid) {
+            let direct: Vec<&MibNode> = children
+                .iter()
+                .filter_map(|child_oid| self.oid_index.get(child_oid))
+                .filter(|c| c.oid != oid)
+                .collect();
             if !direct.is_empty() {
                 return direct;
             }
@@ -971,12 +1202,26 @@ impl Resolver {
         if oid.is_empty() {
             return Vec::new();
         }
+        if self.oid_index.contains_key(oid) {
+            // Precomputed: descendants of `oid` whose own parent is not indexed.
+            return derived
+                .orphan_children
+                .get(oid)
+                .map(|kids| {
+                    kids.iter()
+                        .filter_map(|child_oid| self.oid_index.get(child_oid))
+                        .collect()
+                })
+                .unwrap_or_default();
+        }
+        // Unindexed prefix (never a tree path — rendered nodes carry indexed
+        // OIDs): the descendants whose own parent is not indexed, as before.
         let child_prefix = format!("{}.", oid);
         self.oid_index
             .values()
             .filter(|n| {
                 n.oid.starts_with(&child_prefix)
-                    && !indexed_oids.contains(&Self::parent_oid(&n.oid))
+                    && !self.oid_index.contains_key(&Self::parent_oid(&n.oid))
             })
             .collect()
     }
@@ -991,14 +1236,8 @@ impl Resolver {
     /// Surviving entries keep the innermost real node's OID, so selection, the
     /// inspector, and lazy child loading behave as if that node were rendered
     /// directly.
-    fn render_entries<'a>(
-        &self,
-        node: &'a MibNode,
-        name_prefix: &str,
-        children_map: &HashMap<String, Vec<&'a MibNode>>,
-        indexed_oids: &HashSet<String>,
-    ) -> Vec<TreeNode> {
-        let kids = self.effective_children(&node.oid, children_map, indexed_oids);
+    fn render_entries(&self, node: &MibNode, name_prefix: &str) -> Vec<TreeNode> {
+        let kids = self.effective_children(&node.oid);
         // TABLE containers are first-class rows (Get Table targets them by OID)
         // — never absorb one into its row entry. An empty run *above* a table
         // still merges into it ("grp.myTable").
@@ -1010,10 +1249,10 @@ impl Resolver {
             && !kids.is_empty()
             && kids
                 .iter()
-                .all(|c| self.node_has_descendants(c.oid.as_str(), children_map));
+                .all(|c| self.node_has_descendants(c.oid.as_str()));
         if !all_folders {
-            let mut entry = self
-                .build_tree_node_shallow(node, self.node_has_descendants(&node.oid, children_map));
+            let mut entry =
+                self.build_tree_node_shallow(node, self.node_has_descendants(&node.oid));
             if !name_prefix.is_empty() {
                 entry.name = format!("{}{}", name_prefix, node.name);
             }
@@ -1022,7 +1261,7 @@ impl Resolver {
         let mut out = Vec::new();
         for child in self.sort_nodes(&kids) {
             let prefix = format!("{}{}.", name_prefix, node.name);
-            out.extend(self.render_entries(child, &prefix, children_map, indexed_oids));
+            out.extend(self.render_entries(child, &prefix));
         }
         out
     }
@@ -1035,10 +1274,9 @@ impl Resolver {
     /// refetch after a tree rebuild restores them instead of wiping them.
     pub fn get_children(&self, parent_oid: &str) -> Vec<TreeNode> {
         if parent_oid == "__other__" {
-            let (children_map, indexed_oids, roots) = self.root_nodes();
             let mut leaves: Vec<TreeNode> = Vec::new();
-            for node in &roots {
-                for entry in self.render_entries(node, "", &children_map, &indexed_oids) {
+            for node in &self.roots() {
+                for entry in self.render_entries(node, "") {
                     if !entry.has_children {
                         leaves.push(entry);
                     }
@@ -1048,19 +1286,9 @@ impl Resolver {
             return leaves;
         }
 
-        let mut children_map: HashMap<String, Vec<&MibNode>> = HashMap::new();
-        for node in self.oid_index.values() {
-            let p = Self::parent_oid(&node.oid);
-            children_map.entry(p).or_default().push(node);
-        }
-
-        let indexed_oids: HashSet<_> = self.oid_index.keys().cloned().collect();
-
         let mut result: Vec<TreeNode> = Vec::new();
-        for child in
-            self.sort_nodes(&self.effective_children(parent_oid, &children_map, &indexed_oids))
-        {
-            result.extend(self.render_entries(child, "", &children_map, &indexed_oids));
+        for child in self.sort_nodes(&self.effective_children(parent_oid)) {
+            result.extend(self.render_entries(child, ""));
         }
         result
     }
@@ -1098,27 +1326,10 @@ impl Resolver {
     }
 
     /// Checks whether a node has any descendants (direct children or deeper).
-    fn node_has_descendants(
-        &self,
-        oid: &str,
-        children_map: &HashMap<String, Vec<&MibNode>>,
-    ) -> bool {
-        // Direct children (excluding self-references).
-        if let Some(children) = children_map.get(oid) {
-            if children.iter().any(|c| c.oid != oid) {
-                return true;
-            }
-        }
-
-        // Deeper descendants: any indexed OID that is a proper sub-OID.
-        let child_prefix = format!("{}.", oid);
-        for indexed_oid in self.oid_index.keys() {
-            if indexed_oid.starts_with(&child_prefix) {
-                return true;
-            }
-        }
-
-        false
+    /// The derived set marks every indexed OID that is a proper prefix of
+    /// another indexed OID — exactly the old direct-children ∪ deep-scan test.
+    fn node_has_descendants(&self, oid: &str) -> bool {
+        self.derived().has_descendants.contains(oid)
     }
 
     /// Sorts nodes by a stable order: OBJECT IDENTIFIER subtrees first (alphabetical),
@@ -1147,31 +1358,38 @@ impl Resolver {
     ///
     /// Returns `None` if the OID is not in the index. Uses longest-prefix
     /// matching: if an exact match isn't found, returns the deepest ancestor
-    /// node that matches a prefix of the given OID.
+    /// node that matches a prefix of the given OID. The derived arc trie makes
+    /// this O(depth) instead of an O(N) scan with per-candidate allocation
+    /// (launch-beta/07 — resolve runs per-OID on every Get).
     pub fn resolve(&self, oid: &str) -> Option<&MibNode> {
         // Exact match first.
         if let Some(node) = self.oid_index.get(oid) {
             return Some(node);
         }
 
-        // Longest-prefix match for sub-OIDs (e.g., instance OIDs).
-        let mut best: Option<(&str, &MibNode)> = None;
-        for (indexed_oid, node) in &self.oid_index {
-            if oid.starts_with(&format!("{}.", indexed_oid)) || oid == indexed_oid {
-                match best {
-                    None => {
-                        best = Some((indexed_oid, node));
-                    }
-                    Some((best_oid, _)) => {
-                        if indexed_oid.len() > best_oid.len() {
-                            best = Some((indexed_oid, node));
-                        }
-                    }
-                }
+        let derived = self.derived();
+        let mut best: Option<&str> = None;
+
+        // Numeric-arc trie: the deepest terminal is the longest prefix.
+        // Descent stops at the first non-numeric arc, so a numeric prefix of a
+        // mixed query still matches ("1.3.6" for "1.3.6.foo.1").
+        let arcs: Vec<u64> = oid.split('.').map_while(|p| p.parse().ok()).collect();
+        if let Some(cand) = derived.trie.longest_prefix(&arcs) {
+            best = Some(cand);
+        }
+
+        // Non-numeric indexed OIDs keep string-prefix semantics (rare).
+        for cand in &derived.prefix_fallback {
+            if oid.len() > cand.len()
+                && oid.as_bytes()[cand.len()] == b'.'
+                && oid.starts_with(cand.as_str())
+                && best.is_none_or(|b| cand.len() > b.len())
+            {
+                best = Some(cand);
             }
         }
 
-        best.map(|(_, node)| node)
+        best.and_then(|best_oid| self.oid_index.get(best_oid))
     }
 
     /// Looks up a MIB node name and returns its OID.
@@ -1208,15 +1426,10 @@ impl Resolver {
             // Intermediate OBJECT IDENTIFIER subtrees are not queryable columns.
             // A subtree is an OID-syntax node that has indexed descendants; a leaf
             // OID-syntax object (e.g. ifSpecific) is a regular column.
-            if node.syntax_type == SyntaxType::ObjectIdentifier {
-                let prefix = format!("{}.", node.oid);
-                let is_subtree = self
-                    .oid_index
-                    .keys()
-                    .any(|k| k.as_str() != node.oid && k.starts_with(&prefix));
-                if is_subtree {
-                    continue;
-                }
+            if node.syntax_type == SyntaxType::ObjectIdentifier
+                && self.node_has_descendants(&node.oid)
+            {
+                continue;
             }
             columns.push(node.oid.clone());
         }
@@ -1346,6 +1559,7 @@ mod tests {
                 ..Default::default()
             },
         );
+        resolver.invalidate_derived();
     }
 
     /// Writes a minimal single-object MIB module to `path` (the same shape
@@ -2830,5 +3044,213 @@ END
     fn get_subtree_unknown_oid_is_empty() {
         let resolver = subtree_fixture_resolver();
         assert!(resolver.get_subtree("9.9.9").is_empty());
+    }
+
+    // ── Indexed tree ops & resolve trie (launch-beta/07) ───────────────────
+
+    #[test]
+    fn resolve_relative_oid_prefix_still_matches() {
+        // Non-numeric indexed OIDs (relative names from vendor odds and ends)
+        // keep string-prefix semantics — the arc trie only covers numeric arcs.
+        let mut resolver = Resolver::default();
+        insert(
+            &mut resolver,
+            "relative.name",
+            "relObj",
+            SyntaxType::OctetString,
+        );
+        insert(
+            &mut resolver,
+            "1.3.6.1.2.1.1.1",
+            "sysDescr",
+            SyntaxType::OctetString,
+        );
+
+        let node = resolver.resolve("relative.name.1").unwrap();
+        assert_eq!(node.name, "relObj");
+    }
+
+    #[test]
+    fn resolve_prefers_deepest_indexed_ancestor() {
+        let mut resolver = Resolver::default();
+        insert(&mut resolver, "1.3", "org", SyntaxType::ObjectIdentifier);
+        insert(
+            &mut resolver,
+            "1.3.6.1",
+            "mgmt",
+            SyntaxType::ObjectIdentifier,
+        );
+        insert(
+            &mut resolver,
+            "1.3.6.1.2.1.2.1",
+            "ifEntry",
+            SyntaxType::TableRow,
+        );
+
+        // 1.3 and 1.3.6.1 are both prefixes; the deepest wins.
+        let node = resolver.resolve("1.3.6.1.2.1.2.1.1.5").unwrap();
+        assert_eq!(node.name, "ifEntry");
+        let node = resolver.resolve("1.3.6.1.2.1.99.7").unwrap();
+        assert_eq!(node.name, "mgmt");
+    }
+
+    #[test]
+    fn build_tree_attaches_orphans_to_indexed_ancestor_not_roots() {
+        // Launch-beta/07 behavior change (code review): a node whose
+        // immediate parent is not indexed renders under its nearest indexed
+        // ancestor — the old orphan pass also listed it as a top-level root,
+        // duplicating it in the tree.
+        let mut resolver = Resolver::default();
+        insert(&mut resolver, "1.2", "isogrp", SyntaxType::ObjectIdentifier);
+        insert(&mut resolver, "1.2.3.4", "deep", SyntaxType::OctetString);
+
+        let tree = resolver.build_tree();
+        let oids: Vec<&str> = tree.iter().map(|n| n.oid.as_str()).collect();
+        assert_eq!(
+            oids,
+            ["1.2"],
+            "orphan must not be duplicated as a top-level root"
+        );
+
+        let kids = resolver.get_children("1.2");
+        assert_eq!(kids.len(), 1);
+        assert_eq!(kids[0].oid, "1.2.3.4", "renders under the ancestor");
+    }
+
+    #[test]
+    fn get_children_reflects_unload() {
+        // Tree indexes are derived state: unloading a module must not leave
+        // stale children behind.
+        let mut resolver = Resolver::default();
+        insert_named(
+            &mut resolver,
+            "1.3.6.1.2.1.1.1",
+            "sysDescr",
+            SyntaxType::OctetString,
+            "SNMPv2-MIB",
+        );
+        insert_named(
+            &mut resolver,
+            "1.3.6.1.2.1.1.2",
+            "sysObjectID",
+            SyntaxType::ObjectIdentifier,
+            "SNMPv2-MIB",
+        );
+        assert_eq!(resolver.get_children("1.3.6.1.2.1.1").len(), 2);
+
+        resolver.unload_mib("SNMPv2-MIB");
+        assert!(resolver.get_children("1.3.6.1.2.1.1").is_empty());
+        assert!(resolver.resolve("1.3.6.1.2.1.1.1").is_none());
+    }
+
+    #[test]
+    fn plan_load_apply_load_round_trip_matches_load() {
+        // The split load API (launch-beta/07 — no full-resolver clone under
+        // the lock): plan (scan+parse, &stamps) then apply (index rebuild).
+        let (dirs, files, tmp) = load_fixture("split");
+        let mut planned = Resolver::default();
+        let stamps = planned.file_stamps();
+        let plan = Resolver::scan_and_parse(&stamps, &dirs, &files);
+        assert!(plan.stats.parsed > 0, "fixtures must parse");
+        planned.apply_load(plan);
+
+        let mut direct = Resolver::default();
+        let stats = direct.load(&dirs, &files);
+
+        assert_eq!(planned.node_count(), direct.node_count());
+
+        // Second plan sees every file cached (stamps unchanged).
+        let stamps = planned.file_stamps();
+        let plan2 = Resolver::scan_and_parse(&stamps, &dirs, &files);
+        assert_eq!(plan2.stats.parsed, 0);
+        assert_eq!(plan2.stats.cached, stats.parsed);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// Performance bench on a synthetic ~120k-node set (launch-beta/07):
+    /// 400 groups × 25 tables × 10 columns. Run in release mode:
+    /// `cargo test -p scout-mib --release -- --ignored bench_100k`
+    #[test]
+    #[ignore = "perf bench — run with --release and --ignored"]
+    fn bench_100k_tree_search_resolve() {
+        use std::time::Instant;
+
+        let mut resolver = Resolver::default();
+        let mut columns = 0usize;
+        for g in 1..=400u32 {
+            insert(
+                &mut resolver,
+                &format!("1.3.6.1.4.1.99997.{g}"),
+                &format!("group{g}"),
+                SyntaxType::ObjectIdentifier,
+            );
+            for t in 1..=25u32 {
+                let tbl = format!("1.3.6.1.4.1.99997.{g}.{t}");
+                insert(
+                    &mut resolver,
+                    &tbl,
+                    &format!("table{g}_{t}"),
+                    SyntaxType::Table,
+                );
+                insert(
+                    &mut resolver,
+                    format!("{tbl}.1").as_str(),
+                    &format!("entry{g}_{t}"),
+                    SyntaxType::TableRow,
+                );
+                for c in 1..=10u32 {
+                    insert(
+                        &mut resolver,
+                        format!("{tbl}.1.{c}").as_str(),
+                        &format!("col{g}_{t}_{c}"),
+                        SyntaxType::OctetString,
+                    );
+                    columns += 1;
+                }
+            }
+        }
+        assert!(columns >= 100_000, "bench set must be ~100k: {columns}");
+        let total = resolver.node_count();
+
+        // First tree op pays the derived-index build.
+        let t0 = Instant::now();
+        let tree = resolver.build_tree();
+        let build_tree = t0.elapsed();
+        // Empty-folder collapse absorbs each group into its 25 table rows.
+        assert_eq!(tree.len(), 400 * 25);
+
+        // Tree expand: children of a group (25 tables) and of the root.
+        let t0 = Instant::now();
+        let kids = resolver.get_children("1.3.6.1.4.1.99997.1");
+        let children_ms = t0.elapsed();
+        assert_eq!(kids.len(), 25);
+
+        // Search over the whole name index.
+        let t0 = Instant::now();
+        let found = resolver.search("col400_25");
+        let search_ms = t0.elapsed();
+        assert_eq!(found.len(), 10);
+
+        // Resolve: instance OIDs, the per-Get hot path.
+        let t0 = Instant::now();
+        for i in 1..=1000u32 {
+            let oid = format!("1.3.6.1.4.1.99997.{}.1.1.{}.5", (i % 400) + 1, (i % 10) + 1);
+            assert!(resolver.resolve(&oid).is_some(), "resolve {oid}");
+        }
+        let resolve_avg = t0.elapsed() / 1000;
+
+        println!(
+            "bench_100k: {total} nodes | build_tree {build_tree:?} | get_children {children_ms:?} | search {search_ms:?} | resolve avg {resolve_avg:?}"
+        );
+
+        // Interactive budgets (release build).
+        assert!(build_tree.as_millis() < 3000, "build_tree {build_tree:?}");
+        assert!(children_ms.as_millis() < 50, "get_children {children_ms:?}");
+        assert!(search_ms.as_millis() < 200, "search {search_ms:?}");
+        assert!(
+            resolve_avg.as_micros() < 100,
+            "resolve avg {resolve_avg:?} — must be O(depth), not O(N)"
+        );
     }
 }
