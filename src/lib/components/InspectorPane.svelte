@@ -24,6 +24,10 @@
 
   let details: MibNodeDetails | null = $state(null);
   let loading = $state(false);
+  // The backend rejected the lookup: render the failure, not the
+  // "Not found in loaded MIBs" copy, which claims the MIB answered
+  // (launch-beta/10).
+  let ipcError = $state<string | null>(null);
   // Monotonic request guard: a slow response for an older selection must not
   // clobber the details of a newer one.
   let requestSeq = 0;
@@ -36,6 +40,7 @@
     if (!target) {
       details = null;
       loading = false;
+      ipcError = null;
       return;
     }
     const seq = ++requestSeq;
@@ -43,6 +48,7 @@
     mibNodeDetails(target)
       .then((d) => {
         if (seq !== requestSeq) return;
+        ipcError = null;
         // MIB DESCRIPTION clauses carry their source indentation; strip the
         // common prefix so the text reads left-aligned, not centered.
         if (d?.description) details = { ...d, description: dedent(d.description) };
@@ -50,7 +56,10 @@
       })
       .catch((err) => {
         console.error("Failed to load node details:", err);
-        if (seq === requestSeq) details = null;
+        if (seq === requestSeq) {
+          ipcError = String(err);
+          details = null;
+        }
       })
       .finally(() => {
         if (seq === requestSeq) loading = false;
@@ -214,6 +223,11 @@
         </p>
       {:else if loading && !details}
         <p class="text-base-content/60 text-sm text-center mt-8 px-4">Loading…</p>
+      {:else if ipcError}
+        <div data-testid="inspector-error" role="alert" class="px-4 py-3 text-sm">
+          <p class="text-error mb-1">Inspector lookup failed:</p>
+          <p class="text-base-content/60 break-all">{ipcError}</p>
+        </div>
       {:else if !details}
         <div data-testid="inspector-not-found" class="px-4 py-3 text-sm">
           <p class="text-base-content/60 mb-1">Not found in loaded MIBs:</p>

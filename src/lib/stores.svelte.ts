@@ -11,6 +11,9 @@ const raw = $state({
   // persisted — a broken MIB is still broken at next launch.
   fallbackBannerDismissed: false,
   treeData: [] as TreeNode[],
+  // Distinct from "no MIBs loaded": set when a tree load failed, so the
+  // panel shows the failure instead of the first-run copy (launch-beta/10).
+  treeError: "" as string,
   // Bumped every time the tree is rebuilt (startup, add directory, unload).
   // Expanded branches watch it to refetch children, so nodes that vanished
   // from a previously expanded subtree don't linger as ghosts.

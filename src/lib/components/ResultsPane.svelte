@@ -802,6 +802,18 @@
 
   async function handleExport(format: ExportFormat) {
     exportMenuOpen = false;
+    try {
+      await runExport(format);
+    } catch (err) {
+      // The export is this tool's deliverable: a failed write (disk full,
+      // permissions, IPC error) is a visible failure, never an unhandled
+      // rejection (launch-beta/10).
+      S.statusText = `Export failed: ${err}`;
+      console.error("Export failed:", err);
+    }
+  }
+
+  async function runExport(format: ExportFormat) {
     if (isGridView && tableResult) {
       const nameOf = (oid: string) => columnName(oid);
       // Export what is on screen: the fetched result restricted to the

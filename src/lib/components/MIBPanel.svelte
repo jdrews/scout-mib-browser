@@ -275,7 +275,15 @@
        tree overflows), so the fallback banner sits directly under the tree
        instead of floating below a stretched empty zone. -->
   <div class="min-h-0 overflow-y-auto overflow-x-hidden py-2">
-    {#if !hasTree}
+    {#if S.treeError}
+      <p
+        data-testid="tree-error"
+        class="text-error text-sm text-center mt-12 px-4"
+        role="alert"
+      >
+        Failed to load the MIB tree.<br />{S.treeError}
+      </p>
+    {:else if !hasTree}
       <p class="text-base-content/60 text-sm text-center mt-12">No MIBs loaded.<br/>Use File → Add MIB Directory to get started.</p>
     {:else}
       <ul role="tree" aria-label="MIB tree" class="w-full p-0 list-none">

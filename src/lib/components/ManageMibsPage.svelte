@@ -10,6 +10,9 @@
 
   let mibs: LoadedMib[] = $state([]);
   let dataLoaded = $state(false);
+  // Distinct from "no MIBs loaded": set when the list fetch failed, so the
+  // page shows the failure instead of the first-run copy (launch-beta/10).
+  let loadError = $state<string | null>(null);
   let filterText = $state("");
   // null = default (backend) order; a third click on a sorted column clears.
   let sortColumn: SortCol | null = $state(null);
@@ -24,7 +27,9 @@
     if (dataLoaded) return;
     try {
       mibs = await mibLoadedList();
+      loadError = null;
     } catch (err) {
+      loadError = String(err);
       S.statusText = `Error: ${err}`;
       console.error("Failed to load MIB list:", err);
     }
@@ -204,6 +209,10 @@
     <div class="flex-1 overflow-auto">
       {#if !dataLoaded}
         <p class="text-base-content/60 text-sm text-center mt-12">Loading…</p>
+      {:else if loadError}
+        <p data-testid="mibs-load-error" role="alert" class="text-error text-sm text-center mt-12 px-4">
+          Failed to load the MIB list.<br />{loadError}
+        </p>
       {:else if mibs.length === 0}
         <p class="text-base-content/60 text-sm text-center mt-12">No MIBs loaded.<br/>Use Add MIB Directory to get started.</p>
       {:else if visibleMibs.length === 0}

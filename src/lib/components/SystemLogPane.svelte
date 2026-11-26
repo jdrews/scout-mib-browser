@@ -3,6 +3,7 @@
   import { X } from "lucide-svelte";
   import { S } from "$lib/stores.svelte";
   import { logRead, logClear } from "$lib/tauriCommands";
+  import { passesLogFilter } from "$lib/logFilters";
   import type { LogEntry, LogLevel } from "$lib/types";
 
   const MIN_HEIGHT = 100;
@@ -23,14 +24,12 @@
   const maxEntries = 200;
 
   let height = $derived(S.systemLogHeight);
-  let filteredEntries = $derived(S.logEntries.filter((entry: LogEntry) => {
-    const filter = S.logLevelFilter;
-    if (filter === "all") return true;
-    if (filter === "error") return entry.level === "ERROR";
-    if (filter === "warn") return entry.level === "WARN" || entry.level === "ERROR";
-    if (filter === "info") return true;
-    return true;
-  }));
+  // Severity semantics live in $lib/logFilters (testable): "Info+" shows
+  // INFO and above — it used to show everything, DEBUG/TRACE included
+  // (launch-beta/10).
+  let filteredEntries = $derived(
+    S.logEntries.filter((entry: LogEntry) => passesLogFilter(entry.level, S.logLevelFilter)),
+  );
 
   function onResizeStart(e: MouseEvent) {
     e.preventDefault();
@@ -102,8 +101,15 @@
   }
 
   async function handleClear() {
-    await logClear();
-    S.logEntries.length = 0;
+    // A failed clear must not look like a success: the entries stay on
+    // screen, so say so in the status bar (launch-beta/10).
+    try {
+      await logClear();
+      S.logEntries.length = 0;
+    } catch (err) {
+      S.statusText = `Failed to clear system log: ${err}`;
+      console.error("Failed to clear system log:", err);
+    }
   }
 
   onMount(() => {

@@ -14,6 +14,10 @@
   let childrenList = $state<TreeNodeType[]>(node.children ?? []);
   let loaded = $state(!!node.children && node.children.length > 0);
   let loading = $state(false);
+  // Children-load failure is shown inside the branch: an expand toggle
+  // that silently reveals an empty branch reads as "no children"
+  // (launch-beta/10).
+  let loadError = $state<string | null>(null);
   let expanded = $state(false);
 
   // Roving tabindex: exactly one treeitem in the tree holds tabindex=0.
@@ -113,7 +117,9 @@
           const data = await mibChildren(node.oid);
           childrenList = data;
           loaded = true;
+          loadError = null;
         } catch (err) {
+          loadError = String(err);
           console.error("Failed to load children for", node.oid, err);
         } finally {
           loading = false;
@@ -287,6 +293,11 @@
   </div>
   {#if hasChildren && expanded}
     <ul role="group" class="ml-3 border-l border-base-300 pl-1">
+      {#if loadError && childrenList.length === 0}
+        <li data-testid="tree-node-error" role="alert" class="px-2 py-1 text-error text-xs">
+          Failed to load children — collapse and expand to retry.
+        </li>
+      {/if}
       {#each childrenList as child (child.oid)}
         <Self node={child} />
       {/each}
