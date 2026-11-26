@@ -21,11 +21,15 @@ describe("Connection (target configuration)", () => {
     // Use values distinct from the seeded config so the assertion is meaningful.
     await (await $("[data-testid='host-input']").setValue("192.0.2.10"));
     await (await $("[data-testid='port-input']").setValue("162"));
-    await browser.pause(300);
-
-    const toml = readConfigFile();
-    expect(toml).toMatch(/host\s*=\s*"192\.0\.2\.10"/);
-    expect(toml).toMatch(/port\s*=\s*162\b/);
+    // The keystroke persist is debounced ~300 ms (launch-beta/10), so poll
+    // the file for the typed values instead of racing a fixed pause.
+    await browser.waitUntil(
+      () => {
+        const toml = readConfigFile();
+        return /host\s*=\s*"192\.0\.2\.10"/.test(toml) && /port\s*=\s*162\b/.test(toml);
+      },
+      { timeout: 10000, interval: 250, timeoutMsg: "config never showed the typed host/port" },
+    );
 
     // Restore the seeded target for the remaining tests and later spec files.
     await (await $("[data-testid='host-input']").setValue(AGENT_HOST));
