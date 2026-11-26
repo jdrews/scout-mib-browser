@@ -6,6 +6,31 @@ Please report security vulnerabilities privately via GitHub
 ([github.com/jdrews/scout-mib-browser](https://github.com/jdrews/scout-mib-browser)
 → Security → Report a vulnerability). Please do not open a public issue.
 
+## Attack Surface
+
+Scout MIB Browser renders attacker-controlled strings **by design**: MIB
+`DESCRIPTION` text comes from user-loaded MIB files, and SNMP value octets
+come from arbitrary devices on the network. The webview is therefore treated
+as a hostile component:
+
+- **No path-shaped file writes.** The backend exposes no command that takes a
+  file path from the frontend. Saving an export opens the native save dialog,
+  and the write is scoped to exactly the path the *user* picked there. The
+  suggested filename (built from MIB node names) is reduced to a bare name —
+  path components, control characters and leading dots are stripped — so it
+  can only prefill the dialog, never aim it.
+- **Content Security Policy.** The webview runs with
+  `default-src 'self'; script-src 'self'` (plus `style-src 'unsafe-inline'`,
+  required by Svelte's runtime style injection). Scripts from MIB text, SNMP
+  payloads, or injected markup cannot execute.
+- **Minimal capabilities.** The shipped capability set is `core:default`
+  plus event listening. The WebDriver plugin used by the e2e suite has its
+  own capability file that is not referenced from the app config, so it
+  never ships.
+- **No test code in releases.** The mock SNMP agent (a UDP listener) is
+  behind a cargo feature that release builds do not enable.
+- **Credentials off by default.** See the next section.
+
 ## Credential Storage
 
 Scout MIB Browser stores Target settings in `config.toml` under the user's

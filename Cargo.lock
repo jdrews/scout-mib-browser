@@ -3468,6 +3468,7 @@ dependencies = [
 name = "scout-snmp"
 version = "0.1.0"
 dependencies = [
+ "scout-snmp",
  "serde",
  "serde_json",
  "snmp2",

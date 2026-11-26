@@ -277,20 +277,19 @@ export async function mibOidNameMap(): Promise<[string, string][]> {
 
 // ── File System Commands ─────────────────────────────────────────────────────
 
-/** Writes a string to the given file path via backend. */
-export async function fsWriteFile(path: string, content: string): Promise<void> {
-  return invoke("fs_write_file", { path, content });
-}
-
-/** Opens a native save dialog and writes content to the selected path. Returns the saved path or null if cancelled. */
+/**
+ * Opens a native save dialog and writes content to the selected path.
+ * Returns the saved path or null if cancelled.
+ *
+ * The backend picks the destination **only** from the dialog (launch-beta/09):
+ * the webview passes content plus a suggested filename and never a path, so a
+ * compromised frontend cannot write to a path of its choosing.
+ */
 export async function saveToFile(
   content: string,
   defaultFilename: string,
 ): Promise<string | null> {
-  const path = (await invoke("dialog_save_file", { defaultPath: defaultFilename })) as string | null;
-  if (!path) return null;
-  await fsWriteFile(path, content);
-  return path;
+  return (await invoke("dialog_save_file", { defaultFilename, content })) as string | null;
 }
 
 // ── System Log Commands ──────────────────────────────────────────────────────

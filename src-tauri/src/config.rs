@@ -1008,6 +1008,21 @@ mod tests {
     use super::*;
     use std::env;
 
+    /// Serializes this module's tests. The config crate reads `SCOUT_*`
+    /// env overrides process-wide, and `env_var_override_cascade` sets
+    /// them; Rust runs tests as threads in one process, so a parallel
+    /// config build can absorb a leaked override (CI race: SCOUT_TARGET__HOST
+    /// leaked into the corrupt-config quarantine test, making "defaults"
+    /// non-default). Poison is tolerated: a panicking test must not take
+    /// the whole module down with it.
+    static CONFIG_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn config_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        CONFIG_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     /// Helper to build config from a temporary directory.
     fn test_config_path(dir: &std::path::Path) -> PathBuf {
         dir.join(CONFIG_FILE)
@@ -1015,6 +1030,7 @@ mod tests {
 
     #[test]
     fn defaults_are_correct() {
+        let _serial = config_test_guard();
         let cfg = AppConfig::default();
 
         assert_eq!(
@@ -1038,6 +1054,7 @@ mod tests {
 
     #[test]
     fn builder_defaults_do_not_save_credentials() {
+        let _serial = config_test_guard();
         // The read cascade applies the same off-by-default (empty file =
         // fresh install).
         let tmp = std::env::temp_dir().join("scout_fresh_default_test");
@@ -1059,6 +1076,7 @@ mod tests {
 
     #[test]
     fn save_credentials_off_keeps_credential_fields_out_of_toml() {
+        let _serial = config_test_guard();
         let mut cfg = AppConfig::default();
         cfg.target.host = "10.0.0.5".to_string();
         cfg.target.port = 1161;
@@ -1105,6 +1123,7 @@ mod tests {
 
     #[test]
     fn save_credentials_on_round_trips_credentials() {
+        let _serial = config_test_guard();
         let mut cfg = AppConfig::default();
         cfg.target.host = "10.0.0.5".to_string();
         cfg.target.community = "s3cret-community".to_string();
@@ -1129,6 +1148,7 @@ mod tests {
 
     #[test]
     fn mib_files_round_trip() {
+        let _serial = config_test_guard();
         let mut cfg = AppConfig::default();
         cfg.mib.files = vec!["/home/user/mibs/EXTRA-MIB".to_string()];
 
@@ -1150,6 +1170,7 @@ mod tests {
 
     #[test]
     fn mib_files_absent_in_toml_deserializes_to_empty() {
+        let _serial = config_test_guard();
         // A pre-existing config file without a `files` key loads cleanly.
         let toml_str = toml::to_string_pretty(&AppConfig::default()).unwrap();
         let loaded: AppConfig = toml::from_str(&toml_str).unwrap();
@@ -1158,6 +1179,7 @@ mod tests {
 
     #[test]
     fn scrub_on_disable_removes_saved_credentials_from_disk() {
+        let _serial = config_test_guard();
         // Simulate a config file that already holds credentials.
         let mut cfg = AppConfig::default();
         cfg.target.host = "10.0.0.5".to_string();
@@ -1182,6 +1204,7 @@ mod tests {
 
     #[test]
     fn round_trip_persistence() {
+        let _serial = config_test_guard();
         let tmp = std::env::temp_dir().join("scout_config_test");
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
@@ -1216,9 +1239,11 @@ mod tests {
 
     #[test]
     fn env_var_override_cascade() {
+        let _serial = config_test_guard();
         // Hermetic (Linux): point the file source at an empty temp location
-        // so a real ~/.config/scout/config.toml cannot shadow the env vars,
-        // and no process-wide env is touched (parallel-test safe).
+        // so a real ~/.config/scout/config.toml cannot shadow the env vars.
+        // set_var IS process-wide, so this test holds the module lock for
+        // its whole set→build→remove window (see CONFIG_TEST_LOCK).
         let tmp = std::env::temp_dir().join("scout_env_override_test");
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
@@ -1243,6 +1268,7 @@ mod tests {
 
     #[test]
     fn ensure_config_file_creates_directory_and_file() {
+        let _serial = config_test_guard();
         let tmp = std::env::temp_dir().join("scout_ensure_test");
         let _ = std::fs::remove_dir_all(&tmp);
 
@@ -1271,6 +1297,7 @@ mod tests {
 
     #[test]
     fn config_write_updates_field() {
+        let _serial = config_test_guard();
         let tmp = std::env::temp_dir().join("scout_write_test");
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
@@ -1315,6 +1342,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn save_config_writes_owner_only_file() {
+        let _serial = config_test_guard();
         // The config can hold v3 passphrases; on a multi-user jump box a
         // 0644 file makes them world-readable.
         let tmp = std::env::temp_dir().join("scout_perm_file_test");
@@ -1332,6 +1360,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn save_config_creates_owner_only_directory() {
+        let _serial = config_test_guard();
         let tmp = std::env::temp_dir().join("scout_perm_dir_test");
         let _ = std::fs::remove_dir_all(&tmp);
         let path = tmp.join(CONFIG_DIR).join(CONFIG_FILE);
@@ -1350,6 +1379,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn save_config_tightens_preexisting_world_readable_file() {
+        let _serial = config_test_guard();
         // Upgrades from older versions leave a 0644 config; the first save
         // after upgrade must tighten it.
         let tmp = std::env::temp_dir().join("scout_perm_tighten_test");
@@ -1371,6 +1401,7 @@ mod tests {
 
     #[test]
     fn save_config_leaves_no_temp_file_on_success() {
+        let _serial = config_test_guard();
         // Atomic save: write a sibling temp file, then rename. A completed
         // save must not litter the config directory.
         let tmp = std::env::temp_dir().join("scout_atomic_success_test");
@@ -1396,6 +1427,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn failed_save_leaves_existing_config_untouched() {
+        let _serial = config_test_guard();
         // A crash/full-disk mid-write must never leave a truncated config
         // (the ticket-05 brick). With the temp-file + rename scheme the
         // write failure happens off the real path, so the previous file
@@ -1428,6 +1460,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn ensure_config_file_creates_owner_only_file() {
+        let _serial = config_test_guard();
         let tmp = std::env::temp_dir().join("scout_ensure_perm_test");
         let _ = std::fs::remove_dir_all(&tmp);
         let path = tmp.join(CONFIG_DIR).join(CONFIG_FILE);
@@ -1449,6 +1482,7 @@ mod tests {
 
     #[test]
     fn valid_config_is_not_quarantined() {
+        let _serial = config_test_guard();
         let tmp = std::env::temp_dir().join("scout_recover_valid_test");
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
@@ -1471,6 +1505,7 @@ mod tests {
 
     #[test]
     fn corrupt_config_is_quarantined_and_defaults_returned() {
+        let _serial = config_test_guard();
         // A truncated/corrupt config (power loss, hand-edit) must not brick
         // the app: the bad file is preserved as a timestamped backup and the
         // app starts from defaults.
@@ -1509,6 +1544,7 @@ mod tests {
 
     #[test]
     fn type_error_config_is_quarantined_too() {
+        let _serial = config_test_guard();
         // Valid TOML with the wrong types (e.g. port = "not-a-number")
         // deserializes to a ConfigError and bricks writes just like a parse
         // error — same recovery.
@@ -1528,6 +1564,7 @@ mod tests {
 
     #[test]
     fn settings_writes_recover_after_corrupt_config() {
+        let _serial = config_test_guard();
         // The ticket's core scenario: corrupt TOML, app (re)starts, every
         // settings write works again — the read path is never permanently
         // poisoned.

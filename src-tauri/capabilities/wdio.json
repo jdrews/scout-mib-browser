@@ -1,0 +1,6 @@
+{
+  "identifier": "wdio",
+  "description": "WebDriver plugin permissions for e2e test builds (cargo feature `wdio`). Deliberately NOT listed in app.security.capabilities, so it never ships.",
+  "windows": ["main"],
+  "permissions": ["wdio:default"]
+}
