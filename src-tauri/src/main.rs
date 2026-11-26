@@ -78,6 +78,30 @@ impl MibResolverState {
             inner: Arc::new(RwLock::new(mib::Resolver::default())),
         }
     }
+
+    /// Runs `f` with read access to the resolver on the app-owned runtime
+    /// (8MB worker/blocking stacks — AGENTS.md backend layout). All MIB read
+    /// commands go through here: the main thread never walks the tree, and
+    /// blocking work stays on the one runtime whose stacks the app controls.
+    pub async fn read_with<T, F>(
+        &self,
+        runtime: &tokio::runtime::Handle,
+        label: &str,
+        f: F,
+    ) -> Result<T, String>
+    where
+        T: Send + 'static,
+        F: FnOnce(&mib::Resolver) -> T + Send + 'static,
+    {
+        let inner = self.inner.clone();
+        runtime
+            .spawn_blocking(move || {
+                let res = inner.read().map_err(|e| e.to_string())?;
+                Ok(f(&res))
+            })
+            .await
+            .map_err(|e| format!("{label} task failed: {e}"))?
+    }
 }
 
 /// Handle to the SNMP engine and its dedicated runtime, stored in Tauri app state.
@@ -303,14 +327,17 @@ fn main() {
 /// Loads MIB files from the given directories **plus** the given explicit
 /// files, plus the bundled standards MIBs when neither source has content.
 ///
-/// Runs off the main thread (launch-beta/07): the file stamps are snapshotted
-/// under a short read lock, directories are scanned and new/changed files are
-/// parsed on the blocking pool **outside the resolver lock**, and only the
-/// final index swap is serialized. Read commands (tree, search, Manage MIBs
-/// list) therefore stay responsive while a load is in flight.
+/// Runs off the main thread on the app-owned runtime (launch-beta/07): the
+/// file stamps are snapshotted under a short read lock, directories are
+/// scanned and new/changed files are parsed **outside the resolver lock**
+/// (8MB stacks — mib-rs parses recursively and a load-path panic is fatal),
+/// and only the final index swap is serialized. Read commands (tree,
+/// search, Manage MIBs list) therefore stay responsive while a load is in
+/// flight.
 #[tauri::command]
 async fn mib_load(
     app: tauri::AppHandle,
+    engine_state: tauri::State<'_, SnmpEngineState>,
     resolver: tauri::State<'_, MibResolverState>,
     directories: Vec<String>,
     files: Vec<String>,
@@ -331,17 +358,19 @@ async fn mib_load(
     }
 
     let inner = resolver.inner.clone();
-    let stats = tauri::async_runtime::spawn_blocking(move || -> Result<mib::LoadStats, String> {
-        let stamps = {
-            let res = inner.read().map_err(|e| e.to_string())?;
-            res.file_stamps()
-        };
-        let plan = mib::Resolver::scan_and_parse(&stamps, &dirs, &files);
-        let mut res = inner.write().map_err(|e| e.to_string())?;
-        Ok(res.apply_load(plan))
-    })
-    .await
-    .map_err(|e| format!("mib_load task failed: {}", e))??;
+    let stats = engine_state
+        .runtime_handle()
+        .spawn_blocking(move || -> Result<mib::LoadStats, String> {
+            let stamps = {
+                let res = inner.read().map_err(|e| e.to_string())?;
+                res.file_stamps()
+            };
+            let plan = mib::Resolver::scan_and_parse(&stamps, &dirs, &files);
+            let mut res = inner.write().map_err(|e| e.to_string())?;
+            Ok(res.apply_load(plan))
+        })
+        .await
+        .map_err(|e| format!("mib_load task failed: {}", e))??;
 
     let res = resolver.inner.read().map_err(|e| e.to_string())?;
     Ok(MibLoadStatus {
@@ -406,35 +435,33 @@ fn mib_status(resolver: tauri::State<MibResolverState>) -> Result<MibLoadStatus,
 
 /// Returns the hierarchical MIB tree for rendering in the UI.
 ///
-/// Async (launch-beta/07): the tree walk runs on the blocking pool — Tauri
-/// runs non-`async` commands on the main thread, and a full tree build over
-/// 100k+ nodes would freeze the UI.
+/// Async (launch-beta/07): the tree walk runs on the app-owned runtime —
+/// Tauri runs non-`async` commands on the main thread, and a full tree
+/// build over 100k+ nodes would freeze the UI.
 #[tauri::command]
 async fn mib_tree(
+    engine_state: tauri::State<'_, SnmpEngineState>,
     resolver: tauri::State<'_, MibResolverState>,
 ) -> Result<Vec<mib::TreeNode>, String> {
-    let inner = resolver.inner.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let res = inner.read().map_err(|e| e.to_string())?;
-        Ok(res.build_tree())
-    })
-    .await
-    .map_err(|e| format!("mib_tree task failed: {}", e))?
+    resolver
+        .read_with(&engine_state.runtime_handle(), "mib_tree", |res| {
+            res.build_tree()
+        })
+        .await
 }
 
 /// Returns direct children of the given OID for lazy loading.
 #[tauri::command]
 async fn mib_children(
+    engine_state: tauri::State<'_, SnmpEngineState>,
     resolver: tauri::State<'_, MibResolverState>,
     oid: String,
 ) -> Result<Vec<mib::TreeNode>, String> {
-    let inner = resolver.inner.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let res = inner.read().map_err(|e| e.to_string())?;
-        Ok(res.get_children(&oid))
-    })
-    .await
-    .map_err(|e| format!("mib_children task failed: {}", e))?
+    resolver
+        .read_with(&engine_state.runtime_handle(), "mib_children", move |res| {
+            res.get_children(&oid)
+        })
+        .await
 }
 
 /// Returns all MIB nodes under the given OID — the subtree in tree order.
@@ -450,16 +477,15 @@ fn mib_subtree(
 /// Searches for MIB nodes matching the given query (autocomplete).
 #[tauri::command]
 async fn mib_search(
+    engine_state: tauri::State<'_, SnmpEngineState>,
     resolver: tauri::State<'_, MibResolverState>,
     query: String,
 ) -> Result<Vec<mib::MibNode>, String> {
-    let inner = resolver.inner.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let res = inner.read().map_err(|e| e.to_string())?;
-        Ok(res.search(&query))
-    })
-    .await
-    .map_err(|e| format!("mib_search task failed: {}", e))?
+    resolver
+        .read_with(&engine_state.runtime_handle(), "mib_search", move |res| {
+            res.search(&query)
+        })
+        .await
 }
 
 /// Unloads the modules that the given file paths resolve to, in a single
@@ -517,15 +543,14 @@ fn mib_node_details(
 /// Returns all OID → name pairs for frontend resolution.
 #[tauri::command]
 async fn mib_oid_name_map(
+    engine_state: tauri::State<'_, SnmpEngineState>,
     resolver: tauri::State<'_, MibResolverState>,
 ) -> Result<Vec<(String, String)>, String> {
-    let inner = resolver.inner.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let res = inner.read().map_err(|e| e.to_string())?;
-        Ok(res.oid_name_map())
-    })
-    .await
-    .map_err(|e| format!("mib_oid_name_map task failed: {}", e))?
+    resolver
+        .read_with(&engine_state.runtime_handle(), "mib_oid_name_map", |res| {
+            res.oid_name_map()
+        })
+        .await
 }
 
 // ── SNMP Commands ────────────────────────────────────────────────────────────

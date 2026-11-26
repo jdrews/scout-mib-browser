@@ -864,16 +864,21 @@ impl Resolver {
         }
 
         // Orphaned nodes (parent not indexed) render under every indexed
-        // ancestor above them; with no indexed ancestor at all they are roots.
+        // ancestor above them; only with no indexed ancestor at all do they
+        // become roots (the old pass rooted them alongside the ancestor
+        // listing, duplicating each orphan in the tree).
         for oid in self.oid_index.keys() {
             let parent = Self::parent_oid(oid);
             if parent.is_empty() || self.oid_index.contains_key(&parent) {
                 continue;
             }
+            let mut attached = false;
             let mut ancestor: &str = parent.as_str();
             loop {
                 if ancestor.is_empty() {
-                    d.orphan_roots.push(oid.clone());
+                    if !attached {
+                        d.orphan_roots.push(oid.clone());
+                    }
                     break;
                 }
                 if self.oid_index.contains_key(ancestor) {
@@ -881,6 +886,7 @@ impl Resolver {
                         .entry(ancestor.to_string())
                         .or_default()
                         .push(oid.clone());
+                    attached = true;
                 }
                 ancestor = Self::parent_prefix(ancestor);
             }
@@ -3086,6 +3092,29 @@ END
         assert_eq!(node.name, "ifEntry");
         let node = resolver.resolve("1.3.6.1.2.1.99.7").unwrap();
         assert_eq!(node.name, "mgmt");
+    }
+
+    #[test]
+    fn build_tree_attaches_orphans_to_indexed_ancestor_not_roots() {
+        // Launch-beta/07 behavior change (code review): a node whose
+        // immediate parent is not indexed renders under its nearest indexed
+        // ancestor — the old orphan pass also listed it as a top-level root,
+        // duplicating it in the tree.
+        let mut resolver = Resolver::default();
+        insert(&mut resolver, "1.2", "isogrp", SyntaxType::ObjectIdentifier);
+        insert(&mut resolver, "1.2.3.4", "deep", SyntaxType::OctetString);
+
+        let tree = resolver.build_tree();
+        let oids: Vec<&str> = tree.iter().map(|n| n.oid.as_str()).collect();
+        assert_eq!(
+            oids,
+            ["1.2"],
+            "orphan must not be duplicated as a top-level root"
+        );
+
+        let kids = resolver.get_children("1.2");
+        assert_eq!(kids.len(), 1);
+        assert_eq!(kids[0].oid, "1.2.3.4", "renders under the ancestor");
     }
 
     #[test]
