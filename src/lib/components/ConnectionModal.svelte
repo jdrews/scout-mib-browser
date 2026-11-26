@@ -2,7 +2,8 @@
   import { Check, Eye, EyeOff, X } from "lucide-svelte";
   import { tick } from "svelte";
   import { S } from "$lib/stores.svelte";
-  import { persistTargetConfig, configWrite } from "$lib/tauriCommands";
+  import { configWrite } from "$lib/tauriCommands";
+  import { schedulePersistTargetConfig } from "$lib/persistTarget";
   import { runTestConnection, clearResultTimer } from "$lib/connectionLogic";
   import { trapFocus } from "$lib/focusTrap";
 
@@ -50,7 +51,8 @@
   function updateField(field: string, value: string | number) {
     const next = { ...cfg, [field]: value };
     Object.assign(S.targetConfig, next);
-    persistTargetConfig(next);
+    // Keystroke path: debounced and error-reporting (launch-beta/10).
+    schedulePersistTargetConfig(next);
   }
 
   function onCommunityInput(e: Event) {

@@ -2,7 +2,7 @@
   import { Settings } from "lucide-svelte";
   import { mibSearch, mibResolveOid, mibNodeDetails } from "$lib/tauriCommands";
   import { S } from "$lib/stores.svelte";
-  import { persistTargetConfig } from "$lib/tauriCommands";
+  import { schedulePersistTargetConfig } from "$lib/persistTarget";
   import { markConnected, markDisconnected, hasErrorWarning, streamingOutcome } from "$lib/connectionLogic";
   import { RunGuard } from "$lib/runGuard";
   import { setGuard, effectiveSetOid, setDetailsFor } from "$lib/setLogic";
@@ -63,7 +63,9 @@
     const val = (e.target as HTMLInputElement).value;
     const next = { ...cfg, host: val };
     Object.assign(S.targetConfig, next);
-    persistTargetConfig(next);
+    // Debounced + error-reporting: a keystroke burst is one write, and a
+    // failed write reaches the status bar (launch-beta/10).
+    schedulePersistTargetConfig(next);
   }
 
   function onPortInput(e: Event) {
@@ -71,7 +73,7 @@
     if (!isNaN(val) && val > 0 && val < 65536) {
       const next = { ...cfg, port: val };
       Object.assign(S.targetConfig, next);
-      persistTargetConfig(next);
+      schedulePersistTargetConfig(next);
     }
   }
 

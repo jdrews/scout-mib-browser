@@ -64,7 +64,12 @@
       const { mibTree } = await import("$lib/tauriCommands");
       S.treeData = await mibTree();
       S.treeVersion++;
+      S.treeError = "";
     } catch (err) {
+      // Distinct error state: an empty tree after a failure must not read
+      // as "no MIBs loaded" (launch-beta/10).
+      S.treeError = String(err);
+      S.statusText = `Failed to load MIB tree: ${err}`;
       console.error("Failed to load tree:", err);
     }
   }
@@ -86,7 +91,7 @@
   <ConnectionModal />
   <footer class="footer footer-horizontal items-center bg-base-200 border-t border-base-300 text-base-content/60 text-xs tabular-nums flex-shrink-0 px-4 py-2">
     <div class="flex items-center gap-3">
-      <span data-testid="status-text">{S.statusText}</span>
+      <span data-testid="status-text" role="status">{S.statusText}</span>
     </div>
     <div class="flex items-center gap-3 ml-auto">
       <button
