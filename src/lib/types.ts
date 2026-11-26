@@ -221,7 +221,9 @@ export interface TableRowData {
   index_values: (string | null)[];
 }
 
-/** Result of a table retrieval operation — pivoted grid of rows and columns. */
+/** Result of a table retrieval operation — pivoted grid of rows and columns.
+ * Cells are sparse: a row has no entry for a column the agent did not
+ * return (the UI renders absent cells as missing). */
 export interface TableResult {
   table_oid: string;
   columns: string[];
@@ -231,6 +233,16 @@ export interface TableResult {
   warnings?: SnmpWarning[];
   partial: boolean;
 }
+
+/** Grid metadata closing a streamed table delivery, after all row batches
+ * (launch-beta/06 — chunked IPC). Mirrors TableResult without `rows`. */
+export type TableCompleteMeta = Omit<TableResult, "rows">;
+
+/** One message on the table delivery channel: a batch of rows, then the
+ * final complete meta. */
+export type TableStreamMsg =
+  | { kind: "rows"; rows: TableRowData[] }
+  | ({ kind: "complete" } & TableCompleteMeta);
 
 // ── System Log Types ─────────────────────────────────────────────────────────
 

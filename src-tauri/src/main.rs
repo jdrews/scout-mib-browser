@@ -168,8 +168,22 @@ impl snmp::TableRowSender for ChannelTableSender {
         }
     }
 
-    fn send_complete(&self, result: &snmp::TableResult) {
-        match serde_json::to_string(result) {
+    fn send_rows(&self, rows: &[snmp::TableRow]) -> bool {
+        let msg = snmp::TableStreamMsg::Rows {
+            rows: rows.to_vec(),
+        };
+        match serde_json::to_string(&msg) {
+            Ok(json) => self.complete.send(json.into()).is_ok(),
+            Err(e) => {
+                warn!("Table row batch serialization failed: {}", e);
+                false
+            }
+        }
+    }
+
+    fn send_complete(&self, meta: &snmp::TableComplete) {
+        let msg = snmp::TableStreamMsg::Complete { meta: meta.clone() };
+        match serde_json::to_string(&msg) {
             Ok(json) => {
                 if let Err(e) = self.complete.send(json.into()) {
                     warn!("Table complete channel send failed: {}", e);
@@ -676,6 +690,19 @@ async fn snmp_get_table(
 ) -> Result<(), String> {
     cancel_token.reset();
     let target = build_target(&params)?;
+    // Command-boundary guard (launch-beta/06): a Get Table on an OID that is
+    // not a known TABLE node walks the entire subtree — a high subtree like
+    // 1.3.6 collects the whole device MIB. The UI blocks this path; log it
+    // loudly for every other caller, and let the binding cap bound the
+    // damage.
+    let known_table = resolver
+        .inner
+        .read()
+        .map(|g| g.get_table_info(&table_oid).is_some())
+        .unwrap_or(false);
+    if !known_table {
+        warn!("Get Table on '{table_oid}': not a known TABLE node — walking the full subtree");
+    }
     let index_columns = mib_index_specs(&resolver.inner, &table_oid);
     let engine = engine_state.engine.clone();
     let cancel = (*cancel_token).inner();
