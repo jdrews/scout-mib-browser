@@ -9,15 +9,34 @@
   import ConnectionModal from "./ConnectionModal.svelte";
   import SystemLogPane from "./SystemLogPane.svelte";
   import { onMount } from "svelte";
+  import { getVersion } from "@tauri-apps/api/app";
   import { S } from "$lib/stores.svelte";
   import { pluralize } from "$lib/format";
   import { refreshMibState } from "$lib/mibManager";
-  import { configRead, mibLoad } from "$lib/tauriCommands";
+  import { configRead, mibLoad, logAppend } from "$lib/tauriCommands";
 
   let connState = $derived(S.connectionState);
   let theme = $derived(S.currentTheme);
+  // Beta feedback triage (launch-beta/12): every bug report needs a build
+  // to point at — the footer shows the version, startup records it in the
+  // System Log with the platform.
+  let appVersion = $state("");
+
+  async function announceBuild() {
+    try {
+      // The webview's platform string is the triage detail ("X11; Linux
+      // x86_64"); @tauri-apps/api has no platform command in v2.
+      const [version, platform] = await Promise.all([getVersion(), Promise.resolve(navigator.platform)]);
+      appVersion = version;
+      await logAppend("INFO", "app", `Scout MIB Browser ${version} on ${platform}`);
+    } catch {
+      // Outside the packaged app (plain browser dev) there is no app
+      // plugin: no version display, never a startup failure.
+    }
+  }
 
   onMount(async () => {
+    void announceBuild();
     document.documentElement.setAttribute("data-theme", theme);
     S.statusText = "Loading configuration…";
     try {
@@ -123,6 +142,9 @@
         {connState === "connected" ? "Connected" : connState === "connecting" ? "Connecting…" : connState === "disconnected" ? "Disconnected" : "Not connected"}
       </span>
       <span data-testid="node-count">{S.nodeCount ? `${pluralize(S.nodeCount, "node")} loaded` : ""}</span>
+      {#if appVersion}
+        <span data-testid="app-version" title="App version">v{appVersion}</span>
+      {/if}
     </div>
   </footer>
 </div>
