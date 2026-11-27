@@ -6,16 +6,15 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time to file a bug report! Scout is in beta, so
-        every report directly shapes the 1.0. The version is shown in the
-        app's status bar (bottom right); the System Log pane is the fastest
-        way to see what the app actually did.
+        Thanks for taking the time to file a bug report! The version is shown
+        in the app's status bar (bottom right); the System Log pane is the
+        fastest way to see what the app actually did.
   - type: input
     id: version
     attributes:
       label: Scout version
-      description: Shown in the status bar, bottom right (e.g. v0.2.0-beta1)
-      placeholder: v0.2.0-beta1
+      description: Shown in the status bar, bottom right (e.g. v0.2.0)
+      placeholder: v0.2.0
     validations:
       required: true
   - type: dropdown
