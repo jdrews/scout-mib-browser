@@ -12,7 +12,7 @@ builds need a real Windows-on-ARM host).
 
 - Wine (64-bit), `7z`, `unzip`
 - The Windows x64 artifact: `scout-mib-browser-<ver>-windows-x64.zip` (or the `-setup.exe`)
-- A WebView2 **Fixed Version Runtime** `.cab` (x64) — from the
+- A WebView2 **Fixed Version Runtime** `.cab` (x64), from the
   [Microsoft WebView2 download page](https://developer.microsoft.com/en-us/microsoft-edge/webview2)
   (Fixed Version → select version + x64). e.g. `Microsoft.WebView2.FixedVersionRuntime.154.0.4258.53.x64.cab`
 
