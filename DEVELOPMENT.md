@@ -185,6 +185,25 @@ the mock SNMP agent on port 11611, starts Vite on port 5173, runs WDIO under
 Xvfb with the isolated environment, and cleans up all processes and temp files
 on both success and failure.
 
+### Writing Specs
+
+- One spec, repeatedly: `bash scripts/test-e2e.sh wdio.conf.mjs --spec
+  test/specs/x.spec.ts` — repeat `--spec` for more files (a comma-separated
+  list is not accepted).
+- The global `expect` is the `expect` package, **not** chai: it takes one
+  argument. `expect(value, "why")` throws "Expect takes at most one argument"
+  mid-assertion, so put diagnosis in a thrown `Error` (or in
+  `browser.waitUntil`'s `timeoutMsg`).
+- Runs use fixed ports (Vite 5173, snmpsim 11611–11613) and one Xvfb display,
+  so only one run may be in flight; specs share a single app session, which is
+  why a case that reloads the app inherits whatever the previous case left
+  behind (normalize state at the top of the test).
+- Anything that reads the config file after a keystroke must poll: target
+  persistence is debounced (~300 ms), so a fixed pause races the write.
+- Reload-heavy cases need per-describe headroom (`this.timeout(120000)`): each
+  reload is a full startup, and on a saturated runner the 60 s mocha default
+  then measures the machine, not the product.
+
 ## Testing Windows Artifacts under Wine
 
 The Windows x64 release artifact can be smoke-tested under Wine to verify it runs

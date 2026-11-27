@@ -1,6 +1,12 @@
 import { CHAIN_TO_MIB2, expandTo, nodeCount, readAppLog, waitForAppReady, waitForStatus } from "../support/helpers";
 
-describe("Menus & settings (app-level settings)", () => {
+describe("Menus & settings (app-level settings)", function () {
+  // Several cases here reload the app (a full startup: config + mibLoad) and
+  // the suite is serialized on one app session. On a saturated CI runner the
+  // reload case blew the 60 s mocha default with every step succeeding
+  // (e2e-stability/03), so the spec gets explicit headroom.
+  this.timeout(120000);
+
   before(async () => {
     await waitForAppReady();
   });
@@ -196,23 +202,31 @@ describe("Menus & settings (app-level settings)", () => {
     expect(before).toBe(distinctSum);
   });
 
-  it("Manage MIBs page Unload All + reload restores", async () => {
-    // Reload the window: startup re-runs (config -> mibLoad), rebuilding the
-    // resolver from disk (directories + explicit files).
+  it("Manage MIBs page Unload All empties the list", async () => {
+    // Restore the MIBs the Unload Selected case removed: reload re-runs
+    // startup (config -> mibLoad), rebuilding the resolver from disk.
     await browser.url("http://localhost:5173");
     await waitForAppReady();
     expect(await nodeCount()).toBeGreaterThan(0);
 
     await openManageMibsPage();
-    // Two-step confirm: the first click arms, the bar's button unloads.
+    // Two-step confirm (launch-beta/11): the first click arms the bar, the
+    // bar's button unloads.
     await (await $("[data-testid='unload-all-btn']")).click();
+    const bar = await $("[data-testid='unload-all-confirm-bar']");
+    await bar.waitForExist({ timeout: 5000 });
+    const rows = await readMibRows();
+    expect(await bar.getText()).toMatch(new RegExp(`Unload all ${rows.length} modules?\\?`));
+
     await (await $("[data-testid='unload-all-confirm-btn']")).click();
     expect(await waitForStatus(/^Unloaded all MIBs$/, 30000)).toBe("Unloaded all MIBs");
     await browser.waitUntil(
       async () => (await $$("[data-testid='mib-row']")).length === 0,
       { timeout: 15000, interval: 250 },
     );
+  });
 
+  it("Manage MIBs page reload restores the configured MIBs", async () => {
     // Reload again: the explicit file (EXTRA-MIB) persisted in config and is
     // loaded alongside the directory MIBs.
     await browser.url("http://localhost:5173");
