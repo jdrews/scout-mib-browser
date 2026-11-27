@@ -10,12 +10,6 @@ A fast, free, open-source SNMP MIB browser for Linux, Windows, and macOS. Point 
 >   usually all it takes to find the cause.
 > - **Ideas?** [Feature requests](https://github.com/jdrews/scout-mib-browser/issues/new?template=feature-request.yml)
 >   go through issues too — every one is read.
->
-> Known gaps: binaries are **unsigned** (Gatekeeper/SmartScreen warnings
-> are expected — see [docs/INSTALL.md](docs/INSTALL.md)); there is **no
-> auto-update** (grab new builds from [Releases](https://github.com/jdrews/scout-mib-browser/releases));
-> some **vendor MIBs that import definitions from other modules** may not
-> load fully (the fix is on the roadmap).
 
 <!-- Screenshot -->
 <img width="3835" height="2159" alt="Image" src="https://github.com/user-attachments/assets/b409603b-8d59-49db-91c0-c7abd51ea5eb" />
