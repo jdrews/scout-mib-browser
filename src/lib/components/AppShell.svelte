@@ -95,9 +95,13 @@
 </script>
 
 <div class="flex flex-col h-screen bg-base-100 text-base-content overflow-hidden" data-theme={S.currentTheme}>
-  <h1 class="sr-only">Scout MIB Browser</h1>
   <MenuBar />
-  <TargetBar />
+  <!-- The banner landmark holds the app title and the query bar: both sat
+       outside every landmark (axe region, launch-beta/13). -->
+  <header class="flex flex-col">
+    <h1 class="sr-only">Scout MIB Browser</h1>
+    <TargetBar />
+  </header>
   <div class="flex flex-col flex-1 overflow-hidden min-h-0">
     <MainContent />
     {#if S.systemLogOpen}

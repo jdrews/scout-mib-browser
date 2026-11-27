@@ -37,6 +37,19 @@
     document.body.style.cursor = "";
     document.body.style.userSelect = "";
   }
+
+  // Keyboard resize for the focusable handle (launch-beta/13): the handle is
+  // the panel's right edge, so ArrowRight grows — same direction as dragging.
+  const KEY_RESIZE_STEP = 16;
+  function onResizeKeydown(e: KeyboardEvent) {
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
+      S.mibPanelWidth = Math.min(MAX_WIDTH, S.mibPanelWidth + KEY_RESIZE_STEP);
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      S.mibPanelWidth = Math.max(MIN_WIDTH, S.mibPanelWidth - KEY_RESIZE_STEP);
+    }
+  }
 </script>
 
 {#if S.manageMibsOpen}
@@ -50,8 +63,13 @@
     <div
       class="resize-handle-h w-1.5 cursor-col-resize flex-shrink-0 bg-base-200 hover:bg-primary/30 transition-colors"
       onmousedown={onResizeStart}
+      onkeydown={onResizeKeydown}
       role="separator"
       aria-orientation="vertical"
+      aria-label="Resize MIB panel (ArrowRight grows, ArrowLeft shrinks)"
+      aria-valuenow={S.mibPanelWidth}
+      aria-valuemin={MIN_WIDTH}
+      aria-valuemax={MAX_WIDTH}
       tabindex="0"
     >
       <div class="resize-grip-h mx-auto"></div>

@@ -74,3 +74,38 @@ describe("AppShell version display (launch-beta/12)", () => {
     expect(screen.queryByTestId("app-version")).toBeNull();
   });
 });
+
+// axe (launch-beta/13): the h1 and the whole target bar sat outside every
+// landmark (region violation in every state). The banner landmark is their
+// home: the app title and the query controls belong to the page header.
+describe("AppShell landmarks (launch-beta/13)", () => {
+  beforeEach(() => {
+    mockedInvoke.mockReset();
+    mockedGetVersion.mockResolvedValue("9.9.9");
+    vi.stubGlobal("navigator", { platform: "linux" });
+    mockedInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "mib_tree") return Promise.resolve([]);
+      if (cmd === "mib_oid_name_map") return Promise.resolve([]);
+      if (cmd === "config_read") return Promise.resolve({});
+      return Promise.resolve(undefined);
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("the h1 and the target bar sit inside the banner landmark", async () => {
+    render(AppShell);
+    await waitFor(() => expect(screen.getByTestId("status-text")).toBeTruthy());
+    const banner = document.querySelector("header");
+    expect(banner).not.toBeNull();
+    const h1 = document.querySelector("h1");
+    expect(h1).not.toBeNull();
+    expect(banner!.contains(h1)).toBe(true);
+    const targetBar = document.querySelector("[data-address-bar]");
+    expect(targetBar).not.toBeNull();
+    expect(banner!.contains(targetBar)).toBe(true);
+  });
+});

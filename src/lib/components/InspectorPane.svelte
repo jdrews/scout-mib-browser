@@ -194,6 +194,9 @@
       role="separator"
       aria-orientation="horizontal"
       aria-label="Resize inspector pane (ArrowUp grows, ArrowDown shrinks)"
+      aria-valuenow={S.inspectorHeight}
+      aria-valuemin={MIN_HEIGHT}
+      aria-valuemax={MAX_HEIGHT}
       tabindex="0"
     >
       <div class="resize-grip-v mx-auto"></div>

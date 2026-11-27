@@ -58,6 +58,20 @@
     updateStick();
   }
 
+  // Keyboard resize for the focusable handle (launch-beta/13): the handle is
+  // the pane's top edge, so ArrowUp grows (same direction as dragging it up)
+  // — the Inspector handle's semantics.
+  const KEY_RESIZE_STEP = 16;
+  function onResizeKeydown(e: KeyboardEvent) {
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      S.systemLogHeight = Math.min(MAX_HEIGHT, S.systemLogHeight + KEY_RESIZE_STEP);
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      S.systemLogHeight = Math.max(MIN_HEIGHT, S.systemLogHeight - KEY_RESIZE_STEP);
+    }
+  }
+
   /** True while the view sits at (or near) the bottom — the only state in
    *  which new entries may auto-scroll. Updated by the container's scroll
    *  event, so user wheeling takes over immediately. */
@@ -126,8 +140,13 @@
   <div
     class="resize-handle-v h-1.5 cursor-row-resize flex-shrink-0 bg-base-200 hover:bg-primary/30 transition-colors"
     onmousedown={onResizeStart}
+    onkeydown={onResizeKeydown}
     role="separator"
     aria-orientation="horizontal"
+    aria-label="Resize system log (ArrowUp grows, ArrowDown shrinks)"
+    aria-valuenow={S.systemLogHeight}
+    aria-valuemin={MIN_HEIGHT}
+    aria-valuemax={MAX_HEIGHT}
     tabindex="0"
   >
     <div class="resize-grip-v mx-auto"></div>
