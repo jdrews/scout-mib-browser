@@ -1,4 +1,4 @@
 contact_links:
   - name: Security vulnerability
     url: https://github.com/jdrews/scout-mib-browser/security/policy
-    about: Report vulnerabilities privately — see SECURITY.md
+    about: Report vulnerabilities privately; see SECURITY.md

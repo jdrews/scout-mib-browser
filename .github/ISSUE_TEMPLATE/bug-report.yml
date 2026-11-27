@@ -51,7 +51,7 @@ body:
     id: steps
     attributes:
       label: Steps to reproduce
-      description: What you clicked and typed, in order — as exact as you can make it
+      description: What you clicked and typed, in order, as exact as you can make it
       placeholder: |
         1. Loaded MIB directory /usr/share/snmp/mibs
         2. Selected ifTable in the tree
@@ -72,8 +72,8 @@ body:
       label: System Log excerpt
       description: >
         Open the System Log (bottom-left toggle in the status bar), reproduce
-        the bug, and paste the relevant lines — the newest entries at the
-        bottom, including the startup line with the version and platform.
+        the bug, and paste the relevant lines (newest entries at the
+        bottom), including the startup line with the version and platform.
         Use the copy button on a log row for clean text.
       render: text
     validations:

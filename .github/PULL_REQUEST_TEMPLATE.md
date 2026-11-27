@@ -5,7 +5,7 @@ closes (Fixes #NNN) when there is one.
 
 ## Test plan
 
-Gates from [AGENTS.md](../AGENTS.md#pre-commit-checklist) — run from the repo
+Gates from [AGENTS.md](../AGENTS.md#pre-commit-checklist); run from the repo
 root, tick each after running it:
 
 - [ ] `cargo fmt` (no diff)

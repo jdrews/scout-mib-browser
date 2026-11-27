@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Feature ideas are welcome — the focus is "rock-solid MIB browsing",
+        Feature ideas are welcome. The focus is "rock-solid MIB browsing",
         so ideas beyond that are worth knowing about too.
   - type: textarea
     id: problem
@@ -34,6 +34,6 @@ body:
     id: context
     attributes:
       label: Context
-      description: Device types, MIB quirks, scripts, screenshots — anything that helps
+      description: Device types, MIB quirks, scripts, screenshots, anything that helps
     validations:
       required: false
