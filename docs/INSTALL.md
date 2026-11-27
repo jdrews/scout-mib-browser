@@ -55,7 +55,7 @@ without an installer.
 - **WebView2:** Windows 10 (1804+) and Windows 11 ship the WebView2 runtime;
   on older systems the bundled bootstrapper downloads it on first install.
 - **Code signing (v1):** the installer is unsigned, so SmartScreen may show
-  "Windows protected your PC" on first run — choose **More info** →
+  "Windows protected your PC" on first run, choose **More info** →
   **Run anyway** (a follow-up adds an OV/EV certificate).
 
 ## Bundled MIBs

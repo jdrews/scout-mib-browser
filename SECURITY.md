@@ -16,8 +16,8 @@ as a hostile component:
 - **No path-shaped file writes.** The backend exposes no command that takes a
   file path from the frontend. Saving an export opens the native save dialog,
   and the write is scoped to exactly the path the *user* picked there. The
-  suggested filename (built from MIB node names) is reduced to a bare name —
-  path components, control characters and leading dots are stripped — so it
+  suggested filename (built from MIB node names) is reduced to a bare name (path
+  components, control characters and leading dots are stripped) so it
   can only prefill the dialog, never aim it.
 - **Content Security Policy.** The webview runs with
   `default-src 'self'; script-src 'self'` (plus `style-src 'unsafe-inline'`,
@@ -36,7 +36,7 @@ as a hostile component:
 Scout MIB Browser stores Target settings in `config.toml` under the user's
 config directory (`~/.config/scout/` on Linux, `$XDG_CONFIG_HOME/scout/` when
 set, `%APPDATA%\scout\` on Windows). SNMP community strings and SNMPv3
-passphrases are stored **plaintext** — SNMP has no at-rest secret store, and
+passphrases are stored **plaintext**; SNMP has no at-rest secret store, and
 the app deliberately does not pull in an OS keychain for the beta. The
 storage posture is therefore built around *not writing secrets at all*
 unless the user opts in:
@@ -63,5 +63,5 @@ unless the user opts in:
 **On shared machines (jump boxes, shared build hosts):** keep
 `save_credentials` off. v1/v2c community strings travel in plaintext on
 the wire and v3 passphrases in the config are recoverable by anyone who
-can read the file — the file is owner-only, so the remaining exposure is
+can read the file; the file is owner-only, so the remaining exposure is
 your own account.

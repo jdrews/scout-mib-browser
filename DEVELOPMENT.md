@@ -47,11 +47,11 @@ ARCH=x86_64 NO_STRIP=true npm run build
 
 ## App Icon
 
-The app icon is the Lucide `radar` glyph on the daisyUI dark palette. The 1024×1024 source is `src-tauri/app-icon.png`; the bundled set is the five files listed in `bundle.icon` (`src-tauri/icons/`: 32x32, 128x128, 128x128@2x, `.icns`, `.ico`). To regenerate after changing the source, run `npx tauri icon src-tauri/app-icon.png` from `src-tauri/` and then **delete the extras it generates** (`Square*Logo*.png`, `android/`, `ios/`, `64x64.png`, `icon.png`) — this app is desktop-only and the bundler only consumes the five listed files.
+The app icon is the Lucide `radar` glyph on the daisyUI dark palette. The 1024×1024 source is `src-tauri/app-icon.png`; the bundled set is the five files listed in `bundle.icon` (`src-tauri/icons/`: 32x32, 128x128, 128x128@2x, `.icns`, `.ico`). To regenerate after changing the source, run `npx tauri icon src-tauri/app-icon.png` from `src-tauri/` and then **delete the extras it generates** (`Square*Logo*.png`, `android/`, `ios/`, `64x64.png`, `icon.png`); this app is desktop-only and the bundler only consumes the five listed files.
 
 ## Bundled MIBs
 
-`src-tauri/mibs/` holds ~57 standard IETF MIBs (core, network, security, DISMAN) taken from [net-snmp's mibs tree](https://github.com/net-snmp/net-snmp/tree/master/mibs) (BSD-licensed; each file keeps its original copyright header). They ship as Tauri resources (`bundle.resources` in `tauri.conf.json`) and are loaded automatically **only when none of the configured MIB directories contain files** — on systems with net-snmp installed, the system MIBs win, so no module is loaded twice. Dev/source builds read `src-tauri/mibs/` directly (the app falls back to the checkout path when the resource dir has no `mibs/`).
+`src-tauri/mibs/` holds ~57 standard IETF MIBs (core, network, security, DISMAN) taken from [net-snmp's mibs tree](https://github.com/net-snmp/net-snmp/tree/master/mibs) (BSD-licensed; each file keeps its original copyright header). They ship as Tauri resources (`bundle.resources` in `tauri.conf.json`) and are loaded automatically **only when none of the configured MIB directories contain files**; on systems with net-snmp installed, the system MIBs win, so no module is loaded twice. Dev/source builds read `src-tauri/mibs/` directly (the app falls back to the checkout path when the resource dir has no `mibs/`).
 
 ## Checks
 
@@ -100,15 +100,15 @@ act -j e2e -P ubuntu-latest=act-ubuntu --pull=false
 ```
 
 - `--pull=false` is required: the wrapper image is local, not on a registry.
-- This act version has no `-I` flag — select the image with `-P <platform>=<image>` (the workflow uses `runs-on: ubuntu-latest`).
-- All three jobs pass with this image (verified: `verify-rust`, `verify-web`, and `e2e` — 16/16 spec files).
+- This act version has no `-I` flag; select the image with `-P <platform>=<image>` (the workflow uses `runs-on: ubuntu-latest`).
+- All three jobs pass with this image (verified: `verify-rust`, `verify-web`, and `e2e`: 16/16 spec files).
 
 ### Running the Release Workflow Locally (throwaway)
 
 The release workflow (`.github/workflows/release.yml`) is a `workflow_dispatch`, so
 simulate the dispatch with an event file. act can only run the Linux x64 leg
 (no macOS/Windows/ARM runners), so the checksum job's artifact-count guard
-(10 files) correctly fails on the partial matrix — that is the expected
+(10 files) correctly fails on the partial matrix; that is the expected
 outcome, not a bug:
 
 ```bash
@@ -136,7 +136,7 @@ act workflow_dispatch \
 - `--artifact-server-path` enables act's local artifact server so the
   `upload-artifact` → `download-artifact` round trip works.
 - Without a `GITHUB_TOKEN`, tauri-action builds only and skips the Release,
-  and the publish steps are skipped — the run ends at SHA256SUMS generation.
+  and the publish steps are skipped; the run ends at SHA256SUMS generation.
 - Verified: `verify` passes, the Linux x64 leg builds the AppImage and uploads
   it as `scout-mib-browser-<ver>-linux-amd64.AppImage`, and the checksum job
   fails the count guard with `Expected 10 release artifacts, found 1`.
@@ -188,7 +188,7 @@ on both success and failure.
 ### Writing Specs
 
 - One spec, repeatedly: `bash scripts/test-e2e.sh wdio.conf.mjs --spec
-  test/specs/x.spec.ts` — repeat `--spec` for more files (a comma-separated
+  test/specs/x.spec.ts`; repeat `--spec` for more files (a comma-separated
   list is not accepted). To run a spec N times, put the loop in a **script
   file**: the wrapper's cleanup pattern-matches its own name, so a parent shell
   whose command line contains `test-e2e.sh` kills itself mid-loop.
@@ -203,7 +203,7 @@ on both success and failure.
 - The flat results view is **virtualized**: rows mount on a deferred observe +
   ResizeObserver cycle, which lags the status flush that ends a run. After a
   completion, wait for `[data-testid='result-row']` before reading
-  `results-body` — a synchronous read can see the sticky header with the row in
+  `results-body`; a synchronous read can see the sticky header with the row in
   the store and not in the DOM. Rows below the fold must be scrolled into the
   window (`raw-view.spec`'s `scrollRowIntoView`).
 - Anything that reads the config file after a keystroke must poll: target
@@ -217,7 +217,7 @@ on both success and failure.
 The Windows x64 release artifact can be smoke-tested under Wine to verify it runs
 without a Windows host. Because Scout is a Tauri app, it needs the WebView2
 runtime, which Wine lacks and the Evergreen WebView2 installer fails to install
-under Wine — so the setup feeds the app a Fixed Version Runtime directly.
+under Wine, so the setup feeds the app a Fixed Version Runtime directly.
 
 `npm run test:smoke:windows` (`scripts/smoke-windows.sh`) launches the binary
 under Wine and asserts it comes up, finds the runtime, renders, and loads MIBs.

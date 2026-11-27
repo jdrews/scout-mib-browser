@@ -16,7 +16,7 @@ The agent serves the default SNMPv3 context (empty context name) from the bundle
 
 ## Users & credentials
 
-The agent does **not** accept arbitrary credentials — it only answers requests that match one of the users below at the right security level. Each user is bound to a specific auth + priv protocol pair, so pick the row for the combination you want to test.
+The agent does **not** accept arbitrary credentials; it only answers requests that match one of the users below at the right security level. Each user is bound to a specific auth + priv protocol pair, so pick the row for the combination you want to test.
 
 | User | Level | Auth (proto / passphrase) | Priv (proto / passphrase) |
 |------|-------|---------------------------|---------------------------|
@@ -35,7 +35,7 @@ The agent does **not** accept arbitrary credentials — it only answers requests
 
 ## Try it
 
-**In the Scout app (primary):** enter any row's username, auth protocol + passphrase, and priv protocol + passphrase in the connection panel, then run Test Connection. The Rust SNMP engine supports every protocol above — this is the definitive way to verify a combination.
+**In the Scout app (primary):** enter any row's username, auth protocol + passphrase, and priv protocol + passphrase in the connection panel, then run Test Connection. The Rust SNMP engine supports every protocol above; this is the definitive way to verify a combination.
 
 **With net-snmp `snmpget` (CLI spot-checks):** requires a net-snmp build compiled with full SNMPv3 auth + privacy support.
 
@@ -50,7 +50,7 @@ snmpget -v 3 -u v3_sha256 -a SHA256 -A auctoritas-sha256 localhost:11700 .1.3.6.
 snmpget -v 3 -u v3_aes128_sha -a SHA -A authpass-sha -x AES -X privpass-aes128 localhost:11700 .1.3.6.1.2.1.1.1.0
 ```
 
-> If `snmpget` prints **`Unsupported security level`** (or rejects `-x DES`), your net-snmp build is missing that v3 feature — it's a client limitation, not an agent or credential problem. Verify the combination in the Scout app instead.
+> If `snmpget` prints **`Unsupported security level`** (or rejects `-x DES`), your net-snmp build is missing that v3 feature; it's a client limitation, not an agent or credential problem. Verify the combination in the Scout app instead.
 
 ## Notes
 
