@@ -74,7 +74,9 @@
   let checkedBits = $state<Set<number>>(new Set());
   let submitting = $state(false);
   let errorText = $state<string | null>(null);
-  let resolvedOidHint: string | null = null;
+  // $state: the resolution lands in a detached async callback (debounce +
+  // IPC); a plain let updates with no re-render, so the hint never appears.
+  let resolvedOidHint = $state<string | null>(null);
 
   // Prefill order: live value → DEFVAL → empty. The keyed remount per target
   // means this runs once per opened dialog.
