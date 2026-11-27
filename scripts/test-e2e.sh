@@ -27,6 +27,10 @@ SYNTH_AGENT_PORT="${E2E_SYNTH_AGENT_PORT:-11612}"
 # Third agent: set-capable scalars (echo Sets, wrongValue rejections) for the
 # Set specs.
 SET_AGENT_PORT="${E2E_SET_AGENT_PORT:-11613}"
+# Black-hole listener: binds UDP and never answers. The timeout specs
+# (launch-beta/28) point the app here so only the per-request deadline can
+# end an operation.
+BLACKHOLE_PORT="${E2E_BLACKHOLE_PORT:-11698}"
 VITE_PORT=5173
 
 WORK_DIR="$(mktemp -d /tmp/scout-e2e-XXXXXX)"
@@ -63,6 +67,7 @@ VITE_PID=""
 AGENT_PID=""
 SYNTH_AGENT_PID=""
 SET_AGENT_PID=""
+BLACKHOLE_PID=""
 RESULT=0
 
 cleanup() {
@@ -88,6 +93,9 @@ cleanup() {
   pkill -f "snmpsim-command-responder.*:$AGENT_PORT" 2>/dev/null || true
   pkill -f "snmpsim-command-responder.*:$SYNTH_AGENT_PORT" 2>/dev/null || true
   pkill -f "snmpsim-command-responder.*:$SET_AGENT_PORT" 2>/dev/null || true
+  if [ -n "$BLACKHOLE_PID" ] && kill -0 "$BLACKHOLE_PID" 2>/dev/null; then
+    kill "$BLACKHOLE_PID" 2>/dev/null || true
+  fi
   if [ -n "$VITE_PID" ] && kill -0 "$VITE_PID" 2>/dev/null; then
     kill "$VITE_PID" 2>/dev/null || true
   fi
@@ -120,6 +128,12 @@ python3 "$REPO_ROOT/scripts/snmpsim-test.py" --port "$SET_AGENT_PORT" \
   "$REPO_ROOT/test/snmprec/set-capable.snmprec" \
   > "$WORK_DIR/set-agent.log" 2>&1 &
 SET_AGENT_PID=$!
+
+# Black-hole listener for the timeout specs: bind and discard.
+echo "Starting UDP black hole on port $BLACKHOLE_PORT..."
+python3 "$REPO_ROOT/scripts/blackhole-agent.py" "$BLACKHOLE_PORT" \
+  > "$WORK_DIR/blackhole.log" 2>&1 &
+BLACKHOLE_PID=$!
 
 if command -v snmpget > /dev/null 2>&1; then
   echo "Waiting for agents to answer SNMP..."

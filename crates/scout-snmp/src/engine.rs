@@ -22,6 +22,44 @@ impl WalkMode {
             WalkMode::GetBulk => "BulkWalk",
         }
     }
+
+    /// Fetch mode for a protocol version. SNMPv1 (RFC 1157) defines Get,
+    /// GetNext and Set only — a v1 agent drops a GetBulk PDU without answering,
+    /// so v1 targets must walk with GetNext. v2c and v3 have GetBulk.
+    fn for_version(version: Version) -> Self {
+        match version {
+            Version::V1 => WalkMode::GetNext,
+            Version::V2c | Version::V3 => WalkMode::GetBulk,
+        }
+    }
+}
+
+/// Per-request round-trip deadline (launch-beta/28). The snmp2 async session
+/// has no socket timeout, so a target that accepts the socket and never
+/// answers would hang Get/Walk/Get Table/Set forever.
+pub const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 2;
+
+fn request_timeout(target: &Target) -> std::time::Duration {
+    std::time::Duration::from_secs(
+        target
+            .timeout_secs
+            .unwrap_or(DEFAULT_REQUEST_TIMEOUT_SECS)
+            .max(1),
+    )
+}
+
+/// Awaits one PDU exchange under the target's deadline. An expired deadline
+/// becomes `snmp2::Error::Receive`: the tolerant layer already treats that as
+/// a retryable network error and renders it as "No response received from
+/// Target (timeout or network error)".
+async fn pdu_with_timeout<T>(
+    target: &Target,
+    fut: impl std::future::Future<Output = Result<T, snmp2::Error>>,
+) -> Result<T, snmp2::Error> {
+    match tokio::time::timeout(request_timeout(target), fut).await {
+        Ok(result) => result,
+        Err(_elapsed) => Err(snmp2::Error::Receive),
+    }
 }
 
 /// Receives streamed walk results from the engine.
@@ -155,10 +193,10 @@ impl SnmpEngine {
             let mut session = Self::connect(&target).await?;
             let result: Result<(Vec<VariableBinding>, Vec<SnmpWarning>), snmp2::Error> = (async {
                 let pdu = if oids.len() == 1 {
-                    session.get(oids[0].as_ref()).await?
+                    pdu_with_timeout(&target, session.get(oids[0].as_ref())).await?
                 } else {
                     let refs: Vec<&snmp2::Oid> = oids.iter().map(|a| a.as_ref()).collect();
-                    session.get_many(&refs).await?
+                    pdu_with_timeout(&target, session.get_many(&refs)).await?
                 };
 
                 Ok(Self::extract_bindings(pdu))
@@ -276,7 +314,7 @@ impl SnmpEngine {
                 let mut session = Self::connect(&target).await?;
                 let result: Result<(Vec<VariableBinding>, Vec<SnmpWarning>), snmp2::Error> =
                     (async {
-                        let pdu = session.getnext(o.as_ref()).await?;
+                        let pdu = pdu_with_timeout(&target, session.getnext(o.as_ref())).await?;
                         Ok(Self::extract_bindings(pdu))
                     })
                     .await;
@@ -394,7 +432,7 @@ impl SnmpEngine {
     ) -> tokio::task::JoinHandle<()> {
         Self::spawn_walk(
             runtime,
-            WalkMode::GetBulk,
+            WalkMode::for_version(target.version),
             target,
             root_oid,
             sender,
@@ -486,7 +524,7 @@ impl SnmpEngine {
             let mut session = Self::connect(&target).await?;
             let result: Result<(Vec<VariableBinding>, Vec<SnmpWarning>), snmp2::Error> = (async {
                 let snmp_value = Self::set_value_to_snmp(v);
-                let pdu = session.set(&[(&o, snmp_value)]).await?;
+                let pdu = pdu_with_timeout(&target, session.set(&[(&o, snmp_value)])).await?;
                 Ok(Self::extract_bindings(pdu))
             })
             .await;
@@ -624,8 +662,9 @@ impl SnmpEngine {
         })
     }
 
-    /// Single-pass table retrieval: one BulkWalk of the table subtree, then
-    /// pivot the collected bindings into a grid.
+    /// Single-pass table retrieval: one version-appropriate walk of the table
+    /// subtree (GetBulk for v2c/v3, GetNext for v1), then pivot the collected
+    /// bindings into a grid.
     async fn do_get_table(
         target: &Target,
         table_oid: &str,
@@ -650,8 +689,9 @@ impl SnmpEngine {
         };
 
         // One connection, one walk of the whole subtree (column-major order).
+        // v1 has no GetBulk, so the mode follows the target version.
         let rs = Self::do_walk_loop(
-            WalkMode::GetBulk,
+            WalkMode::for_version(target.version),
             target,
             table_oid,
             Some(&mut sink),
@@ -751,8 +791,10 @@ impl SnmpEngine {
             }
 
             let pdu_result = match mode {
-                WalkMode::GetNext => session.getnext(&current_oid).await,
-                WalkMode::GetBulk => session.getbulk(&[&current_oid], 0, 50).await,
+                WalkMode::GetNext => pdu_with_timeout(target, session.getnext(&current_oid)).await,
+                WalkMode::GetBulk => {
+                    pdu_with_timeout(target, session.getbulk(&[&current_oid], 0, 50)).await
+                }
             };
 
             match pdu_result {
@@ -964,6 +1006,21 @@ impl SnmpEngine {
 
     /// Establishes a connection to the Target and returns an AsyncSession.
     async fn connect(target: &Target) -> Result<snmp2::AsyncSession, String> {
+        // v3 session setup performs engine discovery (a round trip), so the
+        // whole connect is bounded by the request deadline; v1/v2c setup is
+        // local and finishes instantly (launch-beta/28).
+        let timeout = request_timeout(target);
+        match tokio::time::timeout(timeout, Self::connect_inner(target)).await {
+            Ok(result) => result,
+            Err(_elapsed) => Err(format!(
+                "Connection to {} timed out ({}s)",
+                target.addr(),
+                timeout.as_secs()
+            )),
+        }
+    }
+
+    async fn connect_inner(target: &Target) -> Result<snmp2::AsyncSession, String> {
         let addr = Self::resolve_target(target).await?;
 
         info!(
@@ -1081,6 +1138,57 @@ mod tests {
     #[test]
     fn is_subtree_of_different_tree() {
         assert!(!SnmpEngine::is_subtree_of("1.3.6.2.1", "1.3.6.1.2.1"));
+    }
+
+    #[tokio::test]
+    async fn pdu_timeout_maps_expiry_to_receive_error() {
+        // A request that never completes must surface as the transient
+        // Receive error the tolerant layer retries (launch-beta/28).
+        let target = Target::v2c("127.0.0.1", 161, "public").with_timeout_secs(1);
+        let started = std::time::Instant::now();
+        let result: Result<(), snmp2::Error> =
+            pdu_with_timeout(&target, std::future::pending()).await;
+        assert!(matches!(result, Err(snmp2::Error::Receive)));
+        assert!(started.elapsed() < std::time::Duration::from_secs(3));
+    }
+
+    #[test]
+    fn request_timeout_default_and_clamp() {
+        let t = Target::v2c("127.0.0.1", 161, "public");
+        assert_eq!(
+            request_timeout(&t),
+            std::time::Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS)
+        );
+        assert_eq!(
+            request_timeout(&t.clone().with_timeout_secs(5)),
+            std::time::Duration::from_secs(5)
+        );
+        // Zero is clamped up so a mistyped 0 cannot mean "wait forever".
+        assert_eq!(
+            request_timeout(&t.with_timeout_secs(0)),
+            std::time::Duration::from_secs(1)
+        );
+    }
+
+    #[test]
+    fn walk_mode_v1_uses_getnext() {
+        // SNMPv1 (RFC 1157) has no GetBulk: a v1 agent drops it silently.
+        assert!(matches!(
+            WalkMode::for_version(Version::V1),
+            WalkMode::GetNext
+        ));
+    }
+
+    #[test]
+    fn walk_mode_v2c_and_v3_use_getbulk() {
+        assert!(matches!(
+            WalkMode::for_version(Version::V2c),
+            WalkMode::GetBulk
+        ));
+        assert!(matches!(
+            WalkMode::for_version(Version::V3),
+            WalkMode::GetBulk
+        ));
     }
 
     #[test]

@@ -939,6 +939,10 @@ struct SnmpCommandParams {
     v3_priv_protocol: Option<String>,
     #[serde(default)]
     v3_priv_passphrase: Option<String>,
+    /// Per-request timeout in seconds; `None` uses the engine default
+    /// (launch-beta/28).
+    #[serde(default)]
+    timeout_secs: Option<u64>,
 }
 
 /// Builds a Target from command parameters. Validates v3 security settings up
@@ -950,8 +954,17 @@ fn build_target(params: &SnmpCommandParams) -> Result<snmp::Target, String> {
         .clone()
         .unwrap_or_else(|| "public".to_string());
 
+    let apply_timeout = |t: snmp::Target| match params.timeout_secs {
+        Some(secs) => t.with_timeout_secs(secs),
+        None => t,
+    };
+
     match params.version.to_lowercase().as_str() {
-        "v1" => Ok(snmp::Target::v1(&params.host, params.port, community)),
+        "v1" => Ok(apply_timeout(snmp::Target::v1(
+            &params.host,
+            params.port,
+            community,
+        ))),
         "v3" => {
             let auth_protocol = match params.v3_auth_protocol.as_deref() {
                 Some("md5") => snmp::AuthProtocol::Md5,
@@ -979,9 +992,17 @@ fn build_target(params: &SnmpCommandParams) -> Result<snmp::Target, String> {
                 priv_passphrase: params.v3_priv_passphrase.clone().unwrap_or_default(),
             };
             security.resolve()?;
-            Ok(snmp::Target::v3(&params.host, params.port, security))
+            Ok(apply_timeout(snmp::Target::v3(
+                &params.host,
+                params.port,
+                security,
+            )))
         }
-        _ => Ok(snmp::Target::v2c(&params.host, params.port, community)),
+        _ => Ok(apply_timeout(snmp::Target::v2c(
+            &params.host,
+            params.port,
+            community,
+        ))),
     }
 }
 

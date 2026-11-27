@@ -55,6 +55,8 @@ export interface TargetConfig {
   port: number;
   version: SnmpVersion;
   community: string;
+  /** Per-request round-trip timeout in seconds; undefined = engine default (2s). */
+  timeout_secs?: number;
   v3_username: string;
   v3_auth_protocol: V3AuthProtocol;
   v3_auth_passphrase: string;

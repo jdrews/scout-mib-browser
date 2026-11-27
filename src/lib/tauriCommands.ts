@@ -133,6 +133,7 @@ function buildSnmpParams(config: TargetConfig) {
     port: config.port,
     version: config.version,
     community: config.community || undefined,
+    timeout_secs: config.timeout_secs || undefined,
     v3_username: config.v3_username || undefined,
     v3_auth_protocol: config.v3_auth_protocol !== "none" ? config.v3_auth_protocol : undefined,
     v3_auth_passphrase: config.v3_auth_passphrase || undefined,

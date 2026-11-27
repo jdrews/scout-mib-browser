@@ -48,11 +48,19 @@
     });
   }
 
-  function updateField(field: string, value: string | number) {
+  function updateField(field: string, value: string | number | undefined) {
     const next = { ...cfg, [field]: value };
     Object.assign(S.targetConfig, next);
     // Keystroke path: debounced and error-reporting (launch-beta/10).
     schedulePersistTargetConfig(next);
+  }
+
+  function onTimeoutInput(e: Event) {
+    const raw = (e.target as HTMLInputElement).value.trim();
+    const secs = Number.parseInt(raw, 10);
+    // Empty or invalid input restores the engine default of 2s
+    // (launch-beta/28).
+    updateField("timeout_secs", Number.isFinite(secs) && secs > 0 ? secs : undefined);
   }
 
   function onCommunityInput(e: Event) {
@@ -125,6 +133,23 @@
               </button>
             {/each}
           </div>
+        </div>
+
+        <div class="form-control">
+          <label for="timeout-input" class="label">
+            <span class="label-text text-xs font-medium text-base-content/60">Request Timeout (s)</span>
+          </label>
+          <input
+            id="timeout-input"
+            data-testid="timeout-input"
+            type="number"
+            min="1"
+            max="300"
+            value={cfg.timeout_secs ?? ""}
+            placeholder="2 (default)"
+            oninput={onTimeoutInput}
+            class="input input-bordered font-mono w-full"
+          />
         </div>
 
         {#if !isV3}

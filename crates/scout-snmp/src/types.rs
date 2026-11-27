@@ -200,6 +200,10 @@ pub struct Target {
     /// v3 USM/VACM settings (only used when version is V3).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub security: Option<SnmpV3SecurityConfig>,
+    /// Per-request round-trip timeout in seconds. `None` uses the engine
+    /// default (`DEFAULT_REQUEST_TIMEOUT_SECS`, launch-beta/28).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout_secs: Option<u64>,
 }
 
 impl Target {
@@ -211,6 +215,7 @@ impl Target {
             version: Version::V2c,
             community: community.into(),
             security: None,
+            timeout_secs: None,
         }
     }
 
@@ -222,6 +227,7 @@ impl Target {
             version: Version::V1,
             community: community.into(),
             security: None,
+            timeout_secs: None,
         }
     }
 
@@ -233,7 +239,15 @@ impl Target {
             version: Version::V3,
             community: String::new(),
             security: Some(security),
+            timeout_secs: None,
         }
+    }
+
+    /// Sets the per-request round-trip timeout in seconds (launch-beta/28).
+    /// Values below 1 are clamped to 1 by the engine.
+    pub fn with_timeout_secs(mut self, secs: u64) -> Self {
+        self.timeout_secs = Some(secs);
+        self
     }
 
     /// Returns the socket address string for this Target.
