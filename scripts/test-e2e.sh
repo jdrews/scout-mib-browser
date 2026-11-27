@@ -125,7 +125,7 @@ if command -v snmpget > /dev/null 2>&1; then
   echo "Waiting for agents to answer SNMP..."
   AGENT_UP=0
   for i in $(seq 1 30); do
-    if snmpget -v2c -c public "127.0.0.1:$AGENT_PORT" 1.3.6.1.2.1.1.5.0 \
+    if snmpget -t 2 -r 1 -v2c -c public "127.0.0.1:$AGENT_PORT" 1.3.6.1.2.1.1.5.0 \
         > /dev/null 2>&1; then
       AGENT_UP=1
       break
@@ -138,7 +138,7 @@ if command -v snmpget > /dev/null 2>&1; then
   fi
   SYNTH_UP=0
   for i in $(seq 1 30); do
-    if snmpget -v2c -c public "127.0.0.1:$SYNTH_AGENT_PORT" \
+    if snmpget -t 2 -r 1 -v2c -c public "127.0.0.1:$SYNTH_AGENT_PORT" \
         1.3.6.1.2.1.31.1.2.1.3.1.1 > /dev/null 2>&1; then
       SYNTH_UP=1
       break
@@ -151,7 +151,7 @@ if command -v snmpget > /dev/null 2>&1; then
   fi
   SET_UP=0
   for i in $(seq 1 30); do
-    if snmpget -v2c -c public "127.0.0.1:$SET_AGENT_PORT" \
+    if snmpget -t 2 -r 1 -v2c -c public "127.0.0.1:$SET_AGENT_PORT" \
         1.3.6.1.2.1.15433.1.0 > /dev/null 2>&1; then
       SET_UP=1
       break

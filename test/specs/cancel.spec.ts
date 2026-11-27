@@ -75,6 +75,27 @@ describe("Cancellation (launch-beta/08)", () => {
     // The PR #167 CI flake was the Ok landing first with a typed-OID fresh
     // start, whose run-start clear wiped the row; the UI now restores the
     // pre-run Result Set on a cancel that kept nothing (TargetBar).
+    //
+    // The flat view is virtualized: rows mount on the virtualizer's
+    // ResizeObserver cycle, which lags the status flush that ends the run, so
+    // reading the body the moment the status lands can see the sticky header
+    // alone — the CI signature (`Received string: "  OID  Value  Type"`).
+    // Wait for the row to mount, then assert its contents (same pattern as
+    // address-bar.spec).
+    const mounted = await browser
+      .waitUntil(async () => (await $$("[data-testid='result-row']")).length > 0, {
+        timeout: 5000,
+        interval: 100,
+      })
+      .then(() => true)
+      .catch(() => false);
+    if (!mounted) {
+      const dbg = await browser.execute(() => {
+        const body = document.querySelector("[data-testid='results-body']");
+        return body ? body.innerHTML.slice(0, 1500) : "(no results-body element)";
+      });
+      throw new Error(`result row never mounted after the cancel: ${dbg}`);
+    }
     const kept = await browser.execute(() => {
       const body = document.querySelector("[data-testid='results-body']");
       return body ? body.textContent ?? "" : "";
