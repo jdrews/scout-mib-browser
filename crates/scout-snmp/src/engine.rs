@@ -22,6 +22,16 @@ impl WalkMode {
             WalkMode::GetBulk => "BulkWalk",
         }
     }
+
+    /// Fetch mode for a protocol version. SNMPv1 (RFC 1157) defines Get,
+    /// GetNext and Set only — a v1 agent drops a GetBulk PDU without answering,
+    /// so v1 targets must walk with GetNext. v2c and v3 have GetBulk.
+    fn for_version(version: Version) -> Self {
+        match version {
+            Version::V1 => WalkMode::GetNext,
+            Version::V2c | Version::V3 => WalkMode::GetBulk,
+        }
+    }
 }
 
 /// Receives streamed walk results from the engine.
@@ -394,7 +404,7 @@ impl SnmpEngine {
     ) -> tokio::task::JoinHandle<()> {
         Self::spawn_walk(
             runtime,
-            WalkMode::GetBulk,
+            WalkMode::for_version(target.version),
             target,
             root_oid,
             sender,
@@ -624,8 +634,9 @@ impl SnmpEngine {
         })
     }
 
-    /// Single-pass table retrieval: one BulkWalk of the table subtree, then
-    /// pivot the collected bindings into a grid.
+    /// Single-pass table retrieval: one version-appropriate walk of the table
+    /// subtree (GetBulk for v2c/v3, GetNext for v1), then pivot the collected
+    /// bindings into a grid.
     async fn do_get_table(
         target: &Target,
         table_oid: &str,
@@ -650,8 +661,9 @@ impl SnmpEngine {
         };
 
         // One connection, one walk of the whole subtree (column-major order).
+        // v1 has no GetBulk, so the mode follows the target version.
         let rs = Self::do_walk_loop(
-            WalkMode::GetBulk,
+            WalkMode::for_version(target.version),
             target,
             table_oid,
             Some(&mut sink),
@@ -1081,6 +1093,24 @@ mod tests {
     #[test]
     fn is_subtree_of_different_tree() {
         assert!(!SnmpEngine::is_subtree_of("1.3.6.2.1", "1.3.6.1.2.1"));
+    }
+
+    #[test]
+    fn walk_mode_v1_uses_getnext() {
+        // SNMPv1 (RFC 1157) has no GetBulk: a v1 agent drops it silently.
+        assert!(matches!(
+            WalkMode::for_version(Version::V1),
+            WalkMode::GetNext
+        ));
+    }
+
+    #[test]
+    fn walk_mode_v2c_and_v3_use_getbulk() {
+        assert!(matches!(
+            WalkMode::for_version(Version::V2c),
+            WalkMode::GetBulk
+        ));
+        assert!(matches!(WalkMode::for_version(Version::V3), WalkMode::GetBulk));
     }
 
     #[test]
