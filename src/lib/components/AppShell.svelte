@@ -62,14 +62,19 @@
       S.saveCredentials = config.ui?.save_credentials ?? false;
 
       // Startup loads directories + explicit files (the full configured set).
+      // Call mib_load unconditionally: with no configured sources the backend
+      // swaps in the bundled standards MIBs. That fallback lives inside the
+      // command, so skipping the call here is what left first runs with an
+      // empty tree (launch-beta/20).
       const dirs = config.mib?.directories || [];
       const files = config.mib?.files || [];
 
-      if (dirs.length > 0 || files.length > 0) {
-        S.statusText = `Loading MIBs from ${dirs.length} directory(ies)...`;
-        const status = await mibLoad(dirs, files);
-        await refreshMibState(status);
-      }
+      S.statusText =
+        dirs.length + files.length > 0
+          ? `Loading MIBs from ${dirs.length} directory(ies)...`
+          : "Loading bundled MIBs...";
+      const status = await mibLoad(dirs, files);
+      await refreshMibState(status);
 
       await refreshTree();
       S.statusText = "Ready";

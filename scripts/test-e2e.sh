@@ -40,6 +40,27 @@ mkdir -p "$XDG_CONFIG_HOME/scout"
 # Pre-seeded config: curated MIBs + one explicit file (mib.files) + local
 # mock agent. The app reads this at startup, so tests never touch the
 # developer's real ~/.config/scout.
+#
+# E2E_EMPTY_MIBS=1 seeds an empty [mib] section instead: the first-run
+# posture where the backend's bundled-MIBs fallback must take over
+# (launch-beta/20). bundled-mibs.spec.ts only runs under that flag.
+if [ "${E2E_EMPTY_MIBS:-0}" = "1" ]; then
+cat > "$XDG_CONFIG_HOME/scout/config.toml" <<EOF
+[mib]
+directories = []
+files = []
+
+[target]
+community = "public"
+host = "127.0.0.1"
+port = $AGENT_PORT
+version = "v2c"
+
+[ui]
+save_credentials = true
+EOF
+
+else
 cat > "$XDG_CONFIG_HOME/scout/config.toml" <<EOF
 [mib]
 directories = ["$REPO_ROOT/test/mibs"]
@@ -56,6 +77,8 @@ version = "v2c"
 # product default is off (launch-beta/04).
 save_credentials = true
 EOF
+
+fi
 
 # test/mibs is committed; regenerate if the checkout is incomplete.
 if [ ! -f "$REPO_ROOT/test/mibs/BROKEN-MIB" ] || [ ! -f "$REPO_ROOT/test/mibs-extra/EXTRA-MIB" ]; then
