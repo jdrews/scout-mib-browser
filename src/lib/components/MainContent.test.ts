@@ -55,4 +55,15 @@ describe("MainContent resize handle (launch-beta/13)", () => {
     await fireEvent.keyDown(handle, { key: "ArrowLeft" });
     expect(S.mibPanelWidth).toBe(200);
   });
+
+  it("sits inside a landmark (axe region)", () => {
+    // The named handle is page content: between the MIB panel nav and the
+    // results main, the split container must itself be a landmark.
+    const { container } = render(MainContent);
+    const handle = container.querySelector(".resize-handle-h")!;
+    const landmark = handle.closest(
+      "main, nav, aside, header, footer, form, section[aria-label], [role='main'], [role='region'], [role='search'], [role='navigation'], [role='complementary']",
+    );
+    expect(landmark).not.toBeNull();
+  });
 });

@@ -10,7 +10,7 @@
   let isResizing = $state(false);
   let startX = $state(0);
   let startWidth = $state(0);
-  let mainContentEl: HTMLDivElement;
+  let mainContentEl: HTMLElement;
 
   function onResizeStart(e: MouseEvent) {
     e.preventDefault();
@@ -57,7 +57,10 @@
        MIB Browser + Results Pane. -->
   <ManageMibsPage />
 {:else}
-  <div class="flex flex-1 overflow-hidden" bind:this={mainContentEl}>
+  <!-- Named section = region landmark: the resize handle is now named page
+       content, and it sits between the panel nav and the results main — the
+       split container must be a landmark itself (axe region, launch-beta/13). -->
+  <section aria-label="MIB Browser" class="flex flex-1 overflow-hidden" bind:this={mainContentEl}>
     <MIBPanel />
     {#if S.mibPanelOpen}
     <div
@@ -78,7 +81,7 @@
     <main class="flex flex-col flex-1 overflow-hidden min-w-0">
       <ResultsPane />
     </main>
-  </div>
+  </section>
 {/if}
 
 <style>
