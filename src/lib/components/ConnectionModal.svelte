@@ -55,6 +55,18 @@
     schedulePersistTargetConfig(next);
   }
 
+  function onHostInput(e: Event) {
+    updateField("host", (e.target as HTMLInputElement).value);
+  }
+
+  function onPortInput(e: Event) {
+    const val = parseInt((e.target as HTMLInputElement).value, 10);
+    // Mirror the toolbar: partial/invalid keystrokes never clobber the port.
+    if (!isNaN(val) && val > 0 && val < 65536) {
+      updateField("port", val);
+    }
+  }
+
   function onTimeoutInput(e: Event) {
     const raw = (e.target as HTMLInputElement).value.trim();
     const secs = Number.parseInt(raw, 10);
@@ -120,6 +132,33 @@
       <h2 id="connection-dialog-title" class="text-base font-semibold">Target Connection</h2>
 
       <div class="space-y-4 mt-4">
+        <div class="form-control">
+          <label for="connection-host-input" class="label">
+            <span class="label-text text-xs font-medium text-base-content/60">Target</span>
+          </label>
+          <div class="join w-full">
+            <input
+              id="connection-host-input"
+              data-testid="connection-host-input"
+              type="text"
+              placeholder="Host or IP"
+              value={cfg.host}
+              oninput={onHostInput}
+              class="input input-bordered font-mono join-item w-full"
+            />
+            <span class="text-base-content/60 text-sm flex items-center join-item">:</span>
+            <input
+              data-testid="connection-port-input"
+              aria-label="Port"
+              type="text"
+              placeholder="Port"
+              value={cfg.port}
+              oninput={onPortInput}
+              class="input input-bordered font-mono join-item w-20 text-center"
+            />
+          </div>
+        </div>
+
         <div role="group" aria-labelledby="label-snmp-version">
           <label id="label-snmp-version" class="label-text text-xs font-medium text-base-content/60 mb-1.5 block">SNMP Version</label>
           <div class="flex gap-1">
