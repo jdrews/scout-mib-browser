@@ -109,3 +109,57 @@ describe("AppShell landmarks (launch-beta/13)", () => {
     expect(banner!.contains(targetBar)).toBe(true);
   });
 });
+
+describe("AppShell startup MIB load (launch-beta/20)", () => {
+  beforeEach(() => {
+    mockedInvoke.mockReset();
+    mockedGetVersion.mockReset();
+    mockedGetVersion.mockResolvedValue("9.9.9");
+    vi.stubGlobal("navigator", { platform: "linux" });
+    mockedInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "mib_tree") return Promise.resolve([]);
+      if (cmd === "mib_oid_name_map") return Promise.resolve([]);
+      if (cmd === "config_read")
+        return Promise.resolve({ mib: { directories: [], files: [] } });
+      if (cmd === "mib_load")
+        return Promise.resolve({ nodeCount: 4200, fallbackMibs: [], filesParsed: 60, filesCached: 0 });
+      return Promise.resolve(undefined);
+    });
+    S.statusText = "Ready";
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    S.statusText = "Ready";
+  });
+
+  it("calls mib_load even when the configured MIB sources are empty", async () => {
+    render(AppShell);
+    await waitFor(() =>
+      expect(mockedInvoke).toHaveBeenCalledWith(
+        "mib_load",
+        expect.objectContaining({ directories: [], files: [] }),
+      ),
+    );
+  });
+
+  it("shows the bundled-MIBs copy (not '0 directory(ies)') while loading", async () => {
+    let statusAtLoad = "";
+    mockedInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "mib_tree") return Promise.resolve([]);
+      if (cmd === "mib_oid_name_map") return Promise.resolve([]);
+      if (cmd === "config_read")
+        return Promise.resolve({ mib: { directories: [], files: [] } });
+      if (cmd === "mib_load") {
+        statusAtLoad = S.statusText;
+        return Promise.resolve({ nodeCount: 4200, fallbackMibs: [], filesParsed: 60, filesCached: 0 });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    render(AppShell);
+    await waitFor(() => expect(S.statusText).toBe("Ready"));
+    expect(statusAtLoad).toBe("Loading bundled MIBs...");
+  });
+});

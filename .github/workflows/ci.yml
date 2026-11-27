@@ -178,6 +178,15 @@ jobs:
           WDIO_LOG_LEVEL: error
         run: npm run test:e2e
 
+      # First-run posture: empty [mib] config must end with the bundled
+      # standards loaded (launch-beta/20). Separate harness run because the
+      # config is seeded before the app starts.
+      - name: Run E2E (bundled MIBs first-run)
+        env:
+          WDIO_LOG_LEVEL: error
+          E2E_EMPTY_MIBS: "1"
+        run: bash scripts/test-e2e.sh wdio.conf.mjs --spec test/specs/bundled-mibs.spec.ts
+
       - name: Upload test logs on failure
         if: failure()
         uses: actions/upload-artifact@v7
