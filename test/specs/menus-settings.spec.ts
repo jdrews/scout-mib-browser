@@ -22,7 +22,7 @@ describe("Menus & settings (app-level settings)", function () {
     // The backend startup banner lands in the System Log (and the app log
     // file): version + platform, for triaging beta reports.
     await browser.waitUntil(
-      () => /Scout MIB Browser \d+\.\d+\.\d+ on \w+-\w+/.test(readAppLog()),
+      () => /Scout MIB Browser \d+\.\d+\.\d+(-[\w.]+)? on \w+-\w+/.test(readAppLog()),
       { timeout: 10000, interval: 500, timeoutMsg: "startup banner never reached the app log" },
     );
   });
