@@ -49,6 +49,7 @@
           port: t.port ?? 161,
           version: t.version || "v2c",
           community: t.community || "public",
+          timeout_secs: t.timeout_secs,
           v3_username: t.v3_username || "",
           v3_auth_protocol: t.v3_auth_protocol || "none",
           v3_auth_passphrase: t.v3_auth_passphrase || "",

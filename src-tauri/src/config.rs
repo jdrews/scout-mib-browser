@@ -193,6 +193,12 @@ impl AppConfig {
             "version".to_string(),
             toml::Value::String(self.target.version.as_str().to_string()),
         );
+        if let Some(secs) = self.target.timeout_secs {
+            target_table.insert(
+                "timeout_secs".to_string(),
+                toml::Value::Integer(secs as i64),
+            );
+        }
         if self.ui.save_credentials {
             target_table.insert(
                 "community".to_string(),
@@ -316,6 +322,11 @@ pub struct TargetConfig {
     )]
     pub community: String,
 
+    /// Per-request round-trip timeout in seconds. `None` applies the engine
+    /// default (2s, launch-beta/28).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_secs: Option<u64>,
+
     // ── SNMPv3 USM/VACM settings ────────────────────────────────────────
     /// v3 USM username.
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -349,6 +360,7 @@ impl Default for TargetConfig {
             port: default_snmp_port(),
             version: SnmpVersion::default(),
             community: default_community_string(),
+            timeout_secs: None,
             v3_username: String::new(),
             v3_auth_protocol: V3AuthProtocol::default(),
             v3_auth_passphrase: String::new(),
@@ -366,6 +378,7 @@ impl TargetConfig {
             && self.port == DEFAULT_SNMP_PORT
             && self.version.is_default()
             && self.community == default_community_string()
+            && self.timeout_secs.is_none()
             && self.v3_username.is_empty()
             && self.v3_auth_protocol.is_default()
             && self.v3_auth_passphrase.is_empty()
@@ -811,6 +824,9 @@ pub fn config_write(
                         cfg.target.port = n as u16;
                     }
                 }
+                "timeout_secs" => {
+                    cfg.target.timeout_secs = value.as_u64();
+                }
                 "version" => {
                     if let Some(s) = value.as_str() {
                         match s.to_lowercase().as_str() {
@@ -947,6 +963,9 @@ pub fn config_write_target(
         }
         if let Some(v) = obj.get("port").and_then(|v| v.as_u64()) {
             cfg.target.port = v as u16;
+        }
+        if let Some(v) = obj.get("timeout_secs").and_then(|v| v.as_u64()) {
+            cfg.target.timeout_secs = Some(v);
         }
         if let Some(v) = obj.get("version").and_then(|v| v.as_str()) {
             match v.to_lowercase().as_str() {
