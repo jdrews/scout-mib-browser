@@ -1,0 +1,7 @@
+contact_links:
+  - name: Questions & discussion
+    url: https://github.com/jdrews/scout-mib-browser/discussions
+    about: How-to questions, SNMP war stories, and everything that is not a bug or a feature request
+  - name: Security vulnerability
+    url: https://github.com/jdrews/scout-mib-browser/security/policy
+    about: Report vulnerabilities privately — see SECURITY.md

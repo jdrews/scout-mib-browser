@@ -1,0 +1,90 @@
+name: Bug report
+description: Report something that crashes, hangs, shows wrong data, or misbehaves
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report! Scout is in beta, so
+        every report directly shapes the 1.0. The version is shown in the
+        app's status bar (bottom right); the System Log pane is the fastest
+        way to see what the app actually did.
+  - type: input
+    id: version
+    attributes:
+      label: Scout version
+      description: Shown in the status bar, bottom right (e.g. v0.2.0-beta1)
+      placeholder: v0.2.0-beta1
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux (x64)
+        - Linux (arm64)
+        - Windows (x64)
+        - Windows (arm64)
+        - macOS (x64)
+        - macOS (arm64)
+        - Built from source (describe below)
+    validations:
+      required: true
+  - type: textarea
+    id: os-detail
+    attributes:
+      label: OS details
+      description: Distro + version, Windows build, or macOS release; how you installed (AppImage / deb / rpm / installer / source)
+      placeholder: Fedora 42, AppImage
+    validations:
+      required: true
+  - type: input
+    id: target
+    attributes:
+      label: Target device
+      description: Vendor, model, firmware, and the SNMP version you queried it with (write "none" if the bug is not device-related)
+      placeholder: Cisco Catalyst 2960, 15.2(7)E3, v2c
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What you clicked and typed, in order — as exact as you can make it
+      placeholder: |
+        1. Loaded MIB directory /usr/share/snmp/mibs
+        2. Selected ifTable in the tree
+        3. Clicked Get Table
+        4. App froze after ~10 s
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs. actual
+      description: What you expected to happen, and what happened instead
+    validations:
+      required: true
+  - type: textarea
+    id: syslog
+    attributes:
+      label: System Log excerpt
+      description: >
+        Open the System Log (bottom-left toggle in the status bar), reproduce
+        the bug, and paste the relevant lines — the newest entries at the
+        bottom, including the startup line with the version and platform.
+        Use the copy button on a log row for clean text.
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched [existing issues](https://github.com/jdrews/scout-mib-browser/issues) and this is not a duplicate
+          required: true
+        - label: On Linux/Windows, I checked [docs/INSTALL.md](https://github.com/jdrews/scout-mib-browser/blob/main/docs/INSTALL.md) for runtime requirements (FUSE for AppImage, SmartScreen/Gatekeeper notes)
+          required: false

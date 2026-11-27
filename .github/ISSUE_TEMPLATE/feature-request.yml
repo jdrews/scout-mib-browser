@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest an improvement or a new capability
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Feature ideas are welcome — the beta scope is "rock-solid MIB
+        browsing", so ideas beyond that go on the post-beta list, which is
+        worth knowing about too.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and what gets in the way today? A concrete workflow beats a general wish.
+      placeholder: I monitor ~40 devices and re-run the same five walks every morning...
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Your proposal
+      description: What should Scout do instead?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Workarounds today
+      description: How do you cope without it, and what does that cost you?
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Device types, MIB quirks, scripts, screenshots — anything that helps
+    validations:
+      required: false
