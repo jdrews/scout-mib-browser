@@ -24,6 +24,10 @@ const raw = $state({
   treeFindOpen: false,
   treeFindQuery: "",
   treeFindOid: null as string | null,
+  // A request to reveal an OID in the MIB tree (from a results row). The seq
+  // makes repeated reveals of the same OID distinct requests; MIBPanel's
+  // effect consumes it. Null = no pending request.
+  revealInTree: null as { oid: string; seq: number } | null,
   contextMenuTarget: null as ContextMenuTarget | null,
   // The byte value shown in the hex view modal (right-click a value cell or
   // follow the "… more bytes" hint in raw mode). Null = closed.
@@ -116,6 +120,14 @@ export function clearResults() {
   raw.subtreeNodes = null;
   raw.tableInfo = null;
   raw.tableResult = null;
+}
+
+/** Requests that the MIB tree reveal `oid` (results-row double-click and the
+ * row menu's "Reveal in MIB Browser"). The tree shows MIB nodes, so callers
+ * pass the base node (see baseOidForTree), not an instance. */
+let revealSeq = 0;
+export function requestTreeReveal(oid: string): void {
+  raw.revealInTree = { oid, seq: ++revealSeq };
 }
 
 /** Merges a successful Set into the current Result Set: the matching binding

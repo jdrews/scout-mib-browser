@@ -265,7 +265,19 @@ export type LogLevel = "all" | "error" | "warn" | "info";
  *  confirmed non-writable, null = unknown/unresolved. */
 export type ContextMenuTarget =
   | { kind: "node"; node: TreeNode; x: number; y: number }
-  | { kind: "value"; oid: string; displayName: string; value: SnmpValue; writable: boolean | null; x: number; y: number };
+  | { kind: "value"; oid: string; displayName: string; value: SnmpValue; writable: boolean | null; x: number; y: number }
+  | {
+      kind: "row";
+      /** Effective instance OID (grid rows) or the binding OID (flat rows). */
+      oid: string;
+      displayName: string;
+      /** Nearest indexed MIB node for "Reveal in MIB Browser"; null = not in any loaded MIB. */
+      baseOid: string | null;
+      value?: SnmpValue;
+      writable: boolean | null;
+      x: number;
+      y: number;
+    };
 
 /** The live byte value the hex view modal is showing. */
 export interface HexViewTarget {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parentOid, compareOids, matchesQuery, searchOids, findChain } from "./treeSearch";
+import { parentOid, compareOids, matchesQuery, searchOids, findChain, baseOidForTree } from "./treeSearch";
 
 describe("parentOid", () => {
   it("removes the last numeric segment", () => {
@@ -152,5 +152,29 @@ describe("findChain", () => {
     const chain = findChain("1.3.6.1.2.1", map);
     expect(chain[chain.length - 1]).toBe("1.3.6.1.2.1");
     expect(chain).toEqual(["1", "1.3", "1.3.6", "1.3.6.1", "1.3.6.1.2", "1.3.6.1.2.1"]);
+  });
+});
+
+describe("baseOidForTree", () => {
+  const map = new Map<string, string>([
+    ["1", "internet"],
+    ["1.3.6.1.2.1.25.2.3.1", "hrStorageEntry"],
+    ["1.3.6.1.2.1.25.2.3.1.1", "hrStorageIndex"],
+  ]);
+
+  it("maps a table instance to its column node", () => {
+    expect(baseOidForTree("1.3.6.1.2.1.25.2.3.1.1.31", map)).toBe("1.3.6.1.2.1.25.2.3.1.1");
+  });
+
+  it("maps a scalar instance to its scalar node", () => {
+    expect(baseOidForTree("1.3.6.1.2.1.25.2.3.1.1", map)).toBe("1.3.6.1.2.1.25.2.3.1.1");
+  });
+
+  it("climbs past unindexed levels to the nearest indexed ancestor", () => {
+    expect(baseOidForTree("1.3.6.1.2.1.25.2.3.1.99.7", map)).toBe("1.3.6.1.2.1.25.2.3.1");
+  });
+
+  it("returns null when nothing on the path is indexed", () => {
+    expect(baseOidForTree("9.9.9.9", map)).toBeNull();
   });
 });
