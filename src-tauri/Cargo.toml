@@ -1,6 +1,6 @@
 [package]
 name = "scout-mib-browser"
-version = "0.1.0"
+version = "0.2.0-beta1"
 description = "An SNMP MIB browser with high tolerance for malformed responses"
 edition = "2021"
 license = "MIT"
