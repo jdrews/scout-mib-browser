@@ -1,6 +1,6 @@
 <script lang="ts">
   import { ArrowDown, ArrowUp, Binary, Pencil, Trash2, TriangleAlert, X } from "lucide-svelte";
-  import { S, clearResults } from "$lib/stores.svelte";
+  import { S, clearResults, requestTreeReveal } from "$lib/stores.svelte";
   import type { VariableBinding, SnmpValue, ResultSet, TreeNode, TableResult, TableRowData, TableCell, TableIndexColumn, ResultRow, MibNodeDetails } from "$lib/types";
   import { hexDumpLines, interpretBytes, interpretationLabel, asn1TypeCodeText, BYTES_PER_ROW } from "$lib/hexdump";
   import type { ExportFormat } from "$lib/export";
@@ -9,6 +9,7 @@
   import { loadColumnSelection, saveColumnSelection } from "$lib/tableColumns";
   import { isWritable, isConfirmedWritable, setDetailsFor } from "$lib/setLogic";
   import { pluralize } from "$lib/format";
+  import { baseOidForTree } from "$lib/treeSearch";
   import { Virtualizer } from "virtua/svelte";
 
   let bindings = $derived(S.executionBindings);
@@ -297,14 +298,10 @@
     resolvingOids.clear();
   });
 
-  /** The base OID of an instance: the longest prefix that is a key in oidNameMap. */
+  /** The base OID of an instance: the longest prefix that is a key in oidNameMap
+   *  (falls back to the instance OID itself when nothing on the path is known). */
   function baseOidFor(instanceOid: string): string {
-    const parts = instanceOid.split(".");
-    for (let i = parts.length; i > 1; i--) {
-      const prefix = parts.slice(0, i).join(".");
-      if (S.oidNameMap.has(prefix)) return prefix;
-    }
-    return instanceOid;
+    return baseOidForTree(instanceOid, S.oidNameMap) ?? instanceOid;
   }
 
   function resolveWritability(base: string) {
@@ -365,6 +362,50 @@
     e.preventDefault();
     e.stopPropagation();
     S.contextMenuTarget = { kind: "value", oid, displayName, value, writable, x: e.clientX, y: e.clientY };
+  }
+
+  /** The tree row a result OID maps to: baseOidFor's longest prefix, verified
+   *  to be indexed (it falls back to the full OID when nothing on the path is
+   *  in a loaded MIB — that has no tree row). */
+  function treeBaseOid(oid: string): string | null {
+    const base = baseOidFor(oid);
+    return S.oidNameMap.has(base) ? base : null;
+  }
+
+  /** Double-click (and the menu's Reveal item): open the tree if needed and
+   *  reveal the base node. Results rows never change the tree selection —
+   *  selection drives the Go target, this is navigation only. */
+  function revealResultInTree(oid: string): void {
+    const base = treeBaseOid(oid);
+    if (!base) {
+      S.statusText = "Not in any loaded MIB";
+      return;
+    }
+    if (!S.mibPanelOpen) S.mibPanelOpen = true;
+    requestTreeReveal(base);
+  }
+
+  function onRowDblclick(e: MouseEvent, oid: string): void {
+    e.preventDefault();
+    revealResultInTree(oid);
+  }
+
+  /** Row right-click. Always owned by the app — leaking through shows
+   *  WebKitGTK's dev-build menu (Back/Reload/Inspect). The value cell keeps
+   *  its own richer handler (it stops propagation). */
+  function onRowContextMenu(e: MouseEvent, oid: string, displayName: string, value?: SnmpValue): void {
+    e.preventDefault();
+    e.stopPropagation();
+    S.contextMenuTarget = {
+      kind: "row",
+      oid,
+      displayName,
+      baseOid: treeBaseOid(oid),
+      value,
+      writable: value ? writableStateFor(oid) : null,
+      x: e.clientX,
+      y: e.clientY,
+    };
   }
 
   let hasWarnings = $derived(results?.warnings && results.warnings.length > 0);
@@ -1021,7 +1062,12 @@
           </thead>
           <tbody>
             {#each visibleGridRows as row, i (row.instance_id)}
-              <tr>
+              {@const rowOid = `${tableResult!.table_oid}.1.${row.instance_id}`}
+              <tr
+                title="Double-click to reveal in MIB Browser"
+                ondblclick={(e) => onRowDblclick(e, rowOid)}
+                oncontextmenu={(e) => onRowContextMenu(e, rowOid, `${columnName(tableResult!.table_oid)}.${row.instance_id}`)}
+              >
                 <td class="sticky left-0 z-10 bg-base-200 px-2 text-xs text-base-content/60 w-10 min-w-10 max-w-10">{i + 1}</td>
                 {#if hasDecodedIndexes}
                   {#each row.index_values as val, i (i)}
@@ -1173,8 +1219,10 @@
             class="flex border-b border-base-300 cursor-pointer hover:bg-base-200/70 {row.warning ? 'text-warning' : ''}"
             class:inspector-selected={row.fullPath === S.inspectorOid}
             style="min-width: {showRaw ? 'max-content' : ''}"
-            title="Click to inspect"
+            title="Click to inspect · double-click to reveal in MIB Browser"
             onclick={() => selectResultRow(row)}
+            ondblclick={(e) => onRowDblclick(e, row.fullPath)}
+            oncontextmenu={(e) => onRowContextMenu(e, row.fullPath, row.displayName, row.snmpValue)}
           >
             <div class="px-2 py-1 truncate font-mono text-13 relative" style="width: {colOid}px; min-width: {COL_MIN_OID}px; max-width: {COL_MAX_OID}px;" title="{row.fullPath}\n{row.oid}">
               {showResolvedNames ? row.displayName : row.oid}

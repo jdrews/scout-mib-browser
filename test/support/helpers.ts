@@ -185,8 +185,9 @@ export async function expandTo(names: string[]): Promise<void> {
   for (const name of names) {
     const node = await waitForTreeNode(name);
     // Branch nodes are role=treeitem divs with aria-expanded; the tree state
-    // persists across spec files, so only click when collapsed — clicking an
-    // expanded branch would collapse it.
+    // persists across spec files, so only click when collapsed — a row click
+    // expands and selects but NEVER collapses (TreeNode's onClick contract;
+    // collapsing is the .tree-toggle icon's affordance).
     const open = await browser.execute(
       (el: Element) => el.getAttribute("aria-expanded") === "true",
       node

@@ -60,3 +60,17 @@ export function findChain(oid: string, map: Map<string, string>): string[] {
   }
   return chain.reverse();
 }
+
+/** The nearest indexed ancestor of `oid`, `oid` itself included: the tree row
+ *  a result binding maps to. Table entries (`…25.2.3.1.1.31`) reveal as their
+ *  column node (`…25.2.3.1.1`); an OID with no indexed node at all has no
+ *  place in the tree (null). */
+export function baseOidForTree(oid: string, map: Map<string, string>): string | null {
+  let cur = oid;
+  for (;;) {
+    if (map.has(cur)) return cur;
+    const p = parentOid(cur);
+    if (!p) return null;
+    cur = p;
+  }
+}

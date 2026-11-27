@@ -93,6 +93,23 @@
     if (S.treeFindOpen) findInput?.focus();
   });
 
+  // ── Reveal requests from the results pane ────────────────────────────────
+  // Double-click (or the row menu) on a result asks the tree to reveal a base
+  // node; the find bar's reveal walk does the work. The seq guard makes each
+  // request fire exactly once, including repeats of the same OID.
+  let lastRevealReq = 0;
+  $effect(() => {
+    const req = S.revealInTree;
+    if (!req || req.seq === lastRevealReq) return;
+    lastRevealReq = req.seq;
+    if (!S.mibPanelOpen) {
+      // The panel was opened by the request — give the tree one flush to mount.
+      void tick().then(() => goToMatch(req.oid));
+    } else {
+      void goToMatch(req.oid);
+    }
+  });
+
   function toggleFind() {
     if (S.treeFindOpen) {
       // Hide the bar and clear the highlight, but leave scroll/selection alone.

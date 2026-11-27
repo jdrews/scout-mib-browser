@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import { S } from "$lib/stores.svelte";
+  import { S, requestTreeReveal } from "$lib/stores.svelte";
   import { mibNodeDetails } from "$lib/tauriCommands";
   import * as exportMod from "$lib/export";
   import { setDetailsFor } from "$lib/setLogic";
-  import type { MibNodeDetails } from "$lib/types";
+  import type { MibNodeDetails, SnmpValue } from "$lib/types";
 
   let target = $derived(S.contextMenuTarget);
   let visible = $derived(target !== null);
@@ -13,6 +13,26 @@
 
   function hide() {
     S.contextMenuTarget = null;
+  }
+
+  /** Opens the Set value dialog for an instance OID (value and row targets). */
+  async function openSetDialog(oid: string, displayName: string, value: SnmpValue) {
+    // Longest-prefix resolution maps instance OIDs to their base node;
+    // null (or an ancestor-subtree resolution) lands the dialog in its
+    // type-picker fallback.
+    let d: MibNodeDetails | null = null;
+    try {
+      d = setDetailsFor(oid, await mibNodeDetails(oid));
+    } catch (err) {
+      console.error("Set node lookup failed:", err);
+    }
+    S.setValueTarget = {
+      oid,
+      name: displayName,
+      details: d,
+      currentValue: exportMod.valueDisplay(value),
+      currentRaw: value,
+    };
   }
 
   async function handleAction(action: string) {
@@ -28,22 +48,38 @@
       if (action === "hex-view") {
         S.hexViewTarget = { oid: t.oid, displayName: t.displayName, value: t.value };
       } else if (action === "set-value") {
-        // Longest-prefix resolution maps instance OIDs to their base node;
-        // null (or an ancestor-subtree resolution) lands the dialog in its
-        // type-picker fallback.
-        let d: MibNodeDetails | null = null;
-        try {
-          d = setDetailsFor(t.oid, await mibNodeDetails(t.oid));
-        } catch (err) {
-          console.error("Set node lookup failed:", err);
+        await openSetDialog(t.oid, t.displayName, t.value);
+      }
+      return;
+    }
+
+    // Row targets (results rows) combine the node clipboard actions with the
+    // value actions and the reveal.
+    if (t.kind === "row") {
+      try {
+        switch (action) {
+          case "copy-oid":
+            await navigator.clipboard.writeText(t.oid);
+            S.statusText = `Copied OID: ${t.oid}`;
+            break;
+          case "copy-name":
+            await navigator.clipboard.writeText(t.displayName);
+            S.statusText = `Copied name: ${t.displayName}`;
+            break;
+          case "reveal":
+            if (t.baseOid) requestTreeReveal(t.baseOid);
+            else S.statusText = "Not in any loaded MIB";
+            break;
+          case "hex-view":
+            if (t.value) S.hexViewTarget = { oid: t.oid, displayName: t.displayName, value: t.value };
+            break;
+          case "set-value":
+            if (t.value) await openSetDialog(t.oid, t.displayName, t.value);
+            break;
         }
-        S.setValueTarget = {
-          oid: t.oid,
-          name: t.displayName,
-          details: d,
-          currentValue: exportMod.valueDisplay(t.value),
-          currentRaw: t.value,
-        };
+      } catch (err) {
+        console.error("Clipboard error:", err);
+        S.statusText = "Failed to copy";
       }
       return;
     }
@@ -86,7 +122,7 @@
 
 {#if visible}
   <ul
-    class="menu-in fixed menu p-2 bg-base-100 rounded-box w-40 shadow-lg z-[2000]"
+    class="menu-in fixed menu p-2 bg-base-100 rounded-box w-48 shadow-lg z-[2000]"
     style="left: {posX}px; top: {posY}px;"
   >
     {#if target?.kind === "node"}
@@ -97,6 +133,18 @@
         <li><a data-testid="ctx-set-value" onclick={() => handleAction("set-value")}>Set value…</a></li>
       {/if}
       {#if exportMod.isByteValue(target.value)}
+        <li><a data-testid="ctx-hex-view" onclick={() => handleAction("hex-view")}>Hex View</a></li>
+      {/if}
+    {:else if target?.kind === "row"}
+      {#if target.baseOid}
+        <li><a data-testid="ctx-reveal" onclick={() => handleAction("reveal")}>Reveal in MIB Browser</a></li>
+      {/if}
+      <li><a data-testid="ctx-copy-oid" onclick={() => handleAction("copy-oid")}>Copy OID</a></li>
+      <li><a data-testid="ctx-copy-name" onclick={() => handleAction("copy-name")}>Copy Name</a></li>
+      {#if target.value && target.writable !== false}
+        <li><a data-testid="ctx-set-value" onclick={() => handleAction("set-value")}>Set value…</a></li>
+      {/if}
+      {#if target.value && exportMod.isByteValue(target.value)}
         <li><a data-testid="ctx-hex-view" onclick={() => handleAction("hex-view")}>Hex View</a></li>
       {/if}
     {/if}
