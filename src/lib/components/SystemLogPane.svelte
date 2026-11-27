@@ -4,6 +4,7 @@
   import { S } from "$lib/stores.svelte";
   import { logRead, logClear } from "$lib/tauriCommands";
   import { passesLogFilter } from "$lib/logFilters";
+  import { alignWindows, entryKey } from "$lib/logWindow";
   import type { LogEntry, LogLevel } from "$lib/types";
 
   const MIN_HEIGHT = 100;
@@ -78,16 +79,43 @@
 
   let lastFingerprint = "";
 
+  /** Total height of the first `rows` rendered rows (0 when fewer exist). */
+  function leadingRowsHeight(container: HTMLElement, rows: number): number {
+    let h = 0;
+    const kids = container.children;
+    for (let i = 0; i < rows && i < kids.length; i++) h += (kids[i] as HTMLElement).offsetHeight;
+    return h;
+  }
+
   async function loadEntries() {
     try {
       const entries = await logRead();
       if (fingerprint(entries) === lastFingerprint) return;
       lastFingerprint = fingerprint(entries);
+      const nextWindow = entries.slice(-maxEntries);
+
+      // Measure before the DOM changes. At the render cap, every poll removes
+      // rows from the TOP of the list; the browser then clamps scrollTop to
+      // the shorter content and the lines the user is reading jump (the
+      // "yanked" symptom, e2e-stability/02). Subtracting the height of the
+      // rows that leave keeps the same text under the reader's eyes, whatever
+      // the rows' heights are (messages wrap, so they are not constant).
+      let shift = 0;
+      if (!stickToBottom && logContainer) {
+        const nextFiltered = nextWindow.filter((entry: LogEntry) =>
+          passesLogFilter(entry.level, S.logLevelFilter),
+        );
+        const { dropped } = alignWindows(filteredEntries, nextFiltered, entryKey);
+        shift = leadingRowsHeight(logContainer, dropped);
+      }
+
       S.logEntries.length = 0;
-      S.logEntries.push(...entries.slice(-maxEntries));
+      S.logEntries.push(...nextWindow);
+      await tick();
       if (stickToBottom) {
-        await tick();
         scrollToBottom();
+      } else if (shift) {
+        logContainer.scrollTop -= shift;
       }
     } catch (err) {
       console.error("Failed to read logs:", err);
