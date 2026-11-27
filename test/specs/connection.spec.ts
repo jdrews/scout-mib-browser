@@ -36,6 +36,29 @@ describe("Connection (target configuration)", () => {
     await (await $("[data-testid='port-input']").setValue(String(AGENT_PORT)));
   });
 
+  it("modal host/port edits sync the toolbar fields and persist", async () => {
+    await openModal();
+    await (await $("[data-testid='connection-host-input']")).setValue("192.0.2.77");
+    await (await $("[data-testid='connection-port-input']")).setValue("1610");
+
+    // One shared store: the toolbar fields show the modal's values.
+    expect(await (await (await $("[data-testid='host-input']")).getValue())).toBe("192.0.2.77");
+    expect(await (await (await $("[data-testid='port-input']")).getValue())).toBe("1610");
+    await closeModal();
+
+    await browser.waitUntil(
+      () => {
+        const toml = readConfigFile();
+        return /host\s*=\s*"192\.0\.2\.77"/.test(toml) && /port\s*=\s*1610\b/.test(toml);
+      },
+      { timeout: 10000, interval: 250, timeoutMsg: "config never showed the modal's host/port" },
+    );
+
+    // Restore the seeded target for the remaining tests.
+    await (await $("[data-testid='host-input']").setValue(AGENT_HOST));
+    await (await $("[data-testid='port-input']").setValue(String(AGENT_PORT)));
+  });
+
   it("connection modal opens from gear and Settings menu", async () => {
     await openModal();
     await expect(await $("[data-connection-panel]")).toBeExisting();
