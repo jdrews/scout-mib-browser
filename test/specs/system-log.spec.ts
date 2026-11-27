@@ -99,6 +99,55 @@ async function logWindowFingerprint(): Promise<string> {
   return (t as string) ?? "";
 }
 
+interface ReadingAnchor {
+  text: string;
+  /** Which of the rows carrying `text` this is (0-based): TRACE spam repeats
+   *  identical rows within a millisecond, so text alone is not an identity. */
+  occurrence: number;
+  top: number;
+  rowHeight: number;
+}
+
+/** The row the user is reading — the one at `fraction` of the viewport
+ *  height — with where it renders. */
+async function readingAnchor(fraction = 0.6): Promise<ReadingAnchor | null> {
+  return (await browser.execute((sel: string, f: number) => {
+    const log = document.querySelector(sel) as HTMLElement | null;
+    if (!log) return null;
+    const box = log.getBoundingClientRect();
+    const y = box.top + box.height * f;
+    const rows = Array.from(log.children) as HTMLElement[];
+    const idx = rows.findIndex((r) => r.getBoundingClientRect().bottom > y);
+    if (idx < 0) return null;
+    const text = (rows[idx].textContent ?? "").trim();
+    const occurrence = rows
+      .slice(0, idx)
+      .filter((r) => (r.textContent ?? "").trim() === text).length;
+    const b = rows[idx].getBoundingClientRect();
+    return { text, occurrence, top: b.top, rowHeight: b.height };
+  }, LOG_SEL, fraction)) as ReadingAnchor | null;
+}
+
+/** Where the anchor row renders now, or null when it is no longer rendered. */
+async function anchorTop(a: ReadingAnchor): Promise<number | null> {
+  return (await browser.execute((sel: string, text: string, nth: number) => {
+    const log = document.querySelector(sel) as HTMLElement | null;
+    if (!log) return null;
+    const rows = (Array.from(log.children) as HTMLElement[]).filter(
+      (r) => (r.textContent ?? "").trim() === text,
+    );
+    return rows[nth] ? rows[nth].getBoundingClientRect().top : null;
+  }, LOG_SEL, a.text, a.occurrence)) as number | null;
+}
+
+/** Number of rows the pane currently renders (the 200-entry cap is visible). */
+async function rowCount(): Promise<number> {
+  return (await browser.execute((sel: string) => {
+    const log = document.querySelector(sel) as HTMLElement | null;
+    return log ? log.children.length : -1;
+  }, LOG_SEL)) as number;
+}
+
 /** Wheels in `direction` until `ok` holds (or gives up). Returns the final state. */
 async function wheelUntil(
   c: { x: number; y: number },
@@ -206,22 +255,69 @@ describe("System log mouse scrolling", () => {
     console.log(`[syslog-scroll] reading at: log=${reading.logTop}/${reading.logMax}`);
     expect(reading.logTop).toBeLessThan(reading.logMax / 2);
 
+    // The invariant is what the user perceives: the row they are reading
+    // stays under their eyes. `scrollTop ===` was the wrong assertion
+    // (e2e-stability/02): the pane renders the last 200 entries, so a poll
+    // that arrives at the cap drops leading rows, scrollHeight shrinks, and
+    // the browser clamps scrollTop — the old test then failed for a reason it
+    // could not name, and passed at other times while the text under the
+    // reader's eyes was moving anyway. The pane now compensates scrollTop by
+    // the height of the rows it drops ($lib/logWindow), and rows wrap
+    // (`break-all` messages), so that height is not a constant — one more
+    // reason to measure rows, not scroll offsets.
+    const anchor = await readingAnchor();
+    if (!anchor) throw new Error("no reading anchor — log rows not rendered");
+
+    // The check must be able to fail: yank the pane and require the anchor
+    // to report the displacement, then restore the reading position.
+    await browser.execute(
+      (sel: string, dy: number) => {
+        (document.querySelector(sel) as HTMLElement).scrollTop += dy;
+      },
+      LOG_SEL,
+      400,
+    );
+    const yankedTop = await anchorTop(anchor);
+    expect(yankedTop).not.toBeNull();
+    expect(Math.abs((yankedTop as number) - anchor.top)).toBeGreaterThan(anchor.rowHeight);
+    await browser.execute(
+      (sel: string, top: number) => {
+        (document.querySelector(sel) as HTMLElement).scrollTop = top;
+      },
+      LOG_SEL,
+      reading.logTop,
+    );
+
     // Trigger fresh log activity (a Get produces engine log lines) and wait
     // for the pane's poller to pick it up.
     const winBefore = await logWindowFingerprint();
     await go("get");
     await waitForStatus(/^Get complete: \d+ bindings?$/);
 
+    let observedTop: number | null = null;
+    let observed: ScrollState | null = null;
     const stayed = await browser.waitUntil(
       async () => {
         if ((await logWindowFingerprint()) === winBefore) return false; // poller has not run yet
-        const s = await scrollState();
-        // ... and the user's reading position was preserved.
-        return s.logTop === reading.logTop;
+        observedTop = await anchorTop(anchor);
+        observed = await scrollState();
+        // Within one row height: the compensation is exact, and a real yank
+        // (a jump to the bottom) is orders of magnitude larger.
+        return observedTop !== null && Math.abs(observedTop - anchor.top) <= anchor.rowHeight;
       },
-      { timeout: 8000, interval: 250, timeoutMsg: "log position not preserved after new entries" },
+      { timeout: 8000, interval: 250 },
     );
-    expect(stayed).toBe(true);
+    const s = observed as ScrollState | null;
+    if (!stayed) {
+      // `expect` here is jest's (at most one argument), so the diagnosis goes
+      // in the thrown message: which row, where it landed, what the pane was
+      // doing at the time.
+      throw new Error(
+        `reading position not preserved: anchor "${anchor.text.slice(0, 60)}" #${anchor.occurrence} ` +
+          `rendered at ${observedTop}, expected ${anchor.top} ±${anchor.rowHeight}; ` +
+          `scroll=${s?.logTop}/${s?.logMax} rows=${await rowCount()}`,
+      );
+    }
 
     // Back at the bottom, fresh entries DO follow (live tail behavior).
     const atBottom = await wheelUntil(c, "down", (s) => s.logTop === s.logMax);
