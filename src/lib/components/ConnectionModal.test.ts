@@ -70,3 +70,14 @@ describe("ConnectionModal credential persistence note", () => {
     );
   });
 });
+
+// axe (launch-beta/13): the app heading is an h1; the modal titled with h3
+// skipped a level (heading-order, both version states). HexViewModal already
+// titles itself with an h2 — the modal heading level is h2 app-wide.
+describe("ConnectionModal heading order (launch-beta/13)", () => {
+  it("titles the dialog with an h2", () => {
+    const view = render(ConnectionModal);
+    const title = view.container.querySelector("#connection-dialog-title");
+    expect(title?.tagName).toBe("H2");
+  });
+});

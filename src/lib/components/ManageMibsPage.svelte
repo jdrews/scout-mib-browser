@@ -203,7 +203,9 @@
 </script>
 
 {#if S.manageMibsOpen}
-  <div data-testid="manage-mibs-page" class="flex flex-col flex-1 overflow-hidden" onclick={onOutsideClick}>
+  <!-- The page replaces the MIB Browser + Results view, which lives inside
+       <main> — it carries that landmark itself (launch-beta/13). -->
+  <main data-testid="manage-mibs-page" class="flex flex-col flex-1 overflow-hidden" onclick={onOutsideClick}>
     <div class="px-4 py-3 border-b border-base-300 flex items-center gap-2 flex-wrap">
       <button data-testid="back-btn" aria-label="Back to MIB Browser" class="btn btn-sm btn-ghost" onclick={back}>
         ← Back
@@ -327,5 +329,5 @@
     <div data-testid="mibs-footer" class="px-4 py-2 border-t border-base-300 text-xs tabular-nums text-base-content/60">
       {selected.length} of {mibs.length} MIBs selected · {pluralize(S.nodeCount, "node")} loaded
     </div>
-  </div>
+  </main>
 {/if}

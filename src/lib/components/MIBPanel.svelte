@@ -12,6 +12,57 @@
   let showFallback = $derived(S.fallbackMibs.length > 0 && !S.fallbackBannerDismissed);
   let width = $derived(S.mibPanelWidth);
 
+  // Panel resize (launch-beta/13): the handle lives on the panel's right
+  // edge, inside this component's nav landmark — a named separator is page
+  // content, and between the panel and the results main it sat outside every
+  // landmark (axe region). The Inspector handle inside this nav is the
+  // pattern.
+  const MIN_WIDTH = 200;
+  const MAX_WIDTH = 600;
+
+  let isResizing = $state(false);
+  let startX = $state(0);
+  let startWidth = $state(0);
+
+  function onResizeStart(e: MouseEvent) {
+    e.preventDefault();
+    isResizing = true;
+    startX = e.clientX;
+    startWidth = S.mibPanelWidth;
+    document.addEventListener("mousemove", onResizeMove);
+    document.addEventListener("mouseup", onResizeEnd);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }
+
+  function onResizeMove(e: MouseEvent) {
+    if (!isResizing) return;
+    const delta = e.clientX - startX;
+    const newWidth = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, startWidth + delta));
+    S.mibPanelWidth = newWidth;
+  }
+
+  function onResizeEnd() {
+    isResizing = false;
+    document.removeEventListener("mousemove", onResizeMove);
+    document.removeEventListener("mouseup", onResizeEnd);
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+  }
+
+  // Keyboard resize for the focusable handle: the handle is the panel's
+  // right edge, so ArrowRight grows — same direction as dragging.
+  const KEY_RESIZE_STEP = 16;
+  function onResizeKeydown(e: KeyboardEvent) {
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
+      S.mibPanelWidth = Math.min(MAX_WIDTH, S.mibPanelWidth + KEY_RESIZE_STEP);
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      S.mibPanelWidth = Math.max(MIN_WIDTH, S.mibPanelWidth - KEY_RESIZE_STEP);
+    }
+  }
+
   // Plain-language copy (UX-11).
   let fallbackCopy = $derived(
     S.fallbackMibs.length === 1
@@ -197,7 +248,7 @@
 </script>
 
 {#if S.mibPanelOpen}
-<nav aria-label="MIB tree" class="flex flex-col bg-base-200 border-r border-base-300 flex-shrink-0" style="width: {width}px">
+<nav aria-label="MIB tree" class="relative flex flex-col bg-base-200 border-r border-base-300 flex-shrink-0" style="width: {width}px">
   <div data-testid="mib-panel-header" class="px-4 py-3 text-sm font-medium text-base-content/60 bg-base-100 border-b border-base-300 flex items-center">
     MIB Browser
     <span class="ml-auto flex items-center gap-1">
@@ -316,6 +367,23 @@
 
   <!-- The inspector owns the bottom-left corner, even when the banner shows. -->
   <InspectorPane />
+
+  <!-- Panel resize edge: inside the nav landmark (a named separator is page
+       content — axe region, launch-beta/13). -->
+  <div
+    class="resize-handle-h absolute top-0 bottom-0 right-0 w-1.5 cursor-col-resize bg-base-200 hover:bg-primary/30 transition-colors z-10"
+    onmousedown={onResizeStart}
+    onkeydown={onResizeKeydown}
+    role="separator"
+    aria-orientation="vertical"
+    aria-label="Resize MIB panel (ArrowRight grows, ArrowLeft shrinks)"
+    aria-valuenow={S.mibPanelWidth}
+    aria-valuemin={MIN_WIDTH}
+    aria-valuemax={MAX_WIDTH}
+    tabindex="0"
+  >
+    <div class="resize-grip-h mx-auto"></div>
+  </div>
 </nav>
 {:else}
 <!-- Collapsed rail: the expand button stays visible so the panel is always
@@ -333,3 +401,27 @@
   <span class="text-xs font-medium text-base-content/60" style="writing-mode: vertical-rl;">MIB Browser</span>
 </nav>
 {/if}
+
+<style>
+/* Panel resize edge (moved from MainContent with the handle, launch-beta/13).
+   daisyUI 5.7 exposes theme colors as full --color-* values; alpha tints go
+   through color-mix — the legacy oklch(var(--p) / a) form references variables
+   that no longer exist (see TreeNode.svelte). */
+.resize-handle-h:hover,
+.resize-handle-h:active {
+  background-color: color-mix(in oklab, var(--color-primary) 15%, transparent);
+}
+.resize-grip-h {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 32px;
+  border-radius: 1px;
+  background-color: color-mix(in oklab, var(--color-base-content) 20%, transparent);
+}
+.resize-handle-h:hover .resize-grip-h {
+  background-color: color-mix(in oklab, var(--color-primary) 60%, transparent);
+}
+</style>

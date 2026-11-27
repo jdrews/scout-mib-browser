@@ -331,3 +331,18 @@ describe("InspectorPane", () => {
     expect(view.getByTestId("inspector-name").textContent).toBe("sysDescr");
   });
 });
+
+// axe (launch-beta/13): a focusable separator must expose aria-valuenow —
+// the handle had label + keyboard resize but no value, so every state flagged
+// critical aria-required-attr. The value is the pane height the handle drives.
+describe("InspectorPane resize handle ARIA (launch-beta/13)", () => {
+  it("exposes the separator value range", () => {
+    S.inspectorOpen = true;
+    S.inspectorHeight = 240;
+    const view = render(InspectorPane);
+    const handle = view.getByTestId("inspector-resize");
+    expect(handle.getAttribute("aria-valuenow")).toBe("240");
+    expect(handle.getAttribute("aria-valuemin")).toBe("120");
+    expect(handle.getAttribute("aria-valuemax")).toBe("800");
+  });
+});

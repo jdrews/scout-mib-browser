@@ -109,7 +109,7 @@
   <dialog role="dialog" aria-modal="true" aria-labelledby="connection-dialog-title" bind:this={panelEl} class="modal modal-open" onclick={handleBackdropClick}>
     <div data-connection-panel class="modal-box max-w-120">
       <button data-autofocus aria-label="Close connection dialog" class="btn btn-sm btn-square btn-ghost absolute right-2 top-2" onclick={(e) => { e.stopPropagation(); close(); }}><X class="w-4 h-4" /></button>
-      <h3 id="connection-dialog-title" class="text-base font-semibold">Target Connection</h3>
+      <h2 id="connection-dialog-title" class="text-base font-semibold">Target Connection</h2>
 
       <div class="space-y-4 mt-4">
         <div role="group" aria-labelledby="label-snmp-version">

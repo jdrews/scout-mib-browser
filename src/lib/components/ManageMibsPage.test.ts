@@ -89,3 +89,31 @@ describe("ManageMibsPage Unload All confirmation (launch-beta/11)", () => {
     await waitFor(() => expect(S.statusText).toBe("Unloaded all MIBs"));
   });
 });
+
+// axe (launch-beta/13): the page replaces the MIB Browser + Results view,
+// which lives inside <main> — the page must carry that landmark itself, or
+// the whole Manage MIBs state has no main landmark (landmark-one-main) and
+// its controls sit outside every region.
+describe("ManageMibsPage main landmark (launch-beta/13)", () => {
+  beforeEach(() => {
+    mockedInvoke.mockReset();
+    mockedInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "mib_loaded_list") return Promise.resolve(mibs);
+      if (cmd === "mib_oid_name_map") return Promise.resolve([]);
+      if (cmd === "mib_tree") return Promise.resolve([]);
+      return Promise.resolve(undefined);
+    });
+    S.manageMibsOpen = true;
+  });
+
+  afterEach(() => {
+    cleanup();
+    S.manageMibsOpen = false;
+  });
+
+  it("the page root is the main landmark", async () => {
+    render(ManageMibsPage);
+    const page = await screen.findByTestId("manage-mibs-page");
+    expect(page.tagName).toBe("MAIN");
+  });
+});
